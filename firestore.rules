@@ -1,0 +1,139 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function userDoc(uid) { return get(/databases/$(database)/documents/users/$(uid)); }
+    function isAdmin() { return signedIn() && userDoc(request.auth.uid).data.role == "admin"; }
+    function isClient() { return signedIn() && userDoc(request.auth.uid).data.role == "client"; }
+    function isWorker() { return signedIn() && userDoc(request.auth.uid).data.role == "worker"; }
+    function notLocked() { return signedIn() && userDoc(request.auth.uid).data.isLocked != true; }
+    function validJobDuration() { return request.resource.data.durationHours >= 2 && request.resource.data.durationHours <= 8760; }
+    function conversationParticipant(data) { return signedIn() && request.auth.uid in data.participants; }
+
+    match /users/{userId} {
+      allow create: if isSelf(userId) && request.resource.data.role in ["worker", "client"];
+      allow read: if signedIn();
+      allow update: if (isSelf(userId) && !("role" in request.resource.data.diff(resource.data).changedKeys()) && !("walletBalance" in request.resource.data.keys())) || isAdmin();
+      allow delete: if isAdmin();
+
+      match /savedJobs/{jobId} {
+        allow read, write: if isSelf(userId);
+      }
+
+      match /savedWorkers/{workerId} {
+        allow read, write: if isSelf(userId) && userDoc(userId).data.role == "client";
+      }
+    }
+
+    match /kyc/{kycId} {
+      allow create: if isSelf(request.resource.data.userId);
+      allow read: if isSelf(resource.data.userId) || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /jobs/{jobId} {
+      allow read: if resource.data.status == "open" || signedIn();
+      allow create: if isClient() && request.resource.data.clientId == request.auth.uid && validJobDuration();
+      allow update: if (isClient() && resource.data.clientId == request.auth.uid && validJobDuration()) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /applications/{applicationId} {
+      allow read: if signedIn() && (resource.data.workerId == request.auth.uid || resource.data.clientId == request.auth.uid || isAdmin());
+      allow create: if isWorker() && notLocked() && request.resource.data.workerId == request.auth.uid;
+      allow update: if (isClient() && resource.data.clientId == request.auth.uid) || (isWorker() && resource.data.workerId == request.auth.uid) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /messages/{conversationId} {
+      allow read: if conversationParticipant(resource.data) || isAdmin();
+      allow create: if signedIn() && conversationParticipant(request.resource.data);
+      allow update: if conversationParticipant(resource.data) || isAdmin();
+      allow delete: if isAdmin();
+
+      match /items/{messageId} {
+        allow read: if conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data) || isAdmin();
+        allow create: if conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data)
+          && get(/databases/$(database)/documents/messages/$(conversationId)).data.locked == false
+          && request.resource.data.senderId == request.auth.uid;
+        allow update: if conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data);
+        allow delete: if isAdmin();
+      }
+
+      match /typing/{userId} {
+        allow read: if conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data);
+        allow write: if isSelf(userId) && conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data);
+      }
+    }
+
+    match /chats/{chatId} {
+      allow read: if conversationParticipant(resource.data) || isAdmin();
+      allow create: if signedIn() && conversationParticipant(request.resource.data);
+      allow update: if conversationParticipant(resource.data) || isAdmin();
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if conversationParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data) || isAdmin();
+        allow create: if conversationParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data)
+          && get(/databases/$(database)/documents/chats/$(chatId)).data.locked == false
+          && request.resource.data.senderId == request.auth.uid;
+        allow update: if conversationParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data);
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /wallets/{walletId} {
+      allow read: if isSelf(walletId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /ratings/{ratingId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.fromUserId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.fromUserId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /skillTests/{testId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read, update: if (signedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+      allow create, delete: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn();
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /disputes/{disputeId} {
+      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow read: if isAdmin() || (signedIn() && request.auth.uid in resource.data.participants);
+      allow update, delete: if isAdmin();
+    }
+
+    match /worker_verifications/{verificationId} {
+      allow create: if isWorker() && request.resource.data.workerId == request.auth.uid;
+      allow read: if isAdmin() || (signedIn() && resource.data.workerId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    match /adminLogs/{logId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

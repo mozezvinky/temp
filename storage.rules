@@ -1,0 +1,26 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function isAdmin() { return signedIn() && request.auth.token.admin == true; }
+    function isSafeImage() { return request.resource.size < 8 * 1024 * 1024 && request.resource.contentType.matches('image/.*'); }
+    function isSafeAttachment() { return request.resource.size < 12 * 1024 * 1024 && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf'); }
+
+    match /profiles/{userId}/{fileName} {
+      allow read: if signedIn();
+      allow write: if isOwner(userId) && isSafeImage();
+    }
+    match /kyc/{userId}/{fileName} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId);
+    }
+    match /jobs/{clientId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(clientId) && isSafeAttachment();
+    }
+    match /messages/{conversationId}/{fileName} {
+      allow read, write: if signedIn() && isSafeImage();
+    }
+  }
+}
