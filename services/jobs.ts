@@ -1,6 +1,6 @@
 "use client";
 
-import { db, storage } from "@/lib/firebase";
+import { requireDb, requireStorage } from "@/lib/firebase";
 import type { Application, Job, UserProfile } from "@/types";
 import { jobSchema } from "@/utils/validation";
 import {
@@ -21,12 +21,14 @@ import {
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 export function subscribeOpenJobs(callback: (jobs: Job[]) => void) {
+  const db = requireDb();
   return onSnapshot(query(collection(db, "jobs"), where("status", "==", "open"), orderBy("createdAt", "desc"), limit(40)), snap => {
     callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Job));
   });
 }
 
 export async function uploadJobImages(clientId: string, files: File[]) {
+  const storage = requireStorage();
   const uploads = files.map(async file => {
     const path = `jobs/${clientId}/${crypto.randomUUID()}-${file.name}`;
     const uploaded = await uploadBytes(ref(storage, path), file, { contentType: file.type });
@@ -36,6 +38,7 @@ export async function uploadJobImages(clientId: string, files: File[]) {
 }
 
 export async function createJob(clientId: string, input: unknown, imageUrls: string[] = []) {
+  const db = requireDb();
   const job = jobSchema.parse(input);
   return addDoc(collection(db, "jobs"), {
     ...job,
@@ -48,6 +51,7 @@ export async function createJob(clientId: string, input: unknown, imageUrls: str
 }
 
 export async function canWorkerApply(worker: UserProfile) {
+  const db = requireDb();
   if (worker.isLocked) return { ok: false, reason: worker.lockReason ?? "Account locked until outstanding service fee is paid." };
   if (worker.kycStatus === "verified") return { ok: true };
   const q = query(collection(db, "applications"), where("workerId", "==", worker.id), limit(4));
@@ -56,6 +60,7 @@ export async function canWorkerApply(worker: UserProfile) {
 }
 
 export async function applyToJob(job: Job, worker: UserProfile, coverNote: string) {
+  const db = requireDb();
   const allowed = await canWorkerApply(worker);
   if (!allowed.ok) throw new Error(allowed.reason);
   await addDoc(collection(db, "applications"), {
@@ -70,6 +75,7 @@ export async function applyToJob(job: Job, worker: UserProfile, coverNote: strin
 }
 
 export async function acceptApplication(application: Application) {
+  const db = requireDb();
   await updateDoc(doc(db, "applications", application.id), { status: "accepted", updatedAt: serverTimestamp() });
   await updateDoc(doc(db, "jobs", application.jobId), {
     status: "assigned",
@@ -88,6 +94,7 @@ export async function acceptApplication(application: Application) {
 }
 
 export async function savedJobs(userId: string) {
+  const db = requireDb();
   const snap = await getDocs(collection(db, "users", userId, "savedJobs"));
   return snap.docs.map(d => d.id);
 }

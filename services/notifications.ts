@@ -1,12 +1,13 @@
 "use client";
 
-import { db, messaging } from "@/lib/firebase";
+import { messaging, requireDb } from "@/lib/firebase";
 import type { AppNotification } from "@/types";
 import { getToken, onMessage } from "firebase/messaging";
 import { collection, doc, onSnapshot, orderBy, query, updateDoc, where } from "firebase/firestore";
 import { toast } from "sonner";
 
 export async function enablePush(userId: string) {
+  const db = requireDb();
   const instance = await messaging();
   if (!instance) return null;
   const permission = await Notification.requestPermission();
@@ -26,6 +27,7 @@ export async function foregroundMessages() {
 }
 
 export function subscribeNotifications(userId: string, callback: (items: AppNotification[]) => void) {
+  const db = requireDb();
   return onSnapshot(query(collection(db, "notifications"), where("userId", "==", userId), orderBy("createdAt", "desc")), snap => {
     callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as AppNotification));
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { auth, db, googleProvider } from "@/lib/firebase";
+import { googleProvider, requireAuth, requireDb } from "@/lib/firebase";
 import type { Role } from "@/types";
 import {
   RecaptchaVerifier,
@@ -28,6 +28,7 @@ export function authErrorMessage(error: unknown) {
 }
 
 export async function createProfile(uid: string, role: Role, displayName: string, email?: string, phone?: string) {
+  const db = requireDb();
   await setDoc(
     doc(db, "users", uid),
     {
@@ -71,16 +72,20 @@ export async function createProfile(uid: string, role: Role, displayName: string
 }
 
 export async function registerWithEmail(email: string, password: string, displayName: string, role: Role) {
+  const auth = requireAuth();
   const credential = await createUserWithEmailAndPassword(auth, email, password);
   await updateProfile(credential.user, { displayName });
   await createProfile(credential.user.uid, role, displayName, email);
 }
 
 export function loginWithEmail(email: string, password: string) {
-  return signInWithEmailAndPassword(auth, email, password);
+  return signInWithEmailAndPassword(requireAuth(), email, password);
 }
 
 export async function loginWithGoogle(role: Role = "worker") {
+  const auth = requireAuth();
+  const db = requireDb();
+  if (!googleProvider) throw new Error("Google login is only available in the browser.");
   const credential = await signInWithPopup(auth, googleProvider);
   const existing = await getDoc(doc(db, "users", credential.user.uid));
   if (existing.exists()) return;
@@ -88,13 +93,13 @@ export async function loginWithGoogle(role: Role = "worker") {
 }
 
 export function phoneVerifier(containerId: string) {
-  return new RecaptchaVerifier(auth, containerId, { size: "invisible" });
+  return new RecaptchaVerifier(requireAuth(), containerId, { size: "invisible" });
 }
 
 export function sendPhoneOtp(phone: string, verifier: RecaptchaVerifier) {
-  return signInWithPhoneNumber(auth, phone, verifier);
+  return signInWithPhoneNumber(requireAuth(), phone, verifier);
 }
 
 export function logout() {
-  return signOut(auth);
+  return signOut(requireAuth());
 }

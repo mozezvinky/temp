@@ -1,6 +1,6 @@
 "use client";
 
-import { auth, db } from "@/lib/firebase";
+import { auth, db, requireDb } from "@/lib/firebase";
 import type { Role, UserProfile } from "@/types";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
@@ -51,8 +51,9 @@ function fallbackProfile(user: User): UserProfile {
 }
 
 async function ensureProfileDocument(user: User, profile: UserProfile) {
+  const firestore = requireDb();
   await setDoc(
-    doc(db, "users", user.uid),
+    doc(firestore, "users", user.uid),
     {
       id: user.uid,
       role: profile.role,
@@ -85,7 +86,7 @@ async function ensureProfileDocument(user: User, profile: UserProfile) {
     { merge: true }
   );
   await setDoc(
-    doc(db, "wallets", user.uid),
+    doc(firestore, "wallets", user.uid),
     {
       id: user.uid,
       userId: user.uid,
@@ -105,6 +106,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profileLoading, setProfileLoading] = useState(false);
 
   useEffect(() => {
+    if (!auth) {
+      setAuthLoading(false);
+      return;
+    }
     return onAuthStateChanged(auth, nextUser => {
       setUser(nextUser);
       setAuthLoading(false);
@@ -114,6 +119,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) {
       setProfile(null);
+      setProfileLoading(false);
+      return;
+    }
+    if (!db) {
+      setProfile(fallbackProfile(user));
       setProfileLoading(false);
       return;
     }
