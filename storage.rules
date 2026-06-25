@@ -6,21 +6,33 @@ service firebase.storage {
     function isAdmin() { return signedIn() && request.auth.token.admin == true; }
     function isSafeImage() { return request.resource.size < 8 * 1024 * 1024 && request.resource.contentType.matches('image/.*'); }
     function isSafeAttachment() { return request.resource.size < 12 * 1024 * 1024 && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf'); }
+    function isMessageParticipant(conversationId) {
+      return signedIn()
+        && request.auth.uid in firestore.get(/databases/(default)/documents/messages/$(conversationId)).data.participants;
+    }
 
     match /profiles/{userId}/{fileName} {
       allow read: if signedIn();
       allow write: if isOwner(userId) && isSafeImage();
     }
-    match /kyc/{userId}/{fileName} {
+    match /verification/{userId}/{allPaths=**} {
       allow read: if isOwner(userId) || isAdmin();
-      allow write: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isSafeImage();
+      allow delete: if isOwner(userId) || isAdmin();
     }
     match /jobs/{clientId}/{fileName} {
       allow read: if true;
       allow write: if isOwner(clientId) && isSafeAttachment();
     }
+    match /skills/{userId}/{fileName} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(userId) && isSafeAttachment();
+      allow delete: if isOwner(userId) || isAdmin();
+    }
     match /messages/{conversationId}/{fileName} {
-      allow read, write: if signedIn() && isSafeImage();
+      allow read: if isMessageParticipant(conversationId) || isAdmin();
+      allow create, update: if isMessageParticipant(conversationId) && isSafeImage();
+      allow delete: if isAdmin();
     }
   }
 }

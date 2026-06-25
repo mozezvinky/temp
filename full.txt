@@ -1,0 +1,128 @@
+TEMP MARKETPLACE SYSTEM AUDIT AND ARCHITECTURE
+==============================================
+
+IMPLEMENTED SYSTEMS
+-------------------
+- Firebase Auth roles: users/{uid}.role stores client, worker or hidden admin access.
+- Email OTP: Resend-backed 6-digit codes stored only as salted hashes in emailOtps/{uid}.
+- Didit KYC: /api/kyc/start creates hosted sessions; /api/kyc/didit-webhook verifies signed status updates.
+- Address verification: users upload ID front, ID back and proof of address; admin completes address review.
+- Mapbox: reusable client-only components/location/MapPicker.tsx records address fields and coordinates.
+- Support: realtime support tickets/messages, admin replies, ticket state management and Firestore FAQs.
+- M-Pesa deposits: Daraja STK Push API routes, callback reconciliation and admin retry surface.
+- Wallet isolation: backend-only balance writes with a unique account reference for every payment.
+- Admin: KYC, support, reports, disputes, transactions, users and audit views.
+
+FIRESTORE COLLECTIONS
+---------------------
+users/{uid}
+  Role, contact, email verification, profile and verification state.
+verifications/{uid}
+  Provider session, identity/address review status, protected document paths/URLs and location.
+identityClaims/{nationalIdHash}
+  Server-only duplicate identity protection.
+jobs/{jobId}, applications/{applicationId}, messages/{conversationId}/items/{messageId}
+  Marketplace work and accepted-job conversation flow.
+wallets/{uid}
+  userId, availableBalance, pendingBalance, pendingPayouts, outstandingServiceFee, updatedAt.
+transactions/{transactionId}
+  userId, amount, phone, accountReference, MerchantRequestID, CheckoutRequestID and status.
+mpesaCallbacks/{CheckoutRequestID}
+  Server-only idempotency and callback reconciliation record.
+emailOtps/{uid}
+  Server-only email-code hash, expiry, cooldown and attempts.
+diditWebhookEvents/{eventId}
+  Server-only webhook idempotency record.
+supportTickets/{ticketId}/messages/{messageId}
+  User/admin realtime support thread.
+faqs/{faqId}
+  Admin-published FAQ content.
+adminLogs, reports, disputes, notifications, activities
+  Moderation, alerts and audit history.
+
+STORAGE
+-------
+verification/{uid}/id-front
+verification/{uid}/id-back
+verification/{uid}/proof-address
+verification/{uid}/certificates/{fileName}
+
+Verification uploads are owner/admin scoped, restricted to images or PDFs and size checked in Storage rules.
+
+DIDIT KYC FLOW
+--------------
+1. The email-verified user completes the verification form and uploads protected documents.
+2. /api/kyc/start verifies the Firebase ID token and creates a Didit session using server-only credentials.
+3. verifications/{uid} becomes pending with provider=didit; the user continues to Didit's hosted check.
+4. Didit POSTs to /api/kyc/didit-webhook. The server checks X-Signature-V2 and timestamp freshness.
+5. Rejected identity checks reject the account verification. Approved identity checks remain pending until
+   the proof-of-address document is reviewed by an admin.
+6. An admin approval or rejection updates both verifications/{uid} and users/{uid}.verificationStatus.
+
+Required server settings:
+DIDIT_API_KEY
+DIDIT_WORKFLOW_ID
+DIDIT_WEBHOOK_SECRET
+OTP_SECRET
+
+MAPBOX FLOW
+-----------
+components/location/MapPicker.tsx is a client-only, responsive Mapbox map with geolocation and pin placement.
+Both job forms and the verification form store:
+county, town, estateOrArea, nearestLandmark, addressText, latitude, longitude.
+
+Required public setting:
+NEXT_PUBLIC_MAPBOX_TOKEN
+
+SUPPORT AND FAQ FLOW
+--------------------
+Users create and read only their own supportTickets records and nested messages. Admins read all tickets,
+reply, and mark them open, pending, resolved or closed in /admin/support. The same admin screen publishes
+FAQ records; /faq searches only published Firestore entries. No hardcoded FAQ or ticket data is displayed.
+
+M-PESA STK PUSH AND WALLET ISOLATION
+------------------------------------
+1. A verified user requests a deposit using the phone number verified in Payment Setup.
+2. /api/mpesa/stk-push creates a pending transaction before calling Daraja.
+3. The account reference is unique: TEMP-{shortUid}-{randomCode}.
+4. The route stores MerchantRequestID and CheckoutRequestID after a successful STK request.
+5. Daraja calls /api/mpesa/callback. The server maps CheckoutRequestID to one transaction only.
+6. Before crediting, the callback flow confirms result status with Daraja and verifies expected amount,
+   expected phone and receipt presence.
+7. A Firestore transaction atomically marks the payment succeeded and moves pendingBalance into
+   availableBalance for only that user.
+8. mpesaCallbacks/{CheckoutRequestID} prevents duplicate credits.
+9. If immediate provider confirmation is unavailable, admins may retry reconciliation from
+   /admin/transactions; the same idempotency check prevents duplicate crediting.
+
+Required server settings:
+MPESA_CONSUMER_KEY
+MPESA_CONSUMER_SECRET
+MPESA_SHORTCODE
+MPESA_PASSKEY
+MPESA_CALLBACK_URL
+MPESA_ENV=sandbox or production
+
+Sandbox callback testing:
+1. Run the application locally.
+2. Expose localhost with an HTTPS tunnel such as `ngrok http 3000`.
+3. Set MPESA_CALLBACK_URL to `https://YOUR_NGROK_HOST/api/mpesa/callback`.
+4. Trigger a wallet deposit using a configured sandbox number.
+5. Inspect the live transaction in the wallet and the admin transaction monitor.
+
+SECURITY PROTECTIONS
+--------------------
+- Firebase Admin SDK is lazy initialized and used only in server routes.
+- Browser clients cannot read/write OTPs, Didit webhook events, identity claims or M-Pesa callbacks.
+- Browser clients cannot create/update wallet balances or transactions.
+- Users cannot set their own verification decision.
+- Support tickets/messages are owner/admin restricted.
+- Chat creation and application acceptance are backend-controlled.
+- Server development logs record KYC session events, STK requests, callbacks and reconciliations without
+  exposing secrets.
+
+DEPLOYMENT
+----------
+Set all `.env.example` values in deployment secrets as appropriate. Deploy Firestore rules/indexes and
+Storage rules, then deploy Functions/Hosting or the Next.js server runtime. Configure external webhook URLs
+only after the public deployment URL is active.

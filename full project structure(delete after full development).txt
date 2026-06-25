@@ -1,0 +1,193 @@
+TEMP MARKETPLACE PROJECT STRUCTURE
+==================================
+
+FRONTEND STRUCTURE
+------------------
+app/                     Next.js App Router pages and layouts.
+  auth/                  Sign in and account registration.
+  dashboard/             Role-aware client and worker home dashboard.
+  find-work/, jobs/      Client job posting and worker open-job browsing/application.
+  settings/              Client/worker verification submission.
+  wallet/                Live wallet/transaction display and deposit request UI.
+  chat/, notifications/  Realtime communication and alerts.
+  admin/                 Protected administration screens.
+components/              Shared layout, UI, PWA install and job components.
+context/AuthContext.tsx  Auth session plus Firestore user-role subscription.
+services/                Firestore, Storage and Functions access modules.
+types/                   Shared TypeScript record definitions.
+utils/                   Validation, phone normalization, status and matching helpers.
+
+BACKEND / FIREBASE STRUCTURE
+----------------------------
+Firebase Authentication supplies authenticated user IDs. Public registration creates only client or worker roles.
+Cloud Firestore is the source of truth for roles, jobs, activities, verification status, wallets, alerts and chat.
+Firebase Storage stores private verification uploads.
+Firebase Cloud Functions handles server-controlled operations including pending deposits, payment completion,
+moderation, matching alerts and audit logs.
+firestore.rules, storage.rules and firestore.indexes.json define access and realtime query support.
+
+FIRESTORE COLLECTIONS
+---------------------
+users/{uid}
+  uid, email, displayName, role, phoneNumber, verificationStatus, profileCompleted, timestamps and profile state.
+
+jobs/{jobId}
+  id, clientId, clientName, title, category, description, location, county, payAmount, payType,
+  duration, status, requiredSkills, applicants, assignedWorkerId, createdAt and updatedAt.
+
+applications/{applicationId}
+  Worker applications tied to a real job and client.
+
+activities/{activityId}
+  User-owned recent activity with userId, role, type, title, description, relatedId, createdAt and read.
+
+verifications/{uid}
+  Role-specific identity submission including contact/address fields, file URLs, optional worker credentials,
+  status, rejectionReason and timestamps.
+
+identityClaims/{nationalIdHash}
+  Private duplicate-ID claim record used to prevent reusing one ID on multiple accounts.
+
+wallets/{uid}, transactions/{id}
+  Wallet balances and transaction or pending-deposit records.
+
+messages/{conversationId}/items/{messageId}, notifications/{id}
+  Accepted-job chat conversations and user alerts.
+
+emailOtps/{uid}
+  Server-only email verification digest, expiry, cooldown and attempt counter. Browser clients have no direct access.
+
+supportTickets/{ticketId}
+  Authenticated user support submissions and ticket statuses.
+
+ratings, reviews, reports, disputes, adminLogs
+  Trust, moderation and audit records.
+
+FIREBASE STORAGE FOLDERS
+------------------------
+verification/{uid}/id-front
+verification/{uid}/id-back
+verification/{uid}/proof-address
+verification/{uid}/certificates/{fileName}
+profiles/{uid}/{fileName}
+messages/{conversationId}/{fileName}
+
+CURRENT IMPLEMENTED FEATURES
+----------------------------
+- Email/password authentication with persistent Firestore client/worker roles.
+- Six-digit email OTP verification through Resend, with server-side hashing, expiry, resend cooldown and attempt limits.
+- Role-protected client, worker and hidden admin application navigation.
+- Live job posting, open-job browsing, job detail views and worker applications.
+- Firestore-backed activity panels, notifications, wallet records, transaction history and chat.
+- Client/worker-specific verification forms with private Storage uploads and Firestore submission status.
+- PWA manifest/service worker and conditional Add to Home Screen control.
+- Admin overview queries and pending verification queue.
+- Firestore and Storage rule definitions for these records.
+
+MISSING EXTERNAL API CONNECTIONS
+--------------------------------
+- M-Pesa deposit requests are recorded, but STK Push credentials and deployed callback handling are required
+  for actual money movement.
+- Withdrawals are not activated until a payout workflow is connected and reviewed.
+- Phone verification needs a configured SMS/OTP provider.
+- Document/liveness validation needs a selected KYC provider.
+- Location text fields work now; maps, pins and address suggestions need a map provider.
+
+A. FIREBASE
+-----------
+Needed for authentication, Firestore database, file storage, notifications, functions and hosting.
+Obtain web configuration in Firebase Console > Project settings > Your apps > Web app configuration.
+Enable Authentication sign-in methods, create Firestore and Storage, deploy rules/indexes/functions, and
+place configuration values in .env.local.
+
+Required public environment variables:
+NEXT_PUBLIC_FIREBASE_API_KEY
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+NEXT_PUBLIC_FIREBASE_PROJECT_ID
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+NEXT_PUBLIC_FIREBASE_APP_ID
+NEXT_PUBLIC_FIREBASE_VAPID_KEY
+
+Server/admin variables where service account access is used:
+FIREBASE_PROJECT_ID
+FIREBASE_CLIENT_EMAIL
+FIREBASE_PRIVATE_KEY
+
+EMAIL OTP / RESEND
+------------------
+Used to confirm email ownership before protected marketplace features are enabled. After account creation, the
+signed-in user requests a six-digit code on /verify-email. Next.js server routes validate the Firebase ID token,
+send the email using Resend, and store only a secret-protected SHA-256 OTP hash in emailOtps/{uid}. Codes expire
+after 10 minutes, have a 60-second resend cooldown and stop accepting attempts after five incorrect entries. A
+valid code updates Firebase Authentication and users/{uid}.emailVerified, then removes the OTP document.
+
+Get an API key from the Resend dashboard at https://resend.com/api-keys. For production, verify an email-sending
+domain in Resend and configure an address on that domain as RESEND_FROM_EMAIL. Put server variables in .env.local
+for local testing and in secure hosting environment settings for deployment:
+RESEND_API_KEY
+RESEND_FROM_EMAIL
+OTP_SECRET
+FIREBASE_PROJECT_ID
+FIREBASE_CLIENT_EMAIL
+FIREBASE_PRIVATE_KEY
+
+Email verification codes are typically less expensive than SMS for basic account confirmation. Phone OTP should
+still protect payment setup and wallet-related actions because M-Pesa security depends on control of the phone number.
+
+B. SAFARICOM DARAJA API
+------------------------
+Needed for M-Pesa STK Push deposits and future withdrawals.
+Register in the Safaricom Developer Portal, create an application, obtain sandbox credentials and configure
+callback URLs. Move to production credentials only after provider approval. Keep these values server-side.
+
+Required variables:
+MPESA_CONSUMER_KEY
+MPESA_CONSUMER_SECRET
+MPESA_SHORTCODE
+MPESA_PASSKEY
+MPESA_CALLBACK_URL
+MPESA_ENV=sandbox or production
+
+C. SMS OTP API
+--------------
+Needed for actual codes sent to Safaricom numbers.
+Recommended options: Firebase Phone Authentication, or Africa's Talking SMS API.
+
+Possible Africa's Talking variables:
+AFRICASTALKING_USERNAME
+AFRICASTALKING_API_KEY
+AFRICASTALKING_SENDER_ID
+
+D. KYC / ID VERIFICATION API
+-----------------------------
+Needed for automatic ID validation, selfie/liveness checks and document validation.
+Recommended starting provider: Didit KYC for a free/low-cost start.
+Recommended Kenya/Africa-focused provider: Smile ID.
+Configure provider callbacks in secure backend functions.
+
+Possible variables:
+KYC_PROVIDER
+DIDIT_API_KEY
+SMILE_ID_PARTNER_ID
+SMILE_ID_API_KEY
+SMILE_ID_CALLBACK_URL
+
+E. MAPS / LOCATION API
+----------------------
+Needed for address validation, map pins, autocomplete and county/location search.
+Recommended options: Google Maps Platform or Mapbox. Restrict public browser tokens to approved domains.
+
+Possible variables:
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+or
+NEXT_PUBLIC_MAPBOX_TOKEN
+
+CONNECTION CHECKLIST
+--------------------
+1. Copy .env.example to .env.local and fill Firebase public configuration.
+2. Enable Firebase Authentication, Firestore, Storage and Cloud Messaging.
+3. Deploy Firestore rules, indexes, Storage rules and Cloud Functions.
+4. Store Daraja, SMS and KYC secrets in server/function environment settings, never public variables.
+5. Add a map provider public token only after applying domain restrictions.
+6. Run npm run lint, npm run typecheck, npm run functions:build and npm run build before deployment.

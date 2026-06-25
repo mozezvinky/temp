@@ -5,16 +5,25 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        smoky: "#11120D",
-        olive: "#565449",
-        bone: "#D8CFBC",
-        floral: "#FFFBF4"
+        smoky: "#000000",
+        olive: "#334F00",
+        bone: "#FFFFFF",
+        floral: "#F8F9FA",
+        tertiary: "#F3F4F5",
+        lime: "#B2F746"
       },
       boxShadow: {
         soft: "0 18px 60px rgba(0,0,0,.28)"
       },
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"]
+        sans: ["Hanken Grotesk", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "monospace"]
+      },
+      borderRadius: {
+        DEFAULT: ".5rem",
+        md: ".75rem",
+        lg: "1rem",
+        xl: "1.5rem"
       }
     }
   },

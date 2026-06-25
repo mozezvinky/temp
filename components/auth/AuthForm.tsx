@@ -3,72 +3,129 @@
 import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { usePublicOnlyRoute } from "@/hooks/useProtectedRoute";
-import { authErrorMessage, loginWithEmail, loginWithGoogle, registerWithEmail } from "@/services/auth";
+import { activateProfileRole, authErrorMessage, loginWithEmail, registerWithEmail } from "@/services/auth";
 import type { Role } from "@/types";
-import { BriefcaseBusiness, Mail, Phone, ShieldCheck } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { BriefcaseBusiness, LockKeyhole, Mail, Search, UserRound } from "lucide-react";
+import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
+import type { User } from "firebase/auth";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
-  const router = useRouter();
-  const { loading: authChecking, shouldRender } = usePublicOnlyRoute();
-  const [role, setRole] = useState<Role>("worker");
   const [loading, setLoading] = useState(false);
+  const [signedInUser, setSignedInUser] = useState<User | null>(null);
+  const [signedInEmail, setSignedInEmail] = useState("");
+  const { shouldRender } = usePublicOnlyRoute({ disabled: loading || !!signedInUser });
 
-  if (authChecking || !shouldRender || loading) return <LoadingSpinner label={loading ? "Signing you in" : "Checking session"} />;
+  useEffect(() => {
+    document.body.classList.toggle("continue-as-active", mode === "login" && !!signedInUser);
+    return () => document.body.classList.remove("continue-as-active");
+  }, [mode, signedInUser]);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function continueAs(nextRole: Role) {
+    if (!signedInUser) return;
     setLoading(true);
-    window.localStorage.setItem("temp_pending_role", role);
-    const form = new FormData(event.currentTarget);
     try {
-      if (mode === "register") {
-        await registerWithEmail(String(form.get("email")), String(form.get("password")), String(form.get("displayName")), role);
-      } else {
-        await loginWithEmail(String(form.get("email")), String(form.get("password")));
-      }
-      router.replace(mode === "register" ? (role === "client" ? "/find-work" : "/jobs") : "/dashboard");
+      const savedRole = await activateProfileRole(
+        signedInUser,
+        nextRole,
+        signedInUser.displayName ?? signedInUser.email?.split("@")[0] ?? "Copic user",
+        signedInUser.email ?? signedInEmail
+      );
+      window.sessionStorage.setItem("temp.profile.uid", signedInUser.uid);
+      window.sessionStorage.setItem("temp.profile.role", savedRole);
+      if (signedInUser.email) window.localStorage.setItem(`temp.accountRole.${signedInUser.email.toLowerCase()}`, savedRole);
+      window.location.assign(savedRole === "client" ? "/find-work" : "/jobs");
     } catch (error) {
       toast.error(authErrorMessage(error));
       setLoading(false);
     }
   }
 
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    const form = new FormData(event.currentTarget);
+    try {
+      if (mode === "register") {
+        const user = await registerWithEmail(String(form.get("email")), String(form.get("password")), String(form.get("displayName")));
+        window.sessionStorage.setItem("temp.profile.uid", user.uid);
+        window.sessionStorage.removeItem("temp.profile.role");
+        window.location.assign("/complete-profile");
+      } else {
+        const credential = await loginWithEmail(String(form.get("email")), String(form.get("password")));
+        window.sessionStorage.removeItem("temp.profile.uid");
+        window.sessionStorage.removeItem("temp.profile.role");
+        setSignedInUser(credential.user);
+        setSignedInEmail(String(form.get("email")));
+        setLoading(false);
+      }
+    } catch (error) {
+      toast.error(authErrorMessage(error));
+      setLoading(false);
+    }
+  }
+
+  if (!signedInUser && (!shouldRender || loading)) return <LoadingSpinner label={loading ? "Signing you in" : "Checking session"} />;
+
   return (
-    <form onSubmit={submit} className="glass mx-auto max-w-md rounded-2xl p-6">
-      <h1 className="text-3xl font-black">{mode === "login" ? "Welcome back" : "Create your Temp account"}</h1>
-      <p className="mt-2 text-sm text-floral/70">Email, Google, and phone OTP-ready Firebase authentication.</p>
+    <div className="copic-auth-layout">
+      <div className="copic-auth-intro hidden lg:block">
+        <p className="copic-eyebrow">Copic Marketplace</p>
+        <h1>
+          {mode === "login" ? "Welcome back to Copic." : "Create your Copic account."}
+        </h1>
+        <p>
+          {mode === "login" ? "Built for flexible work." : "Find temporary jobs, hire trusted workers, and manage work opportunities easily in one place."}
+        </p>
+      </div>
+      {mode === "login" && signedInUser ? (
+        <div className="copic-auth-card">
+            <p className="copic-eyebrow">Account mode</p>
+            <h1>Continue as</h1>
+            <p className="copic-auth-copy">Choose which side of Copic you want to use with {signedInUser.email ?? signedInEmail}.</p>
+            <div className="copic-role-options">
+              <button type="button" disabled={loading} onClick={() => void continueAs("worker")} className="copic-role-option is-primary">
+                <span className="flex items-center gap-3 font-black"><BriefcaseBusiness size={20} /> Continue as Worker</span>
+                <span>Browse available jobs, apply for opportunities, and manage your professional profile.</span>
+              </button>
+              <button type="button" disabled={loading} onClick={() => void continueAs("client")} className="copic-role-option is-secondary">
+                <span className="flex items-center gap-3 font-black"><Search size={20} /> Continue as Client</span>
+                <span>Post work, review candidates, and hire the right people for the job.</span>
+              </button>
+            </div>
+        </div>
+      ) : (
+      <form onSubmit={submit} className="copic-auth-card">
+          <p className="copic-eyebrow">{mode === "login" ? "Account access" : "Create profile"}</p>
+          <h1>{mode === "login" ? "Welcome Back" : "Sign Up"}</h1>
+          <p className="copic-auth-copy">{mode === "login" ? "Built for flexible work." : "Find work or hire help in minutes."}</p>
       {mode === "register" && (
         <>
-          <input name="displayName" required placeholder="Full name" className="mt-6 w-full rounded-2xl border border-bone/20 bg-smoky px-4 py-3 outline-none" />
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            {(["worker", "client"] as Role[]).map(item => (
-              <button type="button" key={item} onClick={() => setRole(item)} className={`rounded-2xl px-3 py-2 text-sm capitalize ${role === item ? "bg-bone text-smoky" : "bg-olive/40"}`}>{item}</button>
-            ))}
-          </div>
+          <label className="copic-auth-field mt-6">
+            <UserRound size={18} />
+            <input name="displayName" required placeholder="Full name" className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-smoky/45" />
+          </label>
         </>
       )}
-      <input name="email" type="email" required placeholder="Email" className="mt-4 w-full rounded-2xl border border-bone/20 bg-smoky px-4 py-3 outline-none" />
-      <input name="password" type="password" required minLength={8} placeholder="Password" className="mt-4 w-full rounded-2xl border border-bone/20 bg-smoky px-4 py-3 outline-none" />
-      <Button disabled={loading} className="mt-5 w-full"><Mail size={18} /> {mode === "login" ? "Log in" : "Register"}</Button>
-      <button type="button" onClick={() => {
-        setLoading(true);
-        window.localStorage.setItem("temp_pending_role", role);
-        loginWithGoogle(role).then(() => router.replace(mode === "register" ? (role === "client" ? "/find-work" : "/jobs") : "/dashboard")).catch(error => {
-          toast.error(authErrorMessage(error));
-          setLoading(false);
-        });
-      }} className="mt-3 w-full rounded-2xl border border-bone/25 px-5 py-3 font-semibold">
-        Continue with Google
-      </button>
-      <div id="recaptcha-container" className="mt-3" />
-      <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs text-floral/70">
-        <span><BriefcaseBusiness className="mx-auto mb-1" size={16} />Worker</span>
-        <span><Phone className="mx-auto mb-1" size={16} />OTP</span>
-        <span><ShieldCheck className="mx-auto mb-1" size={16} />KYC</span>
-      </div>
-    </form>
+          <label className="copic-auth-field mt-4">
+            <Mail size={18} />
+            <input name="email" type="email" required placeholder="Email" className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-smoky/45" />
+          </label>
+          <label className="copic-auth-field mt-4">
+            <LockKeyhole size={18} />
+            <input name="password" type="password" required minLength={8} placeholder="Password" className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-smoky/45" />
+          </label>
+          <Button disabled={loading} className="mt-5 w-full rounded-2xl py-4 text-base"><Mail size={18} /> {mode === "login" ? "Sign In" : "Create Account"}</Button>
+          <div id="recaptcha-container" className="mt-3" />
+          <p className="mt-6 text-center text-sm text-[#7e7576]">
+            {mode === "login" ? "New to Copic?" : "Already have an account?"}{" "}
+            <Link className="font-black text-black" href={mode === "login" ? "/auth/register" : "/auth/login"}>
+              {mode === "login" ? "Create account" : "Sign in"}
+            </Link>
+          </p>
+      </form>
+      )}
+    </div>
   );
 }

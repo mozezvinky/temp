@@ -2,45 +2,98 @@
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
-import { demoJobs } from "@/lib/demoData";
-import { applyToJob } from "@/services/jobs";
+import { applyToJob, subscribeApplications, subscribeJob } from "@/services/jobs";
+import type { Application, Job } from "@/types";
 import { kes } from "@/utils/money";
-import { useParams } from "next/navigation";
+import { workerVisiblePay } from "@/utils/pricing";
+import { displayJobQuantity } from "@/utils/jobUnits";
+import { Clock, MapPin } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 export default function JobDetailsPage() {
-  const { profile, loading, isAuthorized } = useProtectedRoute(["worker", "admin"]);
+  const router = useRouter();
+  const { profile, loading: authLoading, isAuthorized } = useProtectedRoute(["worker", "admin"]);
   const { id } = useParams<{ id: string }>();
-  const job = demoJobs.find(item => item.id === id) ?? demoJobs[0];
-  if (loading || !isAuthorized) return <LoadingSpinner label="Opening job" />;
+  const [job, setJob] = useState<Job | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [applying, setApplying] = useState(false);
+  const [applications, setApplications] = useState<Application[]>([]);
+
+  useEffect(() => {
+    if (authLoading || !isAuthorized || !id) return;
+    return subscribeJob(id, item => {
+      setJob(item);
+      setLoading(false);
+    }, () => {
+      setError("Unable to load this job right now.");
+      setLoading(false);
+    });
+  }, [authLoading, id, isAuthorized]);
+
+  useEffect(() => {
+    if (!profile || profile.role !== "worker") return;
+    return subscribeApplications(profile.id, "worker", setApplications, () => setApplications([]));
+  }, [profile]);
+
+  async function submitApplication(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profile || !job || profile.role !== "worker") return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setApplying(true);
+    try {
+      await applyToJob(job, profile, String(form.get("coverNote") ?? "").trim());
+      toast.success("Application submitted.");
+      formElement.reset();
+      router.replace("/jobs");
+    } catch (submissionError) {
+      toast.error(submissionError instanceof Error ? submissionError.message : "Unable to apply right now.");
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  if (authLoading || !isAuthorized || loading) return <LoadingSpinner label="Opening job" />;
+  if (error) return <EmptyState title="Job unavailable" body={error} />;
+  if (!job) return <EmptyState title="Job unavailable" body="This job no longer exists." />;
+  const alreadyApplied = applications.some(application => application.jobId === job.id);
+  const quantityLabel = displayJobQuantity(job.quantity, job.unit, job.customUnit);
+
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="mx-auto grid max-w-4xl gap-4 lg:grid-cols-[1.15fr_.85fr]">
       <Card>
-        <p className="text-xs font-bold uppercase text-olive">{job.category}</p>
-        <h1 className="mt-2 text-3xl font-black">{job.title}</h1>
-        <p className="mt-4 text-sm text-smoky/75">{job.description}</p>
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <span className="rounded-2xl bg-smoky/10 p-3 font-bold">{kes(job.rateAmount)}</span>
-          <span className="rounded-2xl bg-smoky/10 p-3 font-bold">{job.durationHours} hours</span>
-          <span className="rounded-2xl bg-smoky/10 p-3 font-bold">{job.location}</span>
+        <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">{job.category}</p>
+        <h1 className="mt-2 text-3xl font-black text-[#FFFBFF]">{job.title}</h1>
+        <p className="mt-3 text-sm leading-6 text-[#CCC6BB]">{job.description}</p>
+        <div className="mt-5 flex flex-wrap gap-4 text-sm font-semibold text-[#D3C4B3]">
+          <span>{kes(workerVisiblePay(job.payAmount ?? job.rateAmount ?? 0))} / {job.payType === "timeline" ? "timeline" : "job"}</span>
+          <span className="inline-flex items-center gap-1"><Clock size={16} /> {job.duration ?? `${job.durationHours}h`}</span>
+          <span className="inline-flex items-center gap-1"><MapPin size={16} /> {job.location}, {job.county}</span>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <span className="rounded-2xl bg-smoky/10 p-3 text-sm font-bold">Client rating: 4.7</span>
-          <span className="rounded-2xl bg-smoky/10 p-3 text-sm font-bold">Payment reliability: 96%</span>
-          <span className="rounded-2xl bg-smoky/10 p-3 text-sm font-bold">Completed hires: 24</span>
+        <div className="mt-4 flex flex-wrap gap-2 text-xs font-black">
+          {quantityLabel && <span className="design-chip px-3 py-1">{quantityLabel}</span>}
+          <span className="design-chip px-3 py-1">{job.acceptedCount ?? 0}/{job.workersNeeded ?? 1} hired</span>
         </div>
+        <p className="mt-5 text-sm text-[#959087]">Posted by {job.clientName}</p>
       </Card>
-      {profile?.role === "worker" && (
+      {profile?.role === "worker" && job.status === "open" && !alreadyApplied ? (
         <Card>
-          <textarea id="cover" placeholder="Short cover note" className="min-h-28 w-full rounded-2xl bg-smoky/10 p-4 outline-none" />
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button onClick={() => profile && applyToJob(job, profile, (document.getElementById("cover") as HTMLTextAreaElement).value || "I am available.").then(() => toast.success("Application sent")).catch(error => toast.error(error.message))}>Apply</Button>
-            <button onClick={() => toast.success("Job saved")} className="rounded-2xl border border-smoky/20 px-5 py-2 font-semibold">Save job</button>
-            <button onClick={() => toast.success("Job marked complete")} className="rounded-2xl border border-smoky/20 px-5 py-2 font-semibold">Mark complete</button>
-          </div>
+          <h2 className="text-xl font-black text-[#FFFBFF]">Apply for this job</h2>
+          <form onSubmit={submitApplication} className="mt-4 grid gap-3">
+            <textarea name="coverNote" placeholder="Optional message to the client" className="temp-input min-h-28 rounded-xl p-3 outline-none" />
+            <Button type="submit" disabled={applying} className="temp-success-button">{applying ? "Submitting..." : "Submit application"}</Button>
+          </form>
         </Card>
+      ) : alreadyApplied ? (
+        <EmptyState title="Applied" body="You have already applied for this job. Track its status from your dashboard." />
+      ) : (
+        <EmptyState title="Applications closed" body="This job is no longer accepting applications." />
       )}
     </div>
   );

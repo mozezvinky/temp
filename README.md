@@ -1,72 +1,83 @@
-# Temp
+# Copic
 
-Temp is a production-oriented Progressive Web App for Kenya temporary gig work. It uses Next.js 15 App Router, React, TypeScript, Tailwind CSS, Framer Motion, Firebase Auth, Firestore, Storage, Cloud Functions, Cloud Messaging, and Firebase Hosting.
+Copic is a Progressive Web App for connecting people, earning income, and building careers. Clients can post work, workers can find opportunities, and both sides can manage profiles, chat, alerts, and payments from one responsive interface.
 
-## What Is Included
+## Included
 
-- Mobile-first PWA with `app/manifest.ts`, service worker, offline fallback, install prompt, and push notification support.
-- Firebase Authentication flows for email/password, Google, and phone OTP-ready Recaptcha setup.
-- Role-based users: worker, client, admin.
-- KYC upload flow with National ID hashing, selfie upload, duplicate ID detection, admin review functions, and status sync.
-- Temporary job system with 2-hour minimum and 1-year maximum duration validation.
-- Application workflow with KYC and account-lock restrictions.
-- Chat architecture locked until an accepted application/invitation creates an unlocked conversation.
-- Wallet architecture for M-Pesa and cash payment flows.
-- Service fee calculation, worker wallet crediting, transaction records, account locking for unpaid cash fees, and unlock service.
-- Admin dashboard routes for KYC, reports, transactions, and users.
-- Firestore and Storage security rules, indexes, seed data, Firebase Hosting config, and Cloud Functions.
+- Mobile-first app experience with install support and offline fallback.
+- Email and password account access.
+- Secure 6-digit email verification codes delivered through Resend.
+- Worker, client, and hidden admin roles.
+- Manual ID verification with protected front, back, and selfie-with-ID uploads.
+- Work posting with duration validation.
+- Locked chat until job acceptance or invitation acceptance.
+- Service-fee review, alerts, support tickets, and admin review screens.
+- Mapbox address and coordinate selection for jobs and verification profiles.
+- Security rules, deployment config, and production build scripts.
 
 ## Setup
 
-1. Install dependencies:
-
 ```bash
 npm install
-cd functions && npm install && cd ..
-```
-
-2. Copy environment variables:
-
-```bash
 cp .env.example .env.local
-```
-
-3. Fill Firebase web app values and service account values in `.env.local`.
-
-4. Run locally:
-
-```bash
 npm run dev
 ```
 
-5. Seed Firestore after credentials are configured:
+Fill the required environment values before using live account, payment, notification, and upload features.
 
-```bash
-npm run seed
+## Local SQL Mode
+
+For local development you can keep Firebase Auth for sign-in while storing app data in SQLite instead of Firestore:
+
+```env
+NEXT_PUBLIC_DATA_BACKEND=sql
+DATA_BACKEND=sql
+LOCAL_SQLITE_PATH=./data/temp-local.sqlite
 ```
 
-## Firebase Deployment
+Restart `npm run dev` after changing these values. SQL mode stores local users, jobs, verification requests, service-fee records, and activities in `data/temp-local.sqlite`. This is for development only; remove or change those variables when you are ready to move the app data back to Firebase.
+
+## Email Verification
+
+New email/password accounts are directed to `/verify-email`. A signed-in user can request a 6-digit code, which is delivered through Resend and expires after 10 minutes. The server stores only a SHA-256 hash protected by `OTP_SECRET`, applies a 60-second resend cooldown, and limits failed attempts to five. Successful verification updates Firebase Authentication and the user's Firestore profile.
+
+1. Create an API key in the [Resend dashboard](https://resend.com/api-keys).
+2. Add `RESEND_API_KEY`, a long random `OTP_SECRET`, and Firebase Admin service-account values to `.env.local` or deployment secrets.
+3. For production sending, verify your domain in Resend and set `RESEND_FROM_EMAIL` to an address on that domain. The `onboarding@resend.dev` value is useful only for initial Resend testing restrictions.
+4. Sign up with an email/password account, open `/verify-email`, and enter the delivered code.
+
+Email OTP confirms account access before sensitive verification actions.
+
+## Identity Verification
+
+Users upload the front of their ID, the back of their ID, and a selfie holding the ID to private Storage paths under `verification/{uid}/`. The database stores only object paths and a keyed hash of the ID number. Admin review images are exposed through short-lived signed URLs from the permission-checked `/api/admin/verifications` endpoint. Admins approve or reject requests at `/admin/kyc`; rejected users see the reason and can resubmit.
+
+## Locations
+
+Set `NEXT_PUBLIC_MAPBOX_TOKEN` to enable the client-only Mapbox picker used for job locations.
+
+## Support
+
+Help tickets are realtime threads at `supportTickets/{ticketId}/messages/{messageId}`. Users can access only their tickets; admins reply and update statuses at `/admin/support`. Published FAQ records in `faqs/{faqId}` appear in `/faq`.
+
+## Security
+
+- `emailOtps`, `identityClaims`, verification decisions, and admin audit logs are backend-only.
+- Service-fee decisions and payment records are server-controlled.
+- Verification decisions and admin logs cannot be written from browser code.
+- Verification uploads accept only images under 8 MB and are owner/admin accessible.
+
+## Build
 
 ```bash
-firebase login
-firebase use YOUR_PROJECT_ID
+npm run typecheck
+npm run build
+```
+
+## Deploy
+
+```bash
 firebase deploy --only firestore:rules,firestore:indexes,storage
 npm run functions:build
 firebase deploy --only functions,hosting
 ```
-
-Firebase Hosting framework support is configured in `firebase.json`. Firestore indexes are in `firestore.indexes.json`; security rules are in `firestore.rules` and `storage.rules`.
-
-## PWA Notes
-
-The app follows the current Next.js App Router PWA shape with `app/manifest.ts`, a public service worker, an offline route, cache-first fallback for static/navigation failures, and web push registration. The official Next.js PWA guide used for this setup is [Next.js PWAs](https://nextjs.org/docs/app/guides/progressive-web-apps).
-
-## M-Pesa Integration
-
-`functions/src/index.ts` includes the secure callable completion flow and a callback endpoint scaffold. In production, connect the callback to Daraja STK Push validation, verify receipts server-side, then call the same transaction update path. Client-side code never writes wallet balances directly; rules reserve wallet writes for trusted admin/server contexts.
-
-## Security Model
-
-Firestore rules enforce authentication, ownership, role checks, chat participant access, job duration bounds, worker account-lock restrictions, admin-only wallet writes, and KYC/admin boundaries. Cloud Functions use Firebase Auth context as JWT-backed identity for privileged operations. Public registration only creates worker/client profiles; create the first admin from the Firebase console or Admin SDK, then use `setAdminRole` to grant future admin custom claims.
-"# temp" 
-"# temp" 

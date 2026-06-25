@@ -8,13 +8,44 @@ service cloud.firestore {
     function isClient() { return signedIn() && userDoc(request.auth.uid).data.role == "client"; }
     function isWorker() { return signedIn() && userDoc(request.auth.uid).data.role == "worker"; }
     function notLocked() { return signedIn() && userDoc(request.auth.uid).data.isLocked != true; }
-    function validJobDuration() { return request.resource.data.durationHours >= 2 && request.resource.data.durationHours <= 8760; }
+    function hasVerifiedEmail() { return signedIn() && userDoc(request.auth.uid).data.emailVerified == true; }
+    function validJobDuration() { return request.resource.data.durationHours > 0 && request.resource.data.durationHours <= 8760; }
+    function validJobContent() {
+      return request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.description is string
+        && request.resource.data.description.size() > 0
+        && request.resource.data.county is string
+        && request.resource.data.county.size() > 0
+        && request.resource.data.payAmount is number
+        && request.resource.data.payAmount >= 50
+        && request.resource.data.payType in ["fixed", "timeline"]
+        && request.resource.data.locationDetails.county is string
+        && request.resource.data.locationDetails.addressText is string
+        && request.resource.data.locationDetails.latitude is number
+        && request.resource.data.locationDetails.longitude is number;
+    }
     function conversationParticipant(data) { return signedIn() && request.auth.uid in data.participants; }
+    function ticket(ticketId) { return get(/databases/$(database)/documents/supportTickets/$(ticketId)); }
+    function ticketAfter(ticketId) { return getAfter(/databases/$(database)/documents/supportTickets/$(ticketId)); }
 
     match /users/{userId} {
-      allow create: if isSelf(userId) && request.resource.data.role in ["worker", "client"];
+      allow create: if (isSelf(userId)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.role in ["worker", "client"]
+        && request.resource.data.verificationStatus == "not_submitted"
+        && request.resource.data.emailVerified is bool
+        && (request.resource.data.emailVerified == false
+          || request.resource.data.emailVerified == request.auth.token.email_verified)) || isAdmin();
       allow read: if signedIn();
-      allow update: if (isSelf(userId) && !("role" in request.resource.data.diff(resource.data).changedKeys()) && !("walletBalance" in request.resource.data.keys())) || isAdmin();
+      allow update: if (isSelf(userId)
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            "uid", "role", "isLocked", "lockReason",
+            "outstandingServiceFee", "ratingAverage", "ratingCount", "completedJobs", "badges",
+            "emailVerified", "emailVerifiedAt"
+          ])
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["verificationStatus"])
+            || request.resource.data.verificationStatus == "pending")) || isAdmin();
       allow delete: if isAdmin();
 
       match /savedJobs/{jobId} {
@@ -26,71 +57,103 @@ service cloud.firestore {
       }
     }
 
-    match /kyc/{kycId} {
-      allow create: if isSelf(request.resource.data.userId);
+    match /verifications/{verificationId} {
       allow read: if isSelf(resource.data.userId) || isAdmin();
-      allow update, delete: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /identityClaims/{claimId} {
+      allow read, write: if false;
     }
 
     match /jobs/{jobId} {
-      allow read: if resource.data.status == "open" || signedIn();
-      allow create: if isClient() && request.resource.data.clientId == request.auth.uid && validJobDuration();
-      allow update: if (isClient() && resource.data.clientId == request.auth.uid && validJobDuration()) || isAdmin();
-      allow delete: if isAdmin();
+      allow read: if isAdmin()
+        || (isClient() && resource.data.clientId == request.auth.uid)
+        || (isWorker() && (resource.data.status == "open" || resource.data.hiredWorkerId == request.auth.uid || resource.data.assignedWorkerId == request.auth.uid));
+      allow create: if (isClient()
+          && request.resource.data.id == jobId
+          && request.resource.data.clientId == request.auth.uid
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.status == "open"
+          && validJobDuration()
+          && validJobContent()) || isAdmin();
+      allow update: if (isClient()
+          && resource.data.clientId == request.auth.uid
+          && request.resource.data.clientId == resource.data.clientId
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["status", "assignedWorkerId", "hiredWorkerId", "paymentType"])
+          && (request.resource.data.createdBy == resource.data.createdBy
+            || (!("createdBy" in resource.data) && request.resource.data.createdBy == request.auth.uid))
+          && validJobDuration()
+          && validJobContent()) || isAdmin();
+      allow delete: if (isClient() && resource.data.clientId == request.auth.uid) || isAdmin();
     }
 
     match /applications/{applicationId} {
       allow read: if signedIn() && (resource.data.workerId == request.auth.uid || resource.data.clientId == request.auth.uid || isAdmin());
-      allow create: if isWorker() && notLocked() && request.resource.data.workerId == request.auth.uid;
-      allow update: if (isClient() && resource.data.clientId == request.auth.uid) || (isWorker() && resource.data.workerId == request.auth.uid) || isAdmin();
-      allow delete: if isAdmin();
+      allow create: if isWorker()
+        && notLocked()
+        && request.resource.data.workerId == request.auth.uid
+        && request.resource.data.clientId == get(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.clientId
+        && get(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.status == "open";
+      allow update: if isWorker()
+        && resource.data.workerId == request.auth.uid
+        && request.resource.data.status == "withdrawn"
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["workerId", "clientId", "jobId"])
+        || isAdmin();
+      allow delete: if false;
     }
 
     match /messages/{conversationId} {
-      allow read: if conversationParticipant(resource.data) || isAdmin();
-      allow create: if signedIn() && conversationParticipant(request.resource.data);
-      allow update: if conversationParticipant(resource.data) || isAdmin();
+      allow read: if (hasVerifiedEmail() && conversationParticipant(resource.data)) || isAdmin();
+      allow create: if false;
+      allow update: if (hasVerifiedEmail() && conversationParticipant(resource.data)) || isAdmin();
       allow delete: if isAdmin();
 
       match /items/{messageId} {
-        allow read: if conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data) || isAdmin();
-        allow create: if conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data)
+        allow read: if (hasVerifiedEmail() && conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data)) || isAdmin();
+        allow create: if hasVerifiedEmail()
+          && conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data)
           && get(/databases/$(database)/documents/messages/$(conversationId)).data.locked == false
           && request.resource.data.senderId == request.auth.uid;
-        allow update: if conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data);
+        allow update: if hasVerifiedEmail() && conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data);
         allow delete: if isAdmin();
       }
 
       match /typing/{userId} {
-        allow read: if conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data);
-        allow write: if isSelf(userId) && conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data);
+        allow read: if hasVerifiedEmail() && conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data);
+        allow write: if hasVerifiedEmail() && isSelf(userId) && conversationParticipant(get(/databases/$(database)/documents/messages/$(conversationId)).data);
       }
     }
 
     match /chats/{chatId} {
-      allow read: if conversationParticipant(resource.data) || isAdmin();
-      allow create: if signedIn() && conversationParticipant(request.resource.data);
-      allow update: if conversationParticipant(resource.data) || isAdmin();
+      allow read: if (hasVerifiedEmail() && conversationParticipant(resource.data)) || isAdmin();
+      allow create: if false;
+      allow update: if (hasVerifiedEmail() && conversationParticipant(resource.data)) || isAdmin();
       allow delete: if isAdmin();
 
       match /messages/{messageId} {
-        allow read: if conversationParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data) || isAdmin();
-        allow create: if conversationParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data)
+        allow read: if (hasVerifiedEmail() && conversationParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data)) || isAdmin();
+        allow create: if hasVerifiedEmail()
+          && conversationParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data)
           && get(/databases/$(database)/documents/chats/$(chatId)).data.locked == false
           && request.resource.data.senderId == request.auth.uid;
-        allow update: if conversationParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data);
+        allow update: if hasVerifiedEmail() && conversationParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data);
         allow delete: if isAdmin();
       }
     }
 
-    match /wallets/{walletId} {
-      allow read: if isSelf(walletId) || isAdmin();
-      allow write: if isAdmin();
-    }
-
     match /transactions/{transactionId} {
       allow read: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create, update, delete: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /service_fee_payments/{paymentId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.workerId == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    match /mpesa_payment_records/{recordId} {
+      allow read, write: if false;
     }
 
     match /ratings/{ratingId} {
@@ -115,6 +178,52 @@ service cloud.firestore {
       allow create, delete: if isAdmin();
     }
 
+    match /notificationArchives/{archiveId} {
+      allow read, write: if false;
+    }
+
+    match /activities/{activityId} {
+      allow read: if (signedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+      allow create: if (signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.role == userDoc(request.auth.uid).data.role) || isAdmin();
+      allow update: if (signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.role == resource.data.role) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /supportTickets/{ticketId} {
+      allow read: if (signedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == "open";
+      allow update: if (signedIn()
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastMessage", "unreadForUser", "unreadForAdmin", "status", "updatedAt"])
+          && (request.resource.data.status == resource.data.status
+            || (resource.data.status == "resolved" && request.resource.data.status == "open"))) || isAdmin();
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if (signedIn() && ticket(ticketId).data.userId == request.auth.uid) || isAdmin();
+        allow create: if (signedIn()
+            && ticketAfter(ticketId).data.userId == request.auth.uid
+            && request.resource.data.senderId == request.auth.uid
+            && request.resource.data.senderRole in ["client", "worker"]) || (isAdmin()
+              && request.resource.data.senderId == request.auth.uid
+              && request.resource.data.senderRole == "admin");
+        allow update, delete: if false;
+      }
+    }
+
+    match /faqs/{faqId} {
+      allow read: if resource.data.published == true || isAdmin();
+      allow write: if isAdmin();
+    }
+
     match /reports/{reportId} {
       allow create: if signedIn();
       allow read, update, delete: if isAdmin();
@@ -126,14 +235,21 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    match /worker_verifications/{verificationId} {
-      allow create: if isWorker() && request.resource.data.workerId == request.auth.uid;
-      allow read: if isAdmin() || (signedIn() && resource.data.workerId == request.auth.uid);
-      allow update, delete: if isAdmin();
+    match /adminLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
-    match /adminLogs/{logId} {
-      allow read, write: if isAdmin();
+    match /emailOtps/{uid} {
+      allow read, write: if false;
+    }
+
+    match /mpesaCallbacks/{checkoutRequestId} {
+      allow read, write: if false;
+    }
+
+    match /diditWebhookEvents/{eventId} {
+      allow read, write: if false;
     }
   }
 }

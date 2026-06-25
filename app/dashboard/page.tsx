@@ -1,59 +1,622 @@
 "use client";
 
 import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { AddSkillModal } from "@/components/profile/AddSkillModal";
+import { RatingHistory } from "@/components/ratings/RatingHistory";
+import { StarRatingInput } from "@/components/ui/StarRatingInput";
+import { AppModal } from "@/components/ui/AppModal";
+import { Button } from "@/components/ui/Button";
+import { WorkerLocationModal } from "@/components/location/WorkerLocationModal";
+import { IdentityVerificationModal } from "@/components/verification/IdentityVerificationModal";
+import { VerificationBadge } from "@/components/verification/VerificationBadge";
+import { VerificationReminder } from "@/components/verification/VerificationReminder";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
-import { demoJobs, demoTransactions } from "@/lib/demoData";
-import { kes } from "@/utils/money";
-import { Activity, BriefcaseBusiness, CheckCircle2, Clock, MessageCircle, ReceiptText, ShieldCheck, Star, TrendingUp, UsersRound, Wallet } from "lucide-react";
+import { cancelApplication, cancelLiveApplication, confirmWorkerPaymentReceived, requestApplicationCompletion, respondDirectHireRequest, subscribeApplications } from "@/services/jobs";
+import { loadRatings, rateClient } from "@/services/ratings";
+import { loadServiceFeePayment, submitServiceFeePayment } from "@/services/service-fee";
+import { deleteWorkerSkill, loadWorkerSkills } from "@/services/worker-skills";
+import type { Application, ServiceFeePayment, WorkerSkillProfile } from "@/types";
+import { BriefcaseBusiness, CheckCircle2, Clock, MapPin, MessageCircle, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { type FormEvent, useEffect, useState } from "react";
+import { calculateWorkerNet, kes } from "@/utils/money";
+import { toast } from "sonner";
+
+const SERVICE_FEE_PAYBILL_NUMBER = "482917";
+const PHONE_PROMPT_UNAVAILABLE_MESSAGE = "Service not available yet. This feature will be activated in a future update.";
 
 export default function DashboardPage() {
-  const { profile, loading, isAuthorized } = useProtectedRoute();
+  const { profile, loading, isAuthorized, refreshProfile } = useProtectedRoute();
+  const router = useRouter();
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(true);
+  const [applicationsError, setApplicationsError] = useState("");
+  const [jobsModalTab, setJobsModalTab] = useState<"applications" | "live" | "completed" | "requests">("applications");
+  const [openModal, setOpenModal] = useState<"jobs" | "ratings" | null>(null);
+  const [verificationOpen, setVerificationOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [skillOpen, setSkillOpen] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<WorkerSkillProfile | null>(null);
+  const [profileSkills, setProfileSkills] = useState<WorkerSkillProfile[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState("");
+  const [serviceFeePayment, setServiceFeePayment] = useState<ServiceFeePayment | null>(null);
+  const [forcedServiceFee, setForcedServiceFee] = useState(0);
+  const [submittingFee, setSubmittingFee] = useState(false);
+  const [ratingAggregate, setRatingAggregate] = useState<{ average: number; count: number; breakdown: Record<number, number> }>({ average: 0, count: 0, breakdown: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } });
+  const profileId = profile?.id;
+  const profileRole = profile?.role;
+  const profileLocked = !!profile && profile.role !== "admin" && (profile.isLocked || Number(profile.outstandingServiceFee ?? 0) > 0 || forcedServiceFee > 0);
+
+  useEffect(() => {
+    if (profile?.role === "client" && !profileLocked) router.replace("/workers");
+  }, [profile, profileLocked, router]);
+
+  useEffect(() => {
+    if (!profileId || !profileRole || profileRole === "admin") return;
+    setApplicationsLoading(true);
+    setApplicationsError("");
+    return subscribeApplications(
+      profileId,
+      profileRole,
+      items => {
+        setApplications(items);
+        setApplicationsLoading(false);
+        setApplicationsError("");
+      },
+      error => {
+        setApplicationsLoading(false);
+        setApplicationsError(error.message);
+      }
+    );
+  }, [profileId, profileRole]);
+
+  useEffect(() => {
+    if (!profileId || profileRole !== "worker") return;
+    void loadServiceFeePayment().then(setServiceFeePayment).catch(() => setServiceFeePayment(null));
+  }, [profileId, profileRole]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = Number(window.sessionStorage.getItem("temp.forceServiceFee") ?? 0);
+    if (Number.isFinite(stored) && stored > 0) setForcedServiceFee(stored);
+  }, []);
+
+  useEffect(() => {
+    if (!profileId || profileRole !== "worker") return;
+    void loadRatings(profileId).then(result => setRatingAggregate(result.aggregate)).catch(() => setRatingAggregate({ average: 0, count: 0, breakdown: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } }));
+  }, [profileId, profileRole]);
+
+  useEffect(() => {
+    if (!profile || profile.role !== "worker") {
+      setProfileSkills([]);
+      return;
+    }
+    setProfileSkills(profile.skillProfiles?.length
+      ? profile.skillProfiles
+      : (profile.skills ?? []).map((name, index) => ({
+          id: `legacy-${index}-${name}`,
+          name,
+          category: "services_trades",
+          level: "independent",
+          proofType: "reference",
+          completedJobs: 0,
+          ratingAverage: 0,
+          ratingCount: 0
+        })));
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profileId || profileRole !== "worker") return;
+    let cancelled = false;
+    setSkillsLoading(true);
+    setSkillsError("");
+    void loadWorkerSkills()
+      .then(skills => {
+        if (!cancelled) {
+          setProfileSkills(skills);
+          setSkillsError("");
+        }
+      })
+      .catch(error => {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "Unable to load skills.";
+          setSkillsError(message.includes("Worker access required") ? "" : message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSkillsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profileId, profileRole]);
+
   if (loading || !isAuthorized || !profile) return <LoadingSpinner label="Opening dashboard" />;
 
-  if (profile.role === "client") {
+  async function removeSkill(skillId: string) {
+    try {
+      const nextSkills = await deleteWorkerSkill(skillId);
+      if (nextSkills) setProfileSkills(nextSkills);
+      toast.success("Skill deleted.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete this skill.");
+    }
+  }
+
+  async function submitServiceFee(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setSubmittingFee(true);
+    try {
+      const payment = await submitServiceFeePayment({
+        screenshot: form.get("screenshot") instanceof File ? form.get("screenshot") as File : null
+      });
+      setServiceFeePayment(payment);
+      toast.success("Waiting for admin confirmation.");
+      await refreshProfile();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to submit payment.");
+    } finally {
+      setSubmittingFee(false);
+    }
+  }
+
+  function promptPhoneNumberDirectly() {
+    toast.info(PHONE_PROMPT_UNAVAILABLE_MESSAGE);
+  }
+
+  const emailPrompt = null;
+  const visibleApplications = applications.filter(application => application.coverNote !== "Rehire request");
+  const directHireRequests = visibleApplications.filter(application => application.source === "direct_hire" && application.status === "pending");
+  const standardApplications = visibleApplications.filter(application => application.source !== "direct_hire");
+  const liveApplications = visibleApplications.filter(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled");
+  const doneApplications = visibleApplications.filter(application => application.status === "completed" || application.jobStatus === "completed");
+  const completedJobsCount = Math.max(profile.completedJobs ?? 0, doneApplications.length);
+  const displayRating = ratingAggregate.count ? ratingAggregate.average : profile.ratingAverage ?? 0;
+  const dashboardSkills = profileSkills;
+  const username = (profile.displayName || profile.email || profile.id).toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || profile.id.slice(0, 12);
+  const totalGrossEarnings = doneApplications.reduce((sum, application) => sum + Number(application.jobAmount ?? 0), 0);
+  const totalEarnings = doneApplications.reduce((sum, application) => sum + calculateWorkerNet(Number(application.jobAmount ?? 0)), 0);
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - 7);
+  const earningsThisMonth = doneApplications
+    .filter(application => application.updatedAt && "toDate" in application.updatedAt ? (application.updatedAt.toDate() as Date).getMonth() === now.getMonth() : true)
+    .reduce((sum, application) => sum + calculateWorkerNet(Number(application.jobAmount ?? 0)), 0);
+  const earningsThisWeek = doneApplications
+    .filter(application => application.updatedAt && "toDate" in application.updatedAt ? (application.updatedAt.toDate() as Date) >= weekStart : true)
+    .reduce((sum, application) => sum + calculateWorkerNet(Number(application.jobAmount ?? 0)), 0);
+  const averageJobValue = doneApplications.length ? totalEarnings / doneApplications.length : 0;
+  const completionRate = visibleApplications.length ? Math.round((doneApplications.length / visibleApplications.length) * 100) : 0;
+  const demandedServiceFee = Number(profile.outstandingServiceFee ?? 0) || forcedServiceFee;
+  const waitingForAdminConfirmation = !!serviceFeePayment && serviceFeePayment.status !== "rejected" && serviceFeePayment.status !== "approved";
+  const profilePhoto = profile.photoURL ? {
+    photoURL: profile.photoURL,
+    photoPositionX: profile.photoPositionX ?? 50,
+    photoPositionY: profile.photoPositionY ?? 50,
+    photoZoom: profile.photoZoom ?? 1
+  } : null;
+
+  if (profileLocked || demandedServiceFee > 0) {
     return (
-      <div className="space-y-5">
-        <div>
-          <p className="text-sm text-floral/65">Hello {profile.displayName}</p>
-          <h1 className="text-3xl font-black">Client dashboard</h1>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card><ReceiptText /><p className="mt-4 text-sm">Post work</p><p className="text-3xl font-black">{demoJobs.length}</p></Card>
-          <Card><UsersRound /><p className="mt-4 text-sm">Applicants</p><p className="text-3xl font-black">12</p></Card>
-          <Card><MessageCircle /><p className="mt-4 text-sm">Active chats</p><p className="text-3xl font-black">3</p></Card>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          <Link href="/find-work" className="glass rounded-2xl p-6"><h2 className="text-xl font-black">Find Work</h2><p className="mt-2 text-sm text-floral/70">Post a job with description, budget, and timeline.</p></Link>
-          <Link href="/workers" className="glass rounded-2xl p-6"><h2 className="text-xl font-black">Workers</h2><p className="mt-2 text-sm text-floral/70">Search verified workers by category, skill, and rating.</p></Link>
-          <Link href="/applications" className="glass rounded-2xl p-6"><h2 className="text-xl font-black">Manage applicants</h2><p className="mt-2 text-sm text-floral/70">Review worker applications and unlock chat after acceptance.</p></Link>
-        </div>
-        <Card><h2 className="font-black">Client trust snapshot</h2><div className="mt-4 grid gap-3 sm:grid-cols-3"><p className="rounded-2xl bg-smoky/10 p-3 text-sm">Payment reliability: 96%</p><p className="rounded-2xl bg-smoky/10 p-3 text-sm">Completed hires: 24</p><p className="rounded-2xl bg-smoky/10 p-3 text-sm">Worker rating: 4.7</p></div></Card>
+      <div className="fixed inset-0 z-[80] grid place-items-center overflow-hidden bg-black/80 p-4">
+        <Card className="no-visible-scrollbar max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto overscroll-contain border-amber-200/30">
+          <p className="text-sm font-bold uppercase tracking-[.2em] text-amber-200">10% Service Fee Due</p>
+          <h1 className="mt-3 text-3xl font-black text-[#FFFBFF]">Pay {kes(demandedServiceFee)} now</h1>
+          <p className="mt-3 text-sm font-black text-[#CCC6BB]">This is 10% of the client payment for your completed job. Pay this amount to unlock your worker account.</p>
+          {serviceFeePayment?.status === "rejected" && <p className="mt-4 rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-100">{serviceFeePayment.rejectionReason ?? "Your last payment was rejected. Please resubmit."}</p>}
+          {waitingForAdminConfirmation && <p className="mt-4 rounded-xl border border-sky-300/30 bg-sky-400/10 p-3 text-sm font-black text-sky-100">Waiting for admin confirmation.</p>}
+          <p className="mt-5 text-xs font-bold uppercase tracking-[.18em] text-[#959087]">Payment details</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <CopyBox label="Paybill Number" value={SERVICE_FEE_PAYBILL_NUMBER} />
+            <CopyBox label="Account Number" value={username} />
+            <CopyBox label="Amount" value={kes(demandedServiceFee)} copyValue={String(demandedServiceFee)} />
+          </div>
+          <p className="mt-4 text-sm font-semibold text-[#CCC6BB]">Your account number is automatically set to your username: <span className="font-black text-[#FFFBFF]">{username}</span>. Use this exact account number so your payment can match automatically.</p>
+          <form onSubmit={submitServiceFee} className="mt-6 grid gap-4">
+            <label className="temp-label">Screenshot optional<input name="screenshot" type="file" accept="image/*" className="temp-input p-3 outline-none" /></label>
+            <div className="flex flex-wrap gap-3">
+              <Button type="submit" className="temp-success-button" disabled={submittingFee || waitingForAdminConfirmation}>{waitingForAdminConfirmation ? "Waiting for admin confirmation" : submittingFee ? "Submitting..." : "I've Made Payment"}</Button>
+              <Button type="button" variant="secondary" onClick={promptPhoneNumberDirectly}>Prompt Phone Number Directly</Button>
+            </div>
+          </form>
+        </Card>
       </div>
     );
   }
 
+  if (profile.role === "client") {
+    return <LoadingSpinner label="Opening profile" />;
+  }
+
   return (
-    <div className="space-y-5">
-      <div>
-        <p className="text-sm text-floral/65">Hello {profile.displayName}</p>
-        <h1 className="text-3xl font-black">Worker dashboard</h1>
-      </div>
-      {profile?.isLocked && <div className="rounded-2xl bg-olive p-4 text-floral">{profile.lockReason}</div>}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card><BriefcaseBusiness /><p className="mt-4 text-sm">Active jobs</p><p className="text-3xl font-black">2</p></Card>
-        <Card><CheckCircle2 /><p className="mt-4 text-sm">Completed jobs</p><p className="text-3xl font-black">{profile.completedJobs}</p></Card>
-        <Card><Star /><p className="mt-4 text-sm">Rating</p><p className="text-3xl font-black">{profile.ratingAverage || 0}</p></Card>
-        <Card><TrendingUp /><p className="mt-4 text-sm">Acceptance rate</p><p className="text-3xl font-black">82%</p></Card>
-        <Card><Wallet /><p className="mt-4 text-sm">Earnings</p><p className="text-3xl font-black">{kes(demoTransactions[0].amount)}</p></Card>
-        <Card><Clock /><p className="mt-4 text-sm">Pending payments</p><p className="text-3xl font-black">{kes(150)}</p></Card>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Link href="/jobs" className="glass rounded-2xl p-6"><h2 className="text-xl font-black">Find Jobs</h2><p className="mt-2 text-sm text-floral/70">Browse temporary jobs and apply with your worker profile.</p></Link>
-        <Link href="/chat" className="glass rounded-2xl p-6"><h2 className="text-xl font-black">Chat</h2><p className="mt-2 text-sm text-floral/70">Message clients after an application or invitation is accepted.</p></Link>
-      </div>
-      <Card><h2 className="font-black">Recent activity</h2><div className="mt-4 grid gap-3"><p className="rounded-2xl bg-smoky/10 p-3 text-sm"><Activity className="mr-2 inline" size={16} />Application viewed for Office deep cleaning crew.</p><p className="rounded-2xl bg-smoky/10 p-3 text-sm"><ShieldCheck className="mr-2 inline" size={16} />Verification status: {profile.kycStatus}.</p></div></Card>
+    <div className="temp-worker-dashboard copic-dashboard">
+      {emailPrompt}
+      <section className="temp-worker-dashboard-canvas copic-dashboard-canvas">
+        <header className="copic-dashboard-header">
+          <div>
+            <h1>Welcome in, {profile.displayName}</h1>
+            <div className="mt-3"><VerificationBadge status={profile.verificationStatus} /></div>
+          </div>
+          <div className="copic-dashboard-actions">
+            <Link href="/jobs" className="temp-success-button copic-button copic-button-primary">Find Jobs</Link>
+            <Button type="button" onClick={() => { setEditingSkill(null); setSkillOpen(true); }}><Plus size={17} /> Add skills</Button>
+            <Button type="button" variant="secondary" onClick={() => setOpenModal("ratings")}><Star size={17} /> Ratings</Button>
+          </div>
+        </header>
+        {profile.isLocked && <div className="copic-alert copic-alert-error">{profile.lockReason}</div>}
+        <VerificationReminder profile={profile} onVerify={() => setVerificationOpen(true)} />
+        {applicationsError && <div className="copic-alert copic-alert-error">
+          {isConnectionPaused(applicationsError)
+            ? "Connection is paused. Your saved work is safe. We'll restore updates shortly."
+            : "Work activity could not refresh. Your saved work remains visible while we restore updates."}
+        </div>}
+
+        <div className="copic-dashboard-grid">
+          <aside className="copic-dashboard-left" aria-label="Worker profile and performance">
+            <Card className="copic-profile-summary">
+              <div className="copic-profile-header">
+                <span className="copic-avatar">
+                  {profilePhoto ? <DashboardProfilePhoto photo={profilePhoto} alt={profile.displayName} /> : profile.displayName.charAt(0).toUpperCase()}
+                </span>
+              </div>
+              <div className="copic-profile-identity"><h2>{profile.displayName}</h2></div>
+              <div className="copic-data-list">
+                <p><span>Total earnings</span><strong>{kes(totalEarnings)}</strong></p>
+                <p><span>Gross value</span><strong>{kes(totalGrossEarnings)}</strong></p>
+                <p><span>Jobs done</span><strong>{completedJobsCount}</strong></p>
+              </div>
+            </Card>
+
+            <Card className="copic-performance-panel">
+              <div className="copic-panel-heading"><h2>Performance</h2></div>
+              <div className="copic-data-list">
+                <p><span>This month</span><strong>{kes(earningsThisMonth)}</strong></p>
+                <p><span>This week</span><strong>{kes(earningsThisWeek)}</strong></p>
+                <p><span>Average job value</span><strong>{kes(averageJobValue)}</strong></p>
+                <p><span>Global rating</span><strong>{displayRating.toFixed(1)} <Star size={14} aria-hidden="true" /></strong></p>
+              </div>
+              <div className="copic-progress-block"><div><span>Completion rate</span><strong>{completionRate}%</strong></div><span className="copic-progress-track"><i style={{ width: `${completionRate}%` }} /></span></div>
+            </Card>
+          </aside>
+
+          <main className="copic-dashboard-main">
+            <Card className="copic-dashboard-panel copic-skills-panel">
+              <div className="copic-panel-heading">
+                <div><p className="copic-eyebrow">Profile</p><h2>Skills</h2></div>
+                <Button type="button" variant="secondary" onClick={() => { setEditingSkill(null); setSkillOpen(true); }}><Plus size={16} /> Add</Button>
+              </div>
+              <div className="copic-skill-list">
+                {skillsError && <p className="copic-inline-error">Could not refresh skills: {skillsError}. Showing the profile data already available.</p>}
+                {dashboardSkills.length ? dashboardSkills.map(skill => (
+                  <article key={skill.id} className="copic-skill-row">
+                    <div>
+                      <h3>{skill.name}</h3>
+                      {skill.description && <p>{skill.description}</p>}
+                      <small>{skill.completedJobs} jobs completed · {skill.ratingAverage} rating</small>
+                    </div>
+                    <div className="copic-row-actions">
+                      <button type="button" aria-label={`Edit ${skill.name}`} onClick={() => { setEditingSkill(skill); setSkillOpen(true); }}><Pencil size={15} /></button>
+                      {!skill.id.startsWith("legacy-") && <button type="button" className="is-danger" aria-label={`Delete ${skill.name}`} onClick={() => void removeSkill(skill.id)}><Trash2 size={15} /></button>}
+                    </div>
+                  </article>
+                )) : skillsLoading ? <LoadingSpinner label="Loading skills" /> : <EmptyState title="No skills yet" body="Add skills so clients can find you in worker search." />}
+              </div>
+            </Card>
+
+            <Card className="copic-dashboard-panel copic-current-work">
+              <div className="copic-panel-heading">
+                <div><p className="copic-eyebrow">In progress</p><h2>Current work</h2></div>
+                <span className="copic-count-badge">{liveApplications.length} active</span>
+              </div>
+              {applicationsLoading && !applications.length ? <LoadingSpinner label="Loading current work" /> : liveApplications.length ? <div className="copic-work-list">{liveApplications.slice(0, 4).map(application => (
+                <article key={`task-${application.id}`} className="copic-work-row">
+                  <span className="copic-work-icon"><BriefcaseBusiness size={18} /></span>
+                  <div><h3>{application.jobTitle ?? "Live job"}</h3><p>{application.jobCategory ?? "Job"}</p></div>
+                  <span className="copic-status-badge copic-status-live">Live</span>
+                </article>
+              ))}</div> : <EmptyState title="No live work yet" body="Accepted jobs will appear here so you can follow their progress." />}
+            </Card>
+          </main>
+
+          <aside className="copic-dashboard-right" aria-label="Work progress and shortcuts">
+            <Card className="copic-work-progress" aria-label="Work progress">
+              <div className="copic-panel-heading"><h2>Work progress</h2><span className="copic-progress-dot" /></div>
+              <div className="copic-dashboard-metrics">
+                <button type="button" onClick={() => { setJobsModalTab("applications"); setOpenModal("jobs"); }}>
+                  <strong>{applicationsLoading && !applications.length ? "—" : visibleApplications.length}</strong><small>Applied</small>
+                </button>
+                <button type="button" onClick={() => { setJobsModalTab("live"); setOpenModal("jobs"); }}>
+                  <strong>{applicationsLoading && !applications.length ? "—" : liveApplications.length}</strong><small>Live</small>
+                </button>
+                <button type="button" onClick={() => { setJobsModalTab("completed"); setOpenModal("jobs"); }}>
+                  <strong>{applicationsLoading && !applications.length ? "—" : doneApplications.length}</strong><small>Done</small>
+                </button>
+              </div>
+            </Card>
+
+            <Card className="copic-quick-actions">
+              <button type="button" onClick={() => { setJobsModalTab("applications"); setOpenModal("jobs"); }}><BriefcaseBusiness size={17} /> Applications <span>{standardApplications.length}</span></button>
+              <button type="button" onClick={() => { setJobsModalTab("live"); setOpenModal("jobs"); }}><Clock size={17} /> Live jobs <span>{liveApplications.length}</span></button>
+              <button type="button" onClick={() => { setJobsModalTab("requests"); setOpenModal("jobs"); }}><MessageCircle size={17} /> Requests <span>{directHireRequests.length}</span></button>
+              <button type="button" onClick={() => { setJobsModalTab("completed"); setOpenModal("jobs"); }}><CheckCircle2 size={17} /> Completed jobs <span>{doneApplications.length}</span></button>
+              <button type="button" onClick={() => setLocationOpen(true)}><MapPin size={17} /> {profile.location ? "Change Location" : "Set Up Your Location"} <span>{profile.location ? "Saved" : "New"}</span></button>
+            </Card>
+          </aside>
+        </div>
+      </section>
+      {openModal === "jobs" && (
+        <DashboardModal title={jobsModalTab === "applications" ? "Applied jobs" : jobsModalTab === "live" ? "Live jobs" : jobsModalTab === "requests" ? "Requests" : "Completed jobs"} onClose={() => setOpenModal(null)}>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {(["applications", "live", "requests", "completed"] as const).map(tab => (
+              <button key={tab} type="button" onClick={() => setJobsModalTab(tab)} className={`temp-status-pill ${tab === "applications" || tab === "requests" ? "temp-status-applications" : tab === "live" ? "temp-status-live" : "temp-status-completed"} ${jobsModalTab === tab ? "is-active" : ""}`}>{tab === "applications" ? "Applications" : tab === "live" ? "Live jobs" : tab === "requests" ? "Requests" : "Completed jobs"}</button>
+            ))}
+          </div>
+          <ApplicationList
+            mode={jobsModalTab}
+            applications={jobsModalTab === "applications" ? standardApplications : jobsModalTab === "live" ? liveApplications : jobsModalTab === "requests" ? directHireRequests : doneApplications}
+            onApplicationUpdated={updatedApplication => {
+              setApplications(items => items.map(item => item.id === updatedApplication.id ? { ...item, ...updatedApplication } : item));
+            }}
+          />
+        </DashboardModal>
+      )}
+      {openModal === "ratings" && (
+        <DashboardModal title="Ratings and reviews" onClose={() => setOpenModal(null)}>
+          <RatingHistory userId={profile.id} />
+        </DashboardModal>
+      )}
+      {skillOpen && <AddSkillModal skill={editingSkill} onClose={() => { setSkillOpen(false); setEditingSkill(null); }} onSaved={(nextSkills, savedSkill) => {
+        if (nextSkills) {
+          setProfileSkills(nextSkills);
+          return;
+        }
+        setProfileSkills(current => [
+          ...current.filter(item => item.id !== savedSkill.id && item.name.toLowerCase() !== savedSkill.name.toLowerCase()),
+          savedSkill
+        ]);
+      }} />}
+      {verificationOpen && <IdentityVerificationModal profile={profile} onClose={() => setVerificationOpen(false)} onSubmitted={refreshProfile} />}
+      {locationOpen && <WorkerLocationModal profile={profile} onClose={() => setLocationOpen(false)} onSaved={refreshProfile} />}
     </div>
+  );
+}
+
+function isConnectionPaused(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("offline") || normalized.includes("network") || normalized.includes("resource_exhausted") || normalized.includes("quota");
+}
+
+function DashboardProfilePhoto({ photo, alt }: { photo: { photoURL: string; photoPositionX: number; photoPositionY: number; photoZoom: number }; alt: string }) {
+  return (
+    <img
+      src={photo.photoURL}
+      alt={alt}
+      className="h-full w-full object-cover"
+      style={{
+        objectPosition: `${photo.photoPositionX}% ${photo.photoPositionY}%`,
+        transform: `scale(${photo.photoZoom})`,
+        transformOrigin: `${photo.photoPositionX}% ${photo.photoPositionY}%`
+      }}
+    />
+  );
+}
+
+const DashboardModal = AppModal;
+
+function CopyBox({ label, value, copyValue = value }: { label: string; value: string; copyValue?: string }) {
+  return (
+    <div className="rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-4">
+      <p className="text-xs font-bold uppercase tracking-[.16em] text-[#959087]">{label}</p>
+      <p className="mt-2 text-lg font-black text-[#FFFBFF]">{value}</p>
+      <Button type="button" variant="secondary" className="mt-3 min-h-9 px-3 py-1.5 text-xs" onClick={() => void navigator.clipboard.writeText(copyValue)}>Copy</Button>
+    </div>
+  );
+}
+
+function ApplicationList({ applications, mode, onApplicationUpdated }: { applications: Application[]; mode: "applications" | "live" | "completed" | "requests"; onApplicationUpdated: (application: Application) => void }) {
+  const [busyId, setBusyId] = useState("");
+  const [busyAction, setBusyAction] = useState<"cancel" | "complete" | "confirm_payment" | "accept_request" | "reject_request" | "">("");
+  const [pendingCancel, setPendingCancel] = useState<Application | null>(null);
+  const [pendingLiveCancel, setPendingLiveCancel] = useState<Application | null>(null);
+  const [pendingComplete, setPendingComplete] = useState<Application | null>(null);
+
+  async function cancel(application: Application) {
+    setBusyId(application.id);
+    setBusyAction("cancel");
+    try {
+      const updated = await cancelApplication(application);
+      onApplicationUpdated({ ...application, ...updated, status: "withdrawn" });
+      toast.success("Application cancelled.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to cancel application.");
+    } finally {
+      setBusyId("");
+      setBusyAction("");
+    }
+  }
+
+  async function cancelLive(application: Application) {
+    setBusyId(application.id);
+    setBusyAction("cancel");
+    try {
+      const updated = await cancelLiveApplication(application);
+      onApplicationUpdated({ ...application, ...updated, status: "cancelled", jobStatus: "cancelled" });
+      toast.success("Live job cancelled with no pay.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to cancel live job.");
+    } finally {
+      setBusyId("");
+      setBusyAction("");
+    }
+  }
+
+  async function answerRequest(application: Application, response: "accept" | "reject") {
+    setBusyId(application.id);
+    setBusyAction(response === "accept" ? "accept_request" : "reject_request");
+    try {
+      const updated = await respondDirectHireRequest(application, response);
+      onApplicationUpdated({ ...application, ...updated, status: response === "accept" ? "accepted" : "rejected", jobStatus: response === "accept" ? "live" : "cancelled" });
+      toast.success(response === "accept" ? "Request accepted. This is now a live job." : "Request rejected.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to update request.");
+    } finally {
+      setBusyId("");
+      setBusyAction("");
+    }
+  }
+
+  async function requestComplete(application: Application, stars = 0, review = "") {
+    setBusyId(application.id);
+    setBusyAction("complete");
+    try {
+      const updated = await requestApplicationCompletion(application);
+      if (stars > 0) await rateClient(application.jobId, application.clientId, stars, review);
+      onApplicationUpdated({ ...application, ...updated, status: "completion_requested" });
+      toast.success(stars > 0 ? "Completion sent and client rating submitted." : "Completion sent to the client for confirmation.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to mark work complete.");
+    } finally {
+      setBusyId("");
+      setBusyAction("");
+    }
+  }
+  async function confirmPayment(application: Application) {
+    setBusyId(application.id);
+    setBusyAction("confirm_payment");
+    try {
+      const updated = await confirmWorkerPaymentReceived(application);
+      onApplicationUpdated({ ...application, ...updated, status: "completed" });
+      const fee = Number((updated as Application & { outstandingServiceFee?: number }).outstandingServiceFee ?? 0);
+      if (fee > 0 && typeof window !== "undefined") window.sessionStorage.setItem("temp.forceServiceFee", String(fee));
+      toast.success("Payment received confirmed. Your account is now locked until the service fee is paid.");
+      window.location.assign("/dashboard");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to confirm payment received.");
+    } finally {
+      setBusyId("");
+      setBusyAction("");
+    }
+  }
+
+  if (!applications.length) return <EmptyState title={`No ${mode === "completed" ? "completed jobs" : mode}`} body="Jobs will appear here as their status changes." />;
+  return (
+    <>
+      <div className="grid gap-3">
+        {applications.map(application => {
+          const isBusy = busyId === application.id;
+          const statusLabel = application.status === "completed" || application.jobStatus === "completed"
+            ? "done"
+            : application.status === "completion_requested"
+              ? "waiting for client confirmation"
+              : application.status === "payment_sent"
+                ? "confirm payment received"
+              : application.status.replace("_", " ");
+          return (
+            <div key={`${mode}-${application.id}`} className={`rounded-xl p-4 ${mode === "completed" ? "bg-emerald-400/10" : "bg-[#2A2A2B]"}`}>
+              <p className="text-xs font-bold uppercase tracking-[.16em] text-[#959087]">{application.jobCategory ?? "Job category"}</p>
+              <p className="mt-1 font-black text-[#FFFBFF]">{application.jobTitle ?? "Job"}</p>
+              <p className="mt-2 text-sm capitalize text-[#CCC6BB]">Status: {statusLabel}</p>
+              {mode === "requests" && (
+                <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm text-[#CCC6BB]">
+                  <p><strong className="text-[#FFFBFF]">Location:</strong> {application.requestLocation ?? "Not provided"}</p>
+                  <p><strong className="text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
+                  <p><strong className="text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
+                  {application.jobAmount ? <p><strong className="text-[#FFFBFF]">Pay:</strong> {kes(application.jobAmount)}</p> : null}
+                  {application.requestDescription ? <p className="mt-2">{application.requestDescription}</p> : null}
+                </div>
+              )}
+              {mode === "completed" && application.clientRating && <p className="mt-2 inline-flex items-center gap-1 text-sm font-black text-amber-200"><Star size={16} /> Client rating: {application.clientRating}/5</p>}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {mode === "live" && <Link href="/chat" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-bone px-4 py-2 text-sm font-black text-[#1E1B13]"><MessageCircle size={16} /> Chat with employer</Link>}
+                {mode === "requests" && application.status === "pending" && (
+                  <>
+                    <Button type="button" disabled={isBusy} onClick={() => void answerRequest(application, "accept")}>
+                      {isBusy && busyAction === "accept_request" ? "Accepting..." : "Accept request"}
+                    </Button>
+                    <Button type="button" variant="secondary" disabled={isBusy} onClick={() => void answerRequest(application, "reject")}>
+                      {isBusy && busyAction === "reject_request" ? "Rejecting..." : "Reject request"}
+                    </Button>
+                  </>
+                )}
+                {application.status === "pending" && mode !== "requests" && (
+                  <Button type="button" variant="secondary" disabled={isBusy} onClick={() => setPendingCancel(application)}>
+                    {isBusy && busyAction === "cancel" ? "Cancelling..." : "Cancel application"}
+                  </Button>
+                )}
+                {application.status === "accepted" && application.jobStatus !== "completed" && (
+                  <Button type="button" disabled={isBusy} onClick={() => setPendingComplete(application)}>
+                    {isBusy && busyAction === "complete" ? "Sending..." : "Mark complete"}
+                  </Button>
+                )}
+                {mode === "live" && ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && (
+                  <Button type="button" variant="secondary" disabled={isBusy} onClick={() => setPendingLiveCancel(application)}>
+                    {isBusy && busyAction === "cancel" ? "Cancelling..." : "Cancel live job"}
+                  </Button>
+                )}
+                {application.status === "payment_sent" && application.jobStatus !== "completed" && (
+                  <Button type="button" className="temp-success-button" disabled={isBusy} onClick={() => void confirmPayment(application)}>
+                    {isBusy && busyAction === "confirm_payment" ? "Confirming..." : "I Received Payment"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {pendingCancel && (
+        <AppModal title="Cancel application?" onClose={() => setPendingCancel(null)} maxWidth="max-w-md">
+          <p className="text-sm text-[#CCC6BB]">Are you sure you want to cancel? You can only cancel twice per day.</p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Button type="button" variant="secondary" onClick={() => setPendingCancel(null)}>Keep application</Button>
+            <Button type="button" disabled={busyId === pendingCancel.id} onClick={() => {
+              const application = pendingCancel;
+              setPendingCancel(null);
+              void cancel(application);
+            }}>
+              {busyId === pendingCancel.id ? "Cancelling..." : "Yes, cancel"}
+            </Button>
+          </div>
+        </AppModal>
+      )}
+      {pendingLiveCancel && (
+        <AppModal title="Cancel live job?" onClose={() => setPendingLiveCancel(null)} maxWidth="max-w-md">
+          <p className="text-sm text-[#CCC6BB]">Are you sure you want to cancel this job? If you cancel after accepting, the job will be cancelled with no pay.</p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Button type="button" variant="secondary" onClick={() => setPendingLiveCancel(null)}>Keep job</Button>
+            <Button type="button" disabled={busyId === pendingLiveCancel.id} onClick={() => {
+              const application = pendingLiveCancel;
+              setPendingLiveCancel(null);
+              void cancelLive(application);
+            }}>
+              {busyId === pendingLiveCancel.id ? "Cancelling..." : "Yes, cancel live job"}
+            </Button>
+          </div>
+        </AppModal>
+      )}
+      {pendingComplete && (
+        <AppModal title="Mark job complete" onClose={() => setPendingComplete(null)} maxWidth="max-w-md">
+          <p className="text-sm text-[#CCC6BB]">Send completion to the client for payment confirmation. You can rate the client now or leave the rating empty.</p>
+          <form onSubmit={event => {
+            event.preventDefault();
+            const application = pendingComplete;
+            const form = new FormData(event.currentTarget);
+            setPendingComplete(null);
+            void requestComplete(application, Number(form.get("stars") ?? 0), String(form.get("review") ?? ""));
+          }} className="mt-5 grid gap-4">
+            <StarRatingInput name="stars" label="Rate client optional" />
+            <label className="temp-label">Review optional<textarea name="review" className="temp-input min-h-24 p-3 outline-none" placeholder="How was the client to work with?" /></label>
+            <div className="flex flex-wrap gap-3">
+              <Button type="button" variant="secondary" onClick={() => setPendingComplete(null)}>Cancel</Button>
+              <Button type="submit" disabled={busyId === pendingComplete.id}>{busyId === pendingComplete.id ? "Sending..." : "Submit completion"}</Button>
+            </div>
+          </form>
+        </AppModal>
+      )}
+    </>
   );
 }

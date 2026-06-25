@@ -6,14 +6,14 @@ import { logger } from "firebase-functions";
 admin.initializeApp();
 const db = admin.firestore();
 const messaging = admin.messaging();
-const PLATFORM_FEE_RATE = 0.142857;
+const PLATFORM_FEE_RATE = Number(process.env.PLATFORM_FEE_RATE ?? 0.1);
+
+function calculateServiceFee(amount: number) {
+  return Math.round(Math.max(0, amount) * PLATFORM_FEE_RATE);
+}
 
 function requireAuth(uid?: string) {
   if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
-}
-
-function fee(amount: number) {
-  return Math.round(amount * PLATFORM_FEE_RATE);
 }
 
 async function assertAdmin(uid: string) {
@@ -21,18 +21,30 @@ async function assertAdmin(uid: string) {
   if (user.data()?.role !== "admin") throw new HttpsError("permission-denied", "Admin role required.");
 }
 
-export const reviewKyc = onCall(async request => {
+async function assertEmailVerified(uid: string) {
+  const user = await db.doc(`users/${uid}`).get();
+  if (user.data()?.emailVerified !== true) {
+    throw new HttpsError("failed-precondition", "Please verify your email before using this feature.");
+  }
+}
+
+export const requestDeposit = onCall(async request => {
+  requireAuth(request.auth?.uid);
+  throw new HttpsError("failed-precondition", "Deposits have been removed. Clients pay workers directly outside the platform.");
+});
+
+export const reviewVerification = onCall(async request => {
   requireAuth(request.auth?.uid);
   await assertAdmin(request.auth!.uid);
-  const { userId, status, rejectionReason } = request.data as { userId: string; status: "verified" | "rejected"; rejectionReason?: string };
-  if (!["verified", "rejected"].includes(status)) throw new HttpsError("invalid-argument", "Invalid KYC status.");
+  const { userId, status, rejectionReason } = request.data as { userId: string; status: "approved" | "rejected"; rejectionReason?: string };
+  if (!["approved", "rejected"].includes(status)) throw new HttpsError("invalid-argument", "Invalid verification status.");
   await db.runTransaction(async tx => {
-    tx.update(db.doc(`kyc/${userId}`), { status, rejectionReason: rejectionReason ?? null, reviewedBy: request.auth!.uid, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-    tx.update(db.doc(`users/${userId}`), { kycStatus: status, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    tx.update(db.doc(`verifications/${userId}`), { status, addressVerificationStatus: status, rejectionReason: rejectionReason ?? null, reviewedBy: request.auth!.uid, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    tx.update(db.doc(`users/${userId}`), { verificationStatus: status, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     tx.create(db.collection("notifications").doc(), {
       userId,
-      title: status === "verified" ? "KYC approved" : "KYC rejected",
-      body: status === "verified" ? "Your Temp account is verified." : rejectionReason ?? "Please resubmit your KYC.",
+      title: status === "approved" ? "Verification approved" : "Verification rejected",
+      body: status === "approved" ? "Your Temp account is verified." : rejectionReason ?? "Please resubmit your verification details.",
       read: false,
       href: "/settings",
       createdAt: admin.firestore.FieldValue.serverTimestamp()
@@ -40,6 +52,8 @@ export const reviewKyc = onCall(async request => {
   });
   return { ok: true };
 });
+
+export const reviewKyc = reviewVerification;
 
 export const setAdminRole = onCall(async request => {
   requireAuth(request.auth?.uid);
@@ -50,68 +64,74 @@ export const setAdminRole = onCall(async request => {
   return { ok: true };
 });
 
-export const completeMpesaJob = onCall(async request => {
+export const acceptApplication = onCall(async request => {
   requireAuth(request.auth?.uid);
-  const { jobId, amount, mpesaReceipt } = request.data as { jobId: string; amount: number; mpesaReceipt: string };
-  const jobRef = db.doc(`jobs/${jobId}`);
+  await assertEmailVerified(request.auth!.uid);
+  const { applicationId } = request.data as { applicationId?: string };
+  if (!applicationId) throw new HttpsError("invalid-argument", "Application is required.");
+  const applicationRef = db.doc(`applications/${applicationId}`);
   await db.runTransaction(async tx => {
-    const jobSnap = await tx.get(jobRef);
-    const job = jobSnap.data();
-    if (!job || job.clientId !== request.auth!.uid) throw new HttpsError("permission-denied", "Only the client can complete this job.");
-    if (!job.hiredWorkerId) throw new HttpsError("failed-precondition", "No hired worker.");
-    const serviceFee = fee(amount);
-    const net = amount - serviceFee;
-    tx.update(jobRef, { status: "completed", paymentType: "mpesa", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-    tx.update(db.doc(`wallets/${job.hiredWorkerId}`), { balance: admin.firestore.FieldValue.increment(net), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-    tx.create(db.collection("transactions").doc(), {
-      userId: job.hiredWorkerId,
-      jobId,
-      type: "wallet_credit",
-      status: "succeeded",
-      amount: net,
-      serviceFee,
-      paymentType: "mpesa",
-      mpesaReceipt,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-    tx.create(db.collection("notifications").doc(), {
-      userId: job.hiredWorkerId,
-      title: "Payment received",
-      body: `KES ${net} was credited to your Temp wallet.`,
-      read: false,
-      href: "/wallet",
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    const applicationSnapshot = await tx.get(applicationRef);
+    const application = applicationSnapshot.data();
+    if (!application || application.clientId !== request.auth!.uid) throw new HttpsError("permission-denied", "Only the client can accept this application.");
+    if (application.status !== "pending") throw new HttpsError("failed-precondition", "This application is no longer pending.");
+    const jobRef = db.doc(`jobs/${application.jobId}`);
+    const jobSnapshot = await tx.get(jobRef);
+    const job = jobSnapshot.data();
+    if (!job || job.clientId !== request.auth!.uid || job.status !== "open") throw new HttpsError("failed-precondition", "This job is no longer open.");
+    const conversationId = `${application.jobId}_${application.workerId}`;
+    tx.update(applicationRef, { status: "accepted", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    tx.update(jobRef, { status: "live", assignedWorkerId: application.workerId, hiredWorkerId: application.workerId, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    tx.set(db.doc(`messages/${conversationId}`), {
+      id: conversationId,
+      jobId: application.jobId,
+      clientId: application.clientId,
+      workerId: application.workerId,
+      locked: false,
+      participants: [application.clientId, application.workerId],
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
   });
   return { ok: true };
 });
 
+export const completeMpesaJob = onCall(async request => {
+  requireAuth(request.auth?.uid);
+  throw new HttpsError("failed-precondition", "Platform payouts have been removed. Clients pay workers directly outside the platform.");
+});
+
 export const markPaidInCash = onCall(async request => {
   requireAuth(request.auth?.uid);
-  const { jobId, amount } = request.data as { jobId: string; amount: number };
+  await assertEmailVerified(request.auth!.uid);
+  const { jobId } = request.data as { jobId: string };
   const jobRef = db.doc(`jobs/${jobId}`);
   await db.runTransaction(async tx => {
     const jobSnap = await tx.get(jobRef);
     const job = jobSnap.data();
     if (!job || job.clientId !== request.auth!.uid) throw new HttpsError("permission-denied", "Only the client can complete this job.");
-    if (!job.hiredWorkerId) throw new HttpsError("failed-precondition", "No hired worker.");
-    const serviceFee = fee(amount);
+    const workerId = job.assignedWorkerId ?? job.hiredWorkerId;
+    if (!workerId) throw new HttpsError("failed-precondition", "No hired worker.");
+    const serviceFee = calculateServiceFee(Number(job.payAmount ?? job.rateAmount ?? 0));
     tx.update(jobRef, { status: "completed", paymentType: "cash", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-    tx.update(db.doc(`users/${job.hiredWorkerId}`), {
+    tx.set(db.doc(`messages/${jobId}_${workerId}`), {
+      locked: true,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    tx.update(db.doc(`users/${workerId}`), {
       isLocked: true,
       lockReason: `KES ${serviceFee} service fee required.`,
       outstandingServiceFee: admin.firestore.FieldValue.increment(serviceFee),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
-    tx.update(db.doc(`wallets/${job.hiredWorkerId}`), { outstandingServiceFee: admin.firestore.FieldValue.increment(serviceFee), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-    tx.create(db.collection("transactions").doc(), {
-      userId: job.hiredWorkerId,
+    tx.create(db.collection("service_fee_payments").doc(), {
+      workerId,
+      workerName: job.workerName ?? null,
+      username: job.workerUsername ?? null,
       jobId,
-      type: "cash_fee",
-      status: "pending",
+      status: "payment_pending_verification",
       amount: serviceFee,
-      paymentType: "cash",
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
+      submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
   });
   return { ok: true };
@@ -119,26 +139,7 @@ export const markPaidInCash = onCall(async request => {
 
 export const payOutstandingFee = onCall(async request => {
   requireAuth(request.auth?.uid);
-  const { amount, mpesaReceipt } = request.data as { amount: number; mpesaReceipt: string };
-  const userId = request.auth!.uid;
-  await db.runTransaction(async tx => {
-    const userRef = db.doc(`users/${userId}`);
-    const walletRef = db.doc(`wallets/${userId}`);
-    const userSnap = await tx.get(userRef);
-    const outstanding = Number(userSnap.data()?.outstandingServiceFee ?? 0);
-    if (amount < outstanding) throw new HttpsError("failed-precondition", "Outstanding service fee is not fully paid.");
-    tx.update(userRef, { isLocked: false, lockReason: null, outstandingServiceFee: 0, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-    tx.update(walletRef, { outstandingServiceFee: 0, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-    tx.create(db.collection("transactions").doc(), {
-      userId,
-      type: "service_fee",
-      status: "succeeded",
-      amount,
-      mpesaReceipt,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-  });
-  return { ok: true };
+  throw new HttpsError("failed-precondition", "Fee settlement requires a reconciled server payment.");
 });
 
 export const mpesaCallback = onRequest(async (req, res) => {
@@ -177,6 +178,16 @@ export const alertMatchingWorkersOnJobCreate = onDocumentCreated("jobs/{jobId}",
       href: `/jobs/${event.params.jobId}`,
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
+    batch.create(db.collection("activities").doc(), {
+      userId: worker.id,
+      role: "worker",
+      type: "job_recommended",
+      title: "New matching job",
+      description: `${job.title} is available in ${job.category}.`,
+      relatedId: event.params.jobId,
+      read: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
   });
   batch.create(db.collection("adminLogs").doc(), {
     action: "JOB_MATCH_ALERTS_CREATED",
@@ -191,12 +202,12 @@ export const auditUserUpdates = onDocumentUpdated("users/{userId}", async event 
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after) return;
-  if (before.isLocked === after.isLocked && before.kycStatus === after.kycStatus && before.role === after.role) return;
+  if (before.isLocked === after.isLocked && before.verificationStatus === after.verificationStatus && before.role === after.role) return;
   await db.collection("adminLogs").add({
     action: "USER_SECURITY_STATE_CHANGED",
     userId: event.params.userId,
-    before: { role: before.role, isLocked: before.isLocked, kycStatus: before.kycStatus },
-    after: { role: after.role, isLocked: after.isLocked, kycStatus: after.kycStatus },
+    before: { role: before.role, isLocked: before.isLocked, verificationStatus: before.verificationStatus },
+    after: { role: after.role, isLocked: after.isLocked, verificationStatus: after.verificationStatus },
     createdAt: admin.firestore.FieldValue.serverTimestamp()
   });
 });
@@ -204,8 +215,9 @@ export const auditUserUpdates = onDocumentUpdated("users/{userId}", async event 
 export const updateBadgesOnJobCompletion = onDocumentUpdated("jobs/{jobId}", async event => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
-  if (before?.status === after?.status || after?.status !== "completed" || !after?.hiredWorkerId) return;
-  const userRef = db.doc(`users/${after.hiredWorkerId}`);
+  const workerId = after?.assignedWorkerId ?? after?.hiredWorkerId;
+  if (before?.status === after?.status || after?.status !== "completed" || !workerId) return;
+  const userRef = db.doc(`users/${workerId}`);
   await db.runTransaction(async tx => {
     const snap = await tx.get(userRef);
     const data = snap.data();

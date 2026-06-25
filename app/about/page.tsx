@@ -1,11 +1,28 @@
 import { Card } from "@/components/ui/Card";
+import { ClipboardCheck, BriefcaseBusiness, MessageCircle, ShieldCheck } from "lucide-react";
 
 export default function AboutPage() {
   return (
-    <Card className="mx-auto max-w-3xl">
-      <h1 className="text-3xl font-black">About Temp</h1>
-      <p className="mt-4 text-sm text-smoky/75">Temp connects Kenyan clients with verified workers for short jobs, seasonal contracts, event shifts, cleaning, driving, support work, and longer temporary placements up to one year.</p>
-      <p className="mt-3 text-sm text-smoky/75">The platform is built around Firebase realtime data, KYC controls, locked communication, wallet records, M-Pesa flows, cash-service-fee enforcement, ratings, skill tests, and admin moderation.</p>
-    </Card>
+    <div className="mx-auto max-w-5xl space-y-5">
+      <div>
+        <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">Learn more</p>
+        <h1 className="mt-2 text-4xl font-black text-[#FFFBFF]">Copic connects people, income, and careers across Kenya.</h1>
+        <p className="mt-4 max-w-2xl text-[#CCC6BB]">Clients can post short-term work, workers can find opportunities, and both sides can manage conversations, alerts, profiles, and completion records in one place.</p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-4">
+        {[
+          [BriefcaseBusiness, "Flexible jobs", "Work can run from a few hours to long-term temporary assignments."],
+          [ShieldCheck, "Trusted profiles", "Profiles, ratings, and reviews help people make safer choices."],
+          [MessageCircle, "Secure chat", "Conversations open after a job request or invitation is accepted."],
+          [ClipboardCheck, "Clear work records", "Track applications, accepted jobs, completion status, and reviews."]
+        ].map(([Icon, title, body]) => (
+          <Card key={String(title)}>
+            <Icon className="text-[#D3C4B3]" />
+            <h2 className="mt-4 font-black">{String(title)}</h2>
+            <p className="mt-2 text-sm text-[#CCC6BB]">{String(body)}</p>
+          </Card>
+        ))}
+      </div>
+    </div>
   );
 }

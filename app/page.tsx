@@ -1,85 +1,109 @@
 "use client";
 
-import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { usePublicOnlyRoute } from "@/hooks/useProtectedRoute";
-import { demoJobs, demoWorkers } from "@/lib/demoData";
 import { motion } from "framer-motion";
-import { BellRing, BriefcaseBusiness, CheckCircle2, MapPin, ShieldCheck, Smartphone, Wallet } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { ArrowRight, BellRing, BriefcaseBusiness, CheckCircle2, MessageCircle, ShieldCheck, Sparkles, UserRoundCheck } from "lucide-react";
 import Link from "next/link";
 
-const features: Array<[string, LucideIcon, string]> = [
-  ["KYC-first trust", ShieldCheck, "National ID, selfie checks, duplicate ID detection, and admin review."],
-  ["Locked chat", CheckCircle2, "Realtime chat unlocks only after accepted hires or invitations."],
-  ["Wallet payments", Wallet, "M-Pesa and cash flows with automatic service-fee enforcement."],
-  ["Push alerts", BellRing, "FCM notifications for jobs, messages, payments, locks, and KYC decisions."]
+const reveal = {
+  initial: { opacity: 0, y: 24 },
+  animate: { opacity: 1, y: 0 }
+};
+
+const workflows = [
+  {
+    title: "Find flexible local work",
+    body: "Browse open opportunities, compare pay and duration, apply, and follow every status from one workspace.",
+    icon: BriefcaseBusiness,
+    tags: ["2 hours to 1 year", "Clear pay", "Local work"]
+  },
+  {
+    title: "Hire with confidence",
+    body: "Review worker skills and profiles, send direct hire requests, and manage accepted work without losing context.",
+    icon: UserRoundCheck,
+    tags: ["Worker profiles", "Direct hire", "Verified skills"]
+  },
+  {
+    title: "Complete work clearly",
+    body: "Use secure chat, completion requests, payment confirmations, ratings, and a permanent work history.",
+    icon: CheckCircle2,
+    tags: ["Live status", "Payments", "Ratings"]
+  }
 ];
 
 export default function LandingPage() {
-  const { loading, shouldRender } = usePublicOnlyRoute();
-  if (loading || !shouldRender) return <LoadingSpinner label="Opening Temp" />;
+  const { shouldRender } = usePublicOnlyRoute();
+  if (!shouldRender) return <LoadingSpinner label="Opening Copic" />;
 
   return (
-    <div className="space-y-16">
-      <section className="grid min-h-[78vh] items-center gap-8 py-8 md:grid-cols-[1.05fr_.95fr]">
-        <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .55 }}>
-          <p className="text-sm font-bold uppercase tracking-[.24em] text-bone">Kenya temporary work</p>
-          <h1 className="mt-4 max-w-3xl text-5xl font-black leading-[1.02] md:text-7xl">Temp</h1>
-          <p className="mt-5 max-w-xl text-lg text-floral/75">A premium mobile-first marketplace for verified workers and clients hiring from 2 hours to 1 year.</p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/jobs"><Button>Find work</Button></Link>
-            <Link href="/jobs" className="rounded-2xl border border-bone/25 px-5 py-3 font-semibold">Browse jobs</Link>
-          </div>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, scale: .96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .55, delay: .1 }} className="glass rounded-2xl p-5">
-          <div className="flex items-center justify-between border-b border-bone/10 pb-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[.2em] text-bone">Live marketplace</p>
-              <h2 className="mt-2 text-2xl font-black">Open temporary jobs</h2>
+    <div className="copic-landing">
+      <section className="landing-hero">
+        <div className="landing-grid">
+          <motion.div {...reveal} transition={{ duration: .55, ease: "easeOut" }}>
+            <span className="landing-eyebrow"><Sparkles size={14} /> Kenya&apos;s flexible work marketplace</span>
+            <h1 className="landing-title">Connect with <em>opportunities</em>, hire skilled workers, and move forward.</h1>
+            <p className="landing-copy">Copic brings workers and clients into one clear workflow—from discovery and direct hiring to live work, completion, payment confirmation, and ratings.</p>
+            <div className="landing-actions">
+              <Link href="/auth/register" className="landing-cta primary">Start using Copic <ArrowRight size={18} /></Link>
+              <Link href="/auth/login" className="landing-cta secondary">Sign in</Link>
             </div>
-            <BriefcaseBusiness className="h-9 w-9 text-bone" />
+            <div className="landing-trust">
+              <span className="inline-flex items-center gap-2"><ShieldCheck size={18} className="text-[#B2F746]" /> Role-aware accounts</span>
+              <span className="inline-flex items-center gap-2"><MessageCircle size={18} className="text-[#B2F746]" /> Secure job chat</span>
+              <span className="inline-flex items-center gap-2"><BellRing size={18} className="text-[#B2F746]" /> Real-time alerts</span>
+            </div>
+          </motion.div>
+
+          <motion.div {...reveal} transition={{ duration: .6, delay: .14, ease: "easeOut" }} className="landing-feature-grid" aria-label="Copic platform highlights">
+            <article className="landing-feature-card tall">
+              <span className="landing-feature-icon"><BriefcaseBusiness size={23} /></span>
+              <div>
+                <p className="mb-3 font-mono text-xs uppercase tracking-[.14em] text-[#B2F746]">Flexible by design</p>
+                <h3>Work that fits real life</h3>
+                <p className="mt-3">Discover jobs lasting from two hours to one year, with the pay, place, requirements, and timeline visible before you apply.</p>
+              </div>
+            </article>
+            <article className="landing-feature-card">
+              <span className="landing-feature-icon"><UserRoundCheck size={23} /></span>
+              <div><h3>Skilled people</h3><p className="mt-3">Build a practical profile with skills, experience, proof, pricing, and work history.</p></div>
+            </article>
+            <article className="landing-feature-card">
+              <span className="landing-feature-icon"><ShieldCheck size={23} /></span>
+              <div><h3>Visible progress</h3><p className="mt-3">Applications, live jobs, requests, completion, and payments stay easy to understand.</p></div>
+            </article>
+          </motion.div>
+        </div>
+      </section>
+
+      <section className="landing-opportunities">
+        <div className="flex flex-wrap items-end justify-between gap-5">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[.18em] text-[#B2F746]">One connected platform</p>
+            <h2 className="mt-3 text-4xl font-extrabold md:text-5xl">Built around real work</h2>
           </div>
-          <div className="mt-5 grid gap-3">
-            {demoJobs.slice(0, 3).map(job => (
-              <Card key={job.id} className="bg-bone/95">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-bold uppercase text-olive">{job.category}</p>
-                    <h3 className="mt-1 font-black">{job.title}</h3>
-                  </div>
-                  <span className="rounded-full bg-smoky px-3 py-1 text-xs font-bold text-floral">{job.durationHours}h</span>
-                </div>
-                <p className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-smoky/70"><MapPin size={15} /> {job.location}</p>
-              </Card>
-            ))}
-          </div>
-        </motion.div>
+          <Link href="/auth/register" className="inline-flex items-center gap-2 font-bold text-[#B2F746]">Create your account <ArrowRight size={18} /></Link>
+        </div>
+        <div className="landing-opportunity-grid">
+          {workflows.map((item, index) => {
+            const Icon = item.icon;
+            return (
+              <motion.article key={item.title} {...reveal} transition={{ duration: .45, delay: index * .08 }} className="landing-opportunity">
+                <span className="landing-feature-icon"><Icon size={22} /></span>
+                <h3 className="mt-8 text-2xl font-bold">{item.title}</h3>
+                <p className="mt-3 leading-6">{item.body}</p>
+                <div className="mt-7 flex flex-wrap gap-2">{item.tags.map(tag => <span key={tag} className="rounded-lg border border-[#2b2b2b] bg-[#111] px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-[#c7c7c7]">{tag}</span>)}</div>
+              </motion.article>
+            );
+          })}
+        </div>
       </section>
-      <section className="grid gap-4 md:grid-cols-4">
-        {features.map(([title, Icon, body]) => <Card key={String(title)}><Icon className="mb-4" /><h3 className="font-black">{title}</h3><p className="mt-2 text-sm text-smoky/70">{body}</p></Card>)}
-      </section>
-      <section className="grid gap-4 md:grid-cols-3">
-        {["Post a verified temporary job", "Accept worker applications", "Pay with M-Pesa or confirm cash"].map((step, index) => (
-          <div key={step} className="glass rounded-2xl p-6">
-            <span className="text-4xl font-black text-bone">0{index + 1}</span>
-            <h3 className="mt-6 text-xl font-black">{step}</h3>
-          </div>
-        ))}
-      </section>
-      <section className="grid gap-4 md:grid-cols-2">
-        <Card><ShieldCheck className="mb-4" /><h2 className="text-2xl font-black">Worker trust system</h2><p className="mt-3 text-sm text-smoky/75">Trial Worker badges appear automatically, Trusted Worker unlocks after 3 completed jobs, and Skill Verified appears after category quizzes.</p></Card>
-        <Card><Smartphone className="mb-4" /><h2 className="text-2xl font-black">Add to Home Screen</h2><p className="mt-3 text-sm text-smoky/75">Open Temp on mobile, tap the install button or browser share menu, then add Temp to your home screen for an app-like experience.</p></Card>
-      </section>
-      <section className="grid gap-4 md:grid-cols-2">
-        {demoWorkers.map(worker => <Card key={worker.id}><p className="font-black">{worker.displayName}</p><p className="mt-2 text-sm text-smoky/70">{worker.bio}</p><p className="mt-4 text-sm font-bold">{worker.badges.join(" | ")}</p></Card>)}
-      </section>
-      <section className="glass rounded-2xl p-8 text-center">
-        <BriefcaseBusiness className="mx-auto mb-4 h-10 w-10 text-bone" />
-        <h2 className="text-3xl font-black">Hire short-term help with guardrails that matter.</h2>
-        <Link href="/auth/register"><Button className="mt-6">Create account</Button></Link>
-      </section>
+
+      <footer className="landing-footer">
+        <div><strong className="text-xl text-white">Copic</strong><p className="mt-4 max-w-lg leading-6">Connecting people, earning income, and building careers through transparent local work.</p><p className="mt-7 text-sm">© {new Date().getFullYear()} Copic Marketplace.</p></div>
+        <div><strong className="text-white">Company</strong><div className="mt-4 grid gap-3"><Link href="/about">About</Link><Link href="/faq">FAQ</Link></div></div>
+        <div><strong className="text-white">Support</strong><div className="mt-4 grid gap-3"><Link href="/help">Help center</Link><Link href="/auth/login">Sign in</Link></div></div>
+      </footer>
     </div>
   );
 }

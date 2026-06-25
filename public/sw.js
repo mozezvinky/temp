@@ -1,6 +1,6 @@
-const CACHE_NAME = "temp-pwa-v1";
+const CACHE_NAME = "pic-pwa-v2";
 const OFFLINE_URL = "/offline";
-const ASSETS = ["/", OFFLINE_URL, "/manifest.webmanifest", "/icons/icon.svg", "/download.webp"];
+const ASSETS = ["/", OFFLINE_URL, "/manifest.webmanifest", "/icons/pic-icon.png", "/icons/icon.svg", "/download.webp"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -12,6 +12,9 @@ self.addEventListener("activate", event => {
 
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  const isStaticAsset = ASSETS.includes(url.pathname) || url.pathname.startsWith("/icons/");
+  if (!isStaticAsset) return;
   event.respondWith(
     fetch(event.request)
       .then(response => {
@@ -25,9 +28,9 @@ self.addEventListener("fetch", event => {
 
 self.addEventListener("push", event => {
   const data = event.data ? event.data.json() : {};
-  event.waitUntil(self.registration.showNotification(data.title || "Temp", {
-    body: data.body || "You have a new Temp update.",
-    icon: "/icons/icon.svg",
+  event.waitUntil(self.registration.showNotification(data.title || "Copic", {
+    body: data.body || "You have a new Copic update.",
+    icon: "/icons/pic-icon.png",
     badge: "/icons/maskable.svg",
     data: { url: data.url || "/notifications" }
   }));

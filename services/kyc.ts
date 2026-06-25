@@ -1,41 +1,83 @@
 "use client";
 
-import { requireDb, requireStorage } from "@/lib/firebase";
-import { doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, collection } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { requireAuth } from "@/lib/firebase";
+import type { VerificationRecord } from "@/types";
 
-async function sha256(value: string) {
-  const bytes = new TextEncoder().encode(value.trim().toUpperCase());
-  const hash = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+export interface VerificationSubmission {
+  userId: string;
+  role: "client" | "worker";
+  fullName: string;
+  phoneNumber: string;
+  nationalId: string;
+  idFrontFile: File;
+  idBackFile: File;
+  selfieWithIdFile: File;
 }
 
-export async function submitKyc(userId: string, nationalId: string, nationalIdFile: File, selfieFile: File) {
-  const db = requireDb();
-  const storage = requireStorage();
-  const nationalIdHash = await sha256(nationalId);
-  const duplicate = await getDocs(query(collection(db, "kyc"), where("nationalIdHash", "==", nationalIdHash)));
-  if (!duplicate.empty && duplicate.docs.some(d => d.data().userId !== userId)) throw new Error("This National ID is already attached to another account.");
-  const [idUpload, selfieUpload] = await Promise.all([
-    uploadBytes(ref(storage, `kyc/${userId}/national-id-${nationalIdFile.name}`), nationalIdFile),
-    uploadBytes(ref(storage, `kyc/${userId}/selfie-${selfieFile.name}`), selfieFile)
-  ]);
-  await setDoc(doc(db, "kyc", userId), {
-    id: userId,
-    userId,
-    nationalIdHash,
-    nationalIdUrl: await getDownloadURL(idUpload.ref),
-    selfieUrl: await getDownloadURL(selfieUpload.ref),
-    phoneVerified: true,
-    status: "pending",
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
+function validateUpload(file: File) {
+  if (file.size > 8 * 1024 * 1024 || !file.type.startsWith("image/")) {
+    throw new Error("Each verification upload must be an image under 8 MB.");
+  }
+}
+
+export async function submitVerification(input: VerificationSubmission, onProgress?: (field: "idFront" | "idBack" | "selfieWithId", progress: number) => void) {
+  validateUpload(input.idFrontFile);
+  validateUpload(input.idBackFile);
+  validateUpload(input.selfieWithIdFile);
+  const user = requireAuth().currentUser;
+  if (!user || user.uid !== input.userId) throw new Error("Please sign in before submitting verification.");
+  const token = await user.getIdToken();
+
+  const form = new FormData();
+  form.set("fullName", input.fullName);
+  form.set("phoneNumber", input.phoneNumber);
+  form.set("nationalId", input.nationalId);
+  form.set("idFront", input.idFrontFile);
+  form.set("idBack", input.idBackFile);
+  form.set("selfieWithId", input.selfieWithIdFile);
+
+  const setAllProgress = (value: number) => {
+    onProgress?.("idFront", value);
+    onProgress?.("idBack", value);
+    onProgress?.("selfieWithId", value);
+  };
+  setAllProgress(1);
+
+  return new Promise<{ success?: boolean; message?: string; error?: string }>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/kyc/start");
+    xhr.timeout = 120000;
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = event => {
+      if (!event.lengthComputable) return;
+      setAllProgress(Math.min(95, Math.max(5, Math.round((event.loaded / event.total) * 95))));
+    };
+    xhr.onload = () => {
+      let result: { success?: boolean; message?: string; error?: string };
+      try {
+        result = JSON.parse(xhr.responseText || "{}") as { success?: boolean; message?: string; error?: string };
+      } catch {
+        reject(new Error("Upload failed. Please try again."));
+        return;
+      }
+      if (xhr.status < 200 || xhr.status >= 300 || !result.success) {
+        reject(new Error(result.error ?? "Unable to submit verification right now."));
+        return;
+      }
+      setAllProgress(100);
+      resolve(result);
+    };
+    xhr.onerror = () => reject(new Error("Upload failed. Check your connection and try again."));
+    xhr.ontimeout = () => reject(new Error("Upload took too long. Try smaller images or a stronger connection."));
+    xhr.send(form);
   });
-  await updateDoc(doc(db, "users", userId), { kycStatus: "pending", updatedAt: serverTimestamp() });
 }
 
-export async function reviewKyc(userId: string, adminId: string, status: "verified" | "rejected", rejectionReason?: string) {
-  const db = requireDb();
-  await updateDoc(doc(db, "kyc", userId), { status, rejectionReason: rejectionReason ?? null, reviewedBy: adminId, updatedAt: serverTimestamp() });
-  await updateDoc(doc(db, "users", userId), { kycStatus: status, updatedAt: serverTimestamp() });
+export async function loadMyVerification() {
+  const user = requireAuth().currentUser;
+  if (!user) throw new Error("Please sign in before loading verification.");
+  const response = await fetch("/api/kyc/start", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
+  const result = await response.json().catch(() => ({})) as { verification?: VerificationRecord | null; error?: string };
+  if (!response.ok) throw new Error(result.error ?? "Unable to load verification.");
+  return result.verification ?? null;
 }

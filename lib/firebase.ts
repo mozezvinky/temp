@@ -49,22 +49,22 @@ if (typeof window !== "undefined" && auth) {
 }
 
 export function requireDb() {
-  if (!db) throw new Error("Firestore is only available in the browser.");
+  if (!db) throw new Error("This service is not available right now.");
   return db;
 }
 
 export function requireAuth() {
-  if (!auth) throw new Error("Firebase Auth is only available in the browser.");
+  if (!auth) throw new Error("Sign in is not available right now.");
   return auth;
 }
 
 export function requireStorage() {
-  if (!storage) throw new Error("Firebase Storage is only available in the browser.");
+  if (!storage) throw new Error("Uploads are not available right now.");
   return storage;
 }
 
 export function requireFunctions() {
-  if (!functions) throw new Error("Firebase Functions is only available in the browser.");
+  if (!functions) throw new Error("This service is not available right now.");
   return functions;
 }
 

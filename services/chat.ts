@@ -1,56 +1,84 @@
 "use client";
 
-import { requireDb, requireStorage } from "@/lib/firebase";
+import { requireAuth } from "@/lib/firebase";
 import type { Conversation, Message } from "@/types";
-import { addDoc, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
-export function subscribeConversation(conversationId: string, callback: (conversation: Conversation | null) => void) {
-  const db = requireDb();
-  return onSnapshot(doc(db, "messages", conversationId), snap => callback(snap.exists() ? ({ id: snap.id, ...snap.data() } as Conversation) : null));
+async function apiChat(path: string, init?: RequestInit) {
+  const user = requireAuth().currentUser;
+  if (!user) throw new Error("Please sign in to use chat.");
+  const token = await user.getIdToken();
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      ...(init?.headers ?? {}),
+      Authorization: `Bearer ${token}`
+    }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to use chat.");
+  return payload;
 }
 
-export function subscribeMessages(conversationId: string, callback: (messages: Message[]) => void) {
-  const db = requireDb();
-  return onSnapshot(query(collection(db, "messages", conversationId, "items"), orderBy("createdAt", "asc")), snap => {
-    callback(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Message));
-  });
+export function subscribeConversation(conversationId: string, callback: (conversation: Conversation | null) => void, onError?: (error: Error) => void) {
+  let stopped = false;
+  const load = () => apiChat("/api/chat")
+    .then(payload => {
+      const conversations = Array.isArray(payload.conversations) ? payload.conversations as Conversation[] : [];
+      if (!stopped) callback(conversations.find(item => item.id === conversationId) ?? null);
+    })
+    .catch(error => !stopped && onError?.(error));
+  void load();
+  const interval = window.setInterval(load, 5000);
+  return () => {
+    stopped = true;
+    window.clearInterval(interval);
+  };
+}
+
+export function subscribeUserConversations(userId: string, callback: (conversations: Conversation[]) => void, onError?: (error: Error) => void) {
+  void userId;
+  let stopped = false;
+  const load = () => apiChat("/api/chat")
+    .then(payload => !stopped && callback(Array.isArray(payload.conversations) ? payload.conversations as Conversation[] : []))
+    .catch(error => !stopped && onError?.(error));
+  void load();
+  const interval = window.setInterval(load, 5000);
+  return () => {
+    stopped = true;
+    window.clearInterval(interval);
+  };
+}
+
+export function subscribeMessages(conversationId: string, callback: (messages: Message[]) => void, onError?: (error: Error) => void) {
+  let stopped = false;
+  const load = () => apiChat(`/api/chat?conversationId=${encodeURIComponent(conversationId)}`)
+    .then(payload => !stopped && callback(Array.isArray(payload.messages) ? payload.messages as Message[] : []))
+    .catch(error => !stopped && onError?.(error));
+  void load();
+  const interval = window.setInterval(load, 3000);
+  return () => {
+    stopped = true;
+    window.clearInterval(interval);
+  };
 }
 
 export async function sendMessage(conversation: Conversation, senderId: string, body: string) {
-  const db = requireDb();
-  if (conversation.locked || !conversation.participants.includes(senderId)) throw new Error("Chat unlocks after a hire or accepted invitation.");
-  await addDoc(collection(db, "messages", conversation.id, "items"), {
-    conversationId: conversation.id,
-    senderId,
-    body,
-    readBy: [senderId],
-    createdAt: serverTimestamp()
-  });
-  await updateDoc(doc(db, "messages", conversation.id), { lastMessage: body, updatedAt: serverTimestamp() });
-}
-
-export async function sendImage(conversation: Conversation, senderId: string, file: File) {
-  const db = requireDb();
-  const storage = requireStorage();
-  if (conversation.locked || !conversation.participants.includes(senderId)) throw new Error("Chat is locked.");
-  const uploaded = await uploadBytes(ref(storage, `messages/${conversation.id}/${crypto.randomUUID()}-${file.name}`), file);
-  const imageUrl = await getDownloadURL(uploaded.ref);
-  await addDoc(collection(db, "messages", conversation.id, "items"), {
-    conversationId: conversation.id,
-    senderId,
-    imageUrl,
-    readBy: [senderId],
-    createdAt: serverTimestamp()
+  void senderId;
+  await apiChat("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversationId: conversation.id, body })
   });
 }
 
-export function setTyping(conversationId: string, userId: string, isTyping: boolean) {
-  const db = requireDb();
-  return updateDoc(doc(db, "messages", conversationId, "typing", userId), { isTyping, updatedAt: serverTimestamp() });
+export async function sendImage() {
+  throw new Error("Image chat will be available after file messaging is connected.");
 }
 
-export function markRead(conversationId: string, messageId: string, userId: string, readBy: string[]) {
-  const db = requireDb();
-  return updateDoc(doc(db, "messages", conversationId, "items", messageId), { readBy: Array.from(new Set([...readBy, userId])) });
+export function setTyping() {
+  return Promise.resolve();
+}
+
+export function markRead() {
+  return Promise.resolve();
 }
