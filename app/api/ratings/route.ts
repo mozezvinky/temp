@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       return { id: item.id, ...data, fromUserRole: fromUser.data()?.role, stars: Number(data.stars), jobTitle: job.data()?.title ?? "Completed job" };
     }));
     return NextResponse.json({ ratings, aggregate: ratingAggregate(ratings) });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Unable to load ratings." }, { status: 500 });
   }
 }

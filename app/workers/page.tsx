@@ -224,12 +224,6 @@ export default function WorkersPage() {
     return skill.ratingCount || worker.ratingCount || 0;
   }
 
-  function primaryRate(worker: UserProfile) {
-    const skills = displayedSkillProfiles(worker);
-    const skillRate = skills.find(item => item.chargeAmount)?.chargeAmount;
-    return skillRate ? kes(addPlatformFee(skillRate)) : worker.hourlyRate ? `${kes(addPlatformFee(worker.hourlyRate))}/hr` : "Rate not set";
-  }
-
   function clientVisibleRate(amount?: number) {
     return amount ? kes(addPlatformFee(amount)) : "Rate not set";
   }
