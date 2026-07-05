@@ -8,10 +8,21 @@ import { PwaBootstrap } from "@/components/pwa/PwaBootstrap";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
+  applicationName: "Copic",
   title: "Copic - Connecting people, earning income, and building careers.",
   description: "Connect with opportunities, hire skilled workers, and take your career to the next level.",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Copic" },
-  manifest: "/manifest.webmanifest"
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" }
+    ],
+    shortcut: "/favicon.ico",
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }]
+  }
 };
 
 export const viewport: Viewport = {

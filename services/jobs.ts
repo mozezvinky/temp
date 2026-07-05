@@ -34,8 +34,31 @@ function offlineError() {
   return new Error("offline");
 }
 
-function activeRoleHeaders(userId: string): Record<string, string> {
+function quotaPausedUntil() {
+  if (typeof window === "undefined") return 0;
+  if (process.env.NEXT_PUBLIC_DATA_BACKEND === "local-sqlite") {
+    window.localStorage.removeItem("temp.dataQuotaPausedUntil");
+    return 0;
+  }
+  return Number(window.localStorage.getItem("temp.dataQuotaPausedUntil") ?? 0);
+}
+
+function isQuotaMessage(message: string) {
+  return message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded") || message.includes("quota-paused");
+}
+
+function pauseForQuota() {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("temp.dataQuotaPausedUntil", String(Date.now() + 300_000));
+}
+
+function quotaError() {
+  return new Error("Firestore quota is exhausted right now. Please wait a few minutes before trying again.");
+}
+
+function activeRoleHeaders(userId: string, preferredRole?: "client" | "worker" | "admin"): Record<string, string> {
   if (typeof window === "undefined") return {};
+  if (preferredRole) return { "X-Temp-Role": preferredRole };
   const role = window.sessionStorage.getItem("temp.profile.role") ?? window.localStorage.getItem(`temp.profile.role.${userId}`) ?? "";
   return role === "client" || role === "worker" || role === "admin" ? { "X-Temp-Role": role } : {};
 }
@@ -44,12 +67,17 @@ function usesOneShotDevFetch() {
   return process.env.NODE_ENV === "development";
 }
 
-async function fetchSqlJobs(scope?: "client") {
+async function fetchSqlJobs(scope?: "client" | "worker-active") {
   if (isOffline()) throw offlineError();
   const user = requireAuth().currentUser;
   if (!user) throw new Error("Please sign in to load jobs.");
   const token = await user.getIdToken();
-  const response = await fetch(`/api/jobs${scope ? `?scope=${scope}` : ""}`, { headers: { Authorization: `Bearer ${token}`, ...activeRoleHeaders(user.uid) } });
+  const preferredRole = scope === "client" ? "client" : scope === "worker-active" ? "worker" : undefined;
+  const response = await fetch(`/api/jobs${scope ? `?scope=${scope}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}`, "Cache-Control": "no-cache", ...activeRoleHeaders(user.uid, preferredRole) },
+    cache: "no-store",
+    credentials: "same-origin"
+  });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to load jobs.");
   return Array.isArray(payload.jobs) ? (payload.jobs as Job[]).filter(isVisibleJob) : [];
@@ -60,7 +88,11 @@ async function fetchSqlJob(jobId: string) {
   const user = requireAuth().currentUser;
   if (!user) throw new Error("Please sign in to load this job.");
   const token = await user.getIdToken();
-  const response = await fetch(`/api/jobs?id=${encodeURIComponent(jobId)}`, { headers: { Authorization: `Bearer ${token}`, ...activeRoleHeaders(user.uid) } });
+  const response = await fetch(`/api/jobs?id=${encodeURIComponent(jobId)}`, {
+    headers: { Authorization: `Bearer ${token}`, "Cache-Control": "no-cache", ...activeRoleHeaders(user.uid) },
+    cache: "no-store",
+    credentials: "same-origin"
+  });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to load this job.");
   const job = (payload.job ?? null) as Job | null;
@@ -73,13 +105,15 @@ export function subscribeOpenJobs(callback: (jobs: Job[]) => void, onError?: (er
   let timeoutId: number | null = null;
   const load = async () => {
     if (stopped || inFlight) return;
+    if (Date.now() < quotaPausedUntil()) return;
     if (isOffline()) {
       onError?.(offlineError());
       return;
     }
     inFlight = true;
     try {
-      const items = await fetchSqlJobs();
+      const [openItems, activeItems] = await Promise.all([fetchSqlJobs(), fetchSqlJobs("worker-active")]);
+      const items = [...openItems, ...activeItems].filter((job, index, all) => all.findIndex(item => item.id === job.id) === index);
       if (!stopped) callback(sortJobs(items));
       if (!stopped) schedule(60_000);
     } catch (error) {
@@ -118,6 +152,16 @@ export function subscribeClientJobs(clientId: string, callback: (jobs: Job[]) =>
   let stopped = false;
   let inFlight = false;
   let timeoutId: number | null = null;
+  const storageKey = `temp.clientJobs.${clientId}`;
+  try {
+    const cached = window.sessionStorage.getItem(storageKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) callback(sortJobs((parsed as Job[]).filter(isVisibleJob)));
+    }
+  } catch {
+    window.sessionStorage.removeItem(storageKey);
+  }
   const load = async () => {
     if (stopped || inFlight) return;
     if (isOffline()) {
@@ -127,10 +171,17 @@ export function subscribeClientJobs(clientId: string, callback: (jobs: Job[]) =>
     inFlight = true;
     try {
       const items = await fetchSqlJobs("client");
-      if (!stopped) callback(sortJobs(items));
+      if (!stopped) {
+        const sorted = sortJobs(items);
+        callback(sorted);
+        try { window.sessionStorage.setItem(storageKey, JSON.stringify(sorted)); } catch { /* Storage is optional. */ }
+      }
       if (!stopped) schedule(60_000);
     } catch (error) {
-      if (!stopped) onError?.(error instanceof Error ? error : new Error("Unable to load posted work."));
+      const quotaLimited = error instanceof Error && isQuotaMessage(error.message);
+      if (quotaLimited) pauseForQuota();
+      if (!stopped && !quotaLimited) onError?.(error instanceof Error ? error : new Error("Unable to load posted work."));
+      if (!stopped) schedule(quotaLimited ? 300_000 : 60_000);
     } finally {
       inFlight = false;
     }
@@ -147,16 +198,20 @@ export function subscribeClientJobs(clientId: string, callback: (jobs: Job[]) =>
     if (timeoutId !== null) window.clearTimeout(timeoutId);
   };
   const resume = () => {
+    if (Date.now() < quotaPausedUntil()) return;
     if (timeoutId !== null) window.clearTimeout(timeoutId);
     void load();
   };
+  const refreshPostedWork = () => resume();
   window.addEventListener("online", resume);
   window.addEventListener("offline", resume);
+  window.addEventListener("temp:jobs-changed", refreshPostedWork);
   return () => {
     stopped = true;
     if (timeoutId !== null) window.clearTimeout(timeoutId);
     window.removeEventListener("online", resume);
     window.removeEventListener("offline", resume);
+    window.removeEventListener("temp:jobs-changed", refreshPostedWork);
   };
 }
 
@@ -224,6 +279,7 @@ export function subscribeApplications(userId: string, role: "client" | "worker",
 
   const load = async () => {
     if (inFlight || stopped) return;
+    if (Date.now() < quotaPausedUntil()) return;
     if (isOffline()) throw offlineError();
     inFlight = true;
     const user = requireAuth().currentUser;
@@ -231,12 +287,16 @@ export function subscribeApplications(userId: string, role: "client" | "worker",
       if (!user) throw new Error("Please sign in to load applications.");
       const token = await user.getIdToken();
       const response = await fetch(`/api/applications?role=${role}`, {
-        headers: { Authorization: `Bearer ${token}`, "Cache-Control": "no-cache", ...activeRoleHeaders(user.uid) },
+        headers: { Authorization: `Bearer ${token}`, "Cache-Control": "no-cache", ...activeRoleHeaders(user.uid, role) },
         cache: "no-store",
         credentials: "same-origin"
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to load applications.");
+      if (payload.degraded && payload.reason === "quota") {
+        pauseForQuota();
+        return;
+      }
       const items = Array.isArray(payload.applications) ? (payload.applications as Application[]).filter(isVisibleApplication) : [];
       if (!stopped) {
         callback(items);
@@ -261,8 +321,10 @@ export function subscribeApplications(userId: string, role: "client" | "worker",
     void load()
       .then(() => schedule(60_000))
       .catch(error => {
-        if (!stopped) onError?.(error);
-        schedule(error instanceof Error && error.message.includes("RESOURCE_EXHAUSTED") ? 300_000 : 60_000);
+        const quotaLimited = error instanceof Error && isQuotaMessage(error.message);
+        if (quotaLimited) pauseForQuota();
+        if (!stopped && !quotaLimited) onError?.(error);
+        schedule(quotaLimited ? 300_000 : 60_000);
       });
   };
   const refreshWhenActive = () => {
@@ -305,6 +367,10 @@ export async function createJob(clientId: string, input: unknown) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(typeof payload.error === "string" ? payload.error : "Unable to post work right now.");
+  }
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem("temp.dataQuotaPausedUntil");
+    window.dispatchEvent(new CustomEvent("temp:jobs-changed"));
   }
   return { id: String(payload.jobId) };
 }
@@ -380,14 +446,14 @@ export async function cancelNextPeriod(jobId: string) {
   return payload.job as Job;
 }
 
-export async function completeApplication(application: Application) {
+export async function completeApplication(application: Application, timelineIds?: string[]) {
   const user = requireAuth().currentUser;
   if (!user) throw new Error("Please sign in before marking work done.");
   const token = await user.getIdToken(true);
   const response = await fetch("/api/applications", {
     method: "PATCH",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ applicationId: application.id, action: "complete" })
+    body: JSON.stringify({ applicationId: application.id, action: "complete", timelineIds })
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to mark this worker paid.");
@@ -408,14 +474,14 @@ export async function confirmWorkerPaymentReceived(application: Application) {
   return payload.application as Application;
 }
 
-export async function requestApplicationCompletion(application: Application) {
+export async function requestApplicationCompletion(application: Application, timelineCount?: number) {
   const user = requireAuth().currentUser;
   if (!user) throw new Error("Please sign in before marking work complete.");
   const token = await user.getIdToken(true);
   const response = await fetch("/api/applications", {
     method: "PATCH",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ applicationId: application.id, action: "worker_complete" })
+    body: JSON.stringify({ applicationId: application.id, action: "worker_complete", timelineCount })
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to request completion.");
@@ -423,7 +489,7 @@ export async function requestApplicationCompletion(application: Application) {
 }
 
 export async function canWorkerApply(worker: UserProfile) {
-  if (worker.isLocked) return { ok: false, reason: "Your account is locked. Open your dashboard for the next step." };
+  if (worker.isLocked || Number(worker.outstandingServiceFee ?? 0) > 0) return { ok: false, reason: "Your account is locked. Open your dashboard for the next step." };
   return { ok: true };
 }
 
@@ -445,6 +511,7 @@ export async function applyToJob(job: Job, worker: UserProfile, coverNote: strin
 }
 
 export async function acceptApplication(application: Application) {
+  if (Date.now() < quotaPausedUntil()) throw quotaError();
   const user = requireAuth().currentUser;
   if (!user) throw new Error("Please sign in before accepting applications.");
   const token = await user.getIdToken(true);
@@ -454,7 +521,14 @@ export async function acceptApplication(application: Application) {
     body: JSON.stringify({ applicationId: application.id, action: "accept" })
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to accept application.");
+  if (!response.ok) {
+    const message = typeof payload.error === "string" ? payload.error : "Unable to accept application.";
+    if (response.status === 503 || isQuotaMessage(message)) {
+      pauseForQuota();
+      throw quotaError();
+    }
+    throw new Error(message);
+  }
   return payload.application as Application;
 }
 

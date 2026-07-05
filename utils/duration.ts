@@ -19,6 +19,11 @@ export function durationLabel(value: number, unit: DurationUnit) {
   return `${value} ${value === 1 ? unit.replace(/s$/, "") : unit}`;
 }
 
+export function perDurationUnit(unit?: DurationUnit | null) {
+  const safeUnit = unit && durationUnits.includes(unit) ? unit : "hours";
+  return safeUnit.endsWith("s") ? safeUnit.slice(0, -1) : safeUnit;
+}
+
 export function jobDurationUnit(job: Job): DurationUnit {
   return job.durationUnit ?? "hours";
 }

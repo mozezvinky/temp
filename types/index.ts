@@ -16,11 +16,14 @@ export type AdminPermission =
   | "admins:manage"
   | "moderation:write";
 export type VerificationStatus = "not_submitted" | "pending" | "approved" | "rejected";
+export type VerificationKind = "identity" | "driver_license";
 export type JobStatus = "draft" | "open" | "pending" | "live" | "assigned" | "active" | "in_progress" | "completed" | "disputed" | "cancelled" | "moderated";
 export type ApplicationStatus = "pending" | "accepted" | "completion_requested" | "payment_sent" | "completed" | "rejected" | "cancelled" | "withdrawn";
+export type JobPayType = "fixed" | "timeline" | "pay_per_timeline";
+export type JobTimelineStatus = "pending" | "submitted" | "approved" | "paid";
 export type PaymentType = "mpesa" | "cash";
 export type JobPaymentMethod = "mpesa" | "cash";
-export type ServiceFeePaymentStatus = "payment_pending_verification" | "verified" | "approved" | "rejected";
+export type ServiceFeePaymentStatus = "service_fee_due" | "payment_pending_verification" | "verified" | "approved" | "rejected";
 export type WorkerSkillCategory = "tools_software" | "services_trades" | "credentials_licenses";
 export type WorkerSkillLevel = "beginner" | "independent" | "expert";
 export type WorkerSkillProofType = "certificate" | "license" | "reference" | "work_photo";
@@ -89,6 +92,8 @@ export interface UserProfile {
   completedJobs: number;
   verificationStatus: VerificationStatus;
   verificationRejectionReason?: string | null;
+  driverLicenseVerificationStatus?: VerificationStatus;
+  driverLicenseRejectionReason?: string | null;
   profileCompleted: boolean;
   isLocked: boolean;
   lockReason?: string;
@@ -132,6 +137,7 @@ export interface AdminSession {
 export interface VerificationRecord {
   id: string;
   userId: string;
+  kind?: VerificationKind;
   fullName: string;
   email: string;
   username: string;
@@ -139,6 +145,7 @@ export interface VerificationRecord {
   phoneNumber: string;
   nationalId?: string;
   nationalIdHash?: string;
+  licenseNumber?: string;
   county: string;
   address: string;
   idFrontUrl: string;
@@ -167,6 +174,7 @@ export interface Job {
   id: string;
   clientId: string;
   clientName: string;
+  clientVerificationStatus?: VerificationStatus;
   createdBy?: string;
   title: string;
   description: string;
@@ -175,7 +183,16 @@ export interface Job {
   county: string;
   locationDetails?: LocationFields;
   payAmount: number;
-  payType: "fixed" | "timeline";
+  payType: JobPayType;
+  timelineCount?: number;
+  clientPayPerTimeline?: number;
+  workerPayPerTimeline?: number;
+  totalClientAmount?: number;
+  totalWorkerAmount?: number;
+  totalPlatformFee?: number;
+  paidTimelineCount?: number;
+  unpaidTimelineCount?: number;
+  submittedTimelineCount?: number;
   duration: string;
   durationValue?: number;
   durationUnit?: "minutes" | "hours" | "days" | "weeks" | "months";
@@ -199,13 +216,31 @@ export interface Job {
   status: JobStatus;
   // Compatibility fields for older job/payment documents.
   durationHours?: number;
-  rateType?: "fixed" | "timeline";
+  rateType?: JobPayType;
   rateAmount?: number;
   imageUrls?: string[];
   hiredWorkerId?: string;
   paymentType?: PaymentType;
-  createdAt: Timestamp | null;
-  updatedAt: Timestamp | null;
+  createdAt: Timestamp | string | null;
+  updatedAt: Timestamp | string | null;
+}
+
+export interface JobTimeline {
+  id: string;
+  jobId: string;
+  applicationId?: string;
+  workerId?: string;
+  clientId: string;
+  timelineNumber: number;
+  status: JobTimelineStatus;
+  submittedAt?: Timestamp | string | null;
+  approvedAt?: Timestamp | string | null;
+  paidAt?: Timestamp | string | null;
+  workerAmount: number;
+  clientAmount: number;
+  platformFee: number;
+  createdAt?: Timestamp | string | null;
+  updatedAt?: Timestamp | string | null;
 }
 
 export interface Application {
@@ -220,6 +255,21 @@ export interface Application {
   workerEmail?: string;
   workerPhoneNumber?: string;
   jobAmount?: number;
+  jobPayType?: JobPayType;
+  jobDurationUnit?: Job["durationUnit"];
+  timelineCount?: number;
+  clientPayPerTimeline?: number;
+  workerPayPerTimeline?: number;
+  totalClientAmount?: number;
+  totalWorkerAmount?: number;
+  totalPlatformFee?: number;
+  paidTimelineCount?: number;
+  submittedTimelineCount?: number;
+  unpaidTimelineCount?: number;
+  nextTimelineNumber?: number;
+  nextPayableTimelineNumber?: number;
+  paidTimelineRatingScopeId?: string;
+  paidTimelineNumbers?: number[];
   workerSkills?: string[];
   workerCompletedJobs?: number;
   workerRatingAverage?: number;
@@ -280,6 +330,7 @@ export interface ServiceFeePayment {
   submittedAt: Timestamp | null;
   reviewedAt?: Timestamp | null;
   reviewedBy?: string | null;
+  requiresWorkerSubmission?: boolean;
 }
 
 export interface Rating {

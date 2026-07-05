@@ -15,14 +15,19 @@ import { VerificationReminder } from "@/components/verification/VerificationRemi
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { cancelApplication, cancelLiveApplication, confirmWorkerPaymentReceived, requestApplicationCompletion, respondDirectHireRequest, subscribeApplications } from "@/services/jobs";
 import { loadRatings, rateClient } from "@/services/ratings";
+import { reportCompletedJob } from "@/services/reports";
 import { loadServiceFeePayment, submitServiceFeePayment } from "@/services/service-fee";
 import { deleteWorkerSkill, loadWorkerSkills } from "@/services/worker-skills";
 import type { Application, ServiceFeePayment, WorkerSkillProfile } from "@/types";
-import { BriefcaseBusiness, CheckCircle2, Clock, MapPin, MessageCircle, Pencil, Plus, Star, Trash2 } from "lucide-react";
+import { BriefcaseBusiness, Car, CheckCircle2, Clock, MapPin, MessageCircle, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
+import { applicationTimelinePay } from "@/utils/application-timeline-pay";
+import { perDurationUnit } from "@/utils/duration";
 import { calculateWorkerNet, kes } from "@/utils/money";
+import { completedJobId } from "@/utils/completed-job-id";
+import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { toast } from "sonner";
 
 const SERVICE_FEE_PAYBILL_NUMBER = "482917";
@@ -37,6 +42,7 @@ export default function DashboardPage() {
   const [jobsModalTab, setJobsModalTab] = useState<"applications" | "live" | "completed" | "requests">("applications");
   const [openModal, setOpenModal] = useState<"jobs" | "ratings" | null>(null);
   const [verificationOpen, setVerificationOpen] = useState(false);
+  const [driverLicenseOpen, setDriverLicenseOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
   const [skillOpen, setSkillOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<WorkerSkillProfile | null>(null);
@@ -49,7 +55,16 @@ export default function DashboardPage() {
   const [ratingAggregate, setRatingAggregate] = useState<{ average: number; count: number; breakdown: Record<number, number> }>({ average: 0, count: 0, breakdown: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } });
   const profileId = profile?.id;
   const profileRole = profile?.role;
-  const profileLocked = !!profile && profile.role !== "admin" && (profile.isLocked || Number(profile.outstandingServiceFee ?? 0) > 0 || forcedServiceFee > 0);
+  const profileOutstandingServiceFee = Number(profile?.outstandingServiceFee ?? 0);
+  const currentOutstandingServiceFee = profileOutstandingServiceFee > 0 ? profileOutstandingServiceFee : forcedServiceFee;
+  const pendingServiceFeePayment = !!serviceFeePayment
+    && serviceFeePayment.status !== "rejected"
+    && serviceFeePayment.status !== "approved"
+    && Number(serviceFeePayment.amount ?? 0) >= currentOutstandingServiceFee;
+  const serviceFeeApproved = serviceFeePayment?.status === "approved" && profileOutstandingServiceFee <= 0;
+  const profileLocked = !!profile && profile.role !== "admin" && (profile.isLocked || currentOutstandingServiceFee > 0);
+  const serviceFeeClearKey = `${profileOutstandingServiceFee}:${serviceFeePayment?.status ?? ""}`;
+  const canClearForcedServiceFee = serviceFeeClearKey === "0:approved";
 
   useEffect(() => {
     if (profile?.role === "client" && !profileLocked) router.replace("/workers");
@@ -80,10 +95,47 @@ export default function DashboardPage() {
   }, [profileId, profileRole]);
 
   useEffect(() => {
+    if (!profileId || profileRole !== "worker" || !serviceFeePayment || ["approved", "rejected"].includes(serviceFeePayment.status)) return;
+    const checkPayment = () => {
+      void loadServiceFeePayment()
+        .then(payment => {
+          setServiceFeePayment(payment);
+          if (payment?.status === "approved") {
+            setForcedServiceFee(0);
+            window.sessionStorage.removeItem("temp.forceServiceFee");
+            void refreshProfile();
+          }
+        })
+        .catch(() => undefined);
+    };
+    const intervalId = window.setInterval(checkPayment, 5_000);
+    return () => window.clearInterval(intervalId);
+  }, [profileId, profileRole, refreshProfile, serviceFeePayment]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
-    const stored = Number(window.sessionStorage.getItem("temp.forceServiceFee") ?? 0);
-    if (Number.isFinite(stored) && stored > 0) setForcedServiceFee(stored);
+    const syncForcedServiceFee = (value?: unknown) => {
+      const amount = typeof value === "number" ? value : Number(window.sessionStorage.getItem("temp.forceServiceFee") ?? 0);
+      if (Number.isFinite(amount)) setForcedServiceFee(Math.max(0, amount));
+    };
+    const handleForcedServiceFee = (event: Event) => syncForcedServiceFee((event as CustomEvent<number>).detail);
+    syncForcedServiceFee();
+    window.addEventListener("temp:force-service-fee", handleForcedServiceFee);
+    return () => window.removeEventListener("temp:force-service-fee", handleForcedServiceFee);
   }, []);
+
+  useEffect(() => {
+    if (!canClearForcedServiceFee) return;
+    setForcedServiceFee(0);
+    window.sessionStorage.removeItem("temp.forceServiceFee");
+  }, [canClearForcedServiceFee]);
+
+  useEffect(() => {
+    if (!profile || profile.role !== "worker") return;
+    if (profile.isLocked || profileOutstandingServiceFee > 0) return;
+    setForcedServiceFee(0);
+    window.sessionStorage.removeItem("temp.forceServiceFee");
+  }, [profile, profileOutstandingServiceFee]);
 
   useEffect(() => {
     if (!profileId || profileRole !== "worker") return;
@@ -159,7 +211,14 @@ export default function DashboardPage() {
       toast.success("Waiting for admin confirmation.");
       await refreshProfile();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to submit payment.");
+      const message = error instanceof Error ? error.message : "Unable to submit payment.";
+      if (/no service fee|outstanding service fee/i.test(message)) {
+        setForcedServiceFee(0);
+        window.sessionStorage.removeItem("temp.forceServiceFee");
+        window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: 0 }));
+        await refreshProfile();
+      }
+      toast.error(message);
     } finally {
       setSubmittingFee(false);
     }
@@ -192,8 +251,8 @@ export default function DashboardPage() {
     .reduce((sum, application) => sum + calculateWorkerNet(Number(application.jobAmount ?? 0)), 0);
   const averageJobValue = doneApplications.length ? totalEarnings / doneApplications.length : 0;
   const completionRate = visibleApplications.length ? Math.round((doneApplications.length / visibleApplications.length) * 100) : 0;
-  const demandedServiceFee = Number(profile.outstandingServiceFee ?? 0) || forcedServiceFee;
-  const waitingForAdminConfirmation = !!serviceFeePayment && serviceFeePayment.status !== "rejected" && serviceFeePayment.status !== "approved";
+  const demandedServiceFee = serviceFeeApproved ? 0 : currentOutstandingServiceFee;
+  const waitingForAdminConfirmation = pendingServiceFeePayment;
   const profilePhoto = profile.photoURL ? {
     photoURL: profile.photoURL,
     photoPositionX: profile.photoPositionX ?? 50,
@@ -201,7 +260,7 @@ export default function DashboardPage() {
     photoZoom: profile.photoZoom ?? 1
   } : null;
 
-  if (profileLocked || demandedServiceFee > 0) {
+  if (demandedServiceFee > 0) {
     return (
       <div className="fixed inset-0 z-[80] grid place-items-center overflow-hidden bg-black/80 p-4">
         <Card className="no-visible-scrollbar max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto overscroll-contain border-amber-200/30">
@@ -334,7 +393,7 @@ export default function DashboardPage() {
                   <strong>{applicationsLoading && !applications.length ? "—" : liveApplications.length}</strong><small>Live</small>
                 </button>
                 <button type="button" onClick={() => { setJobsModalTab("completed"); setOpenModal("jobs"); }}>
-                  <strong>{applicationsLoading && !applications.length ? "—" : doneApplications.length}</strong><small>Done</small>
+                  <strong>{applicationsLoading && !applications.length ? "—" : completedJobsCount}</strong><small>Done</small>
                 </button>
               </div>
             </Card>
@@ -343,7 +402,8 @@ export default function DashboardPage() {
               <button type="button" onClick={() => { setJobsModalTab("applications"); setOpenModal("jobs"); }}><BriefcaseBusiness size={17} /> Applications <span>{standardApplications.length}</span></button>
               <button type="button" onClick={() => { setJobsModalTab("live"); setOpenModal("jobs"); }}><Clock size={17} /> Live jobs <span>{liveApplications.length}</span></button>
               <button type="button" onClick={() => { setJobsModalTab("requests"); setOpenModal("jobs"); }}><MessageCircle size={17} /> Requests <span>{directHireRequests.length}</span></button>
-              <button type="button" onClick={() => { setJobsModalTab("completed"); setOpenModal("jobs"); }}><CheckCircle2 size={17} /> Completed jobs <span>{doneApplications.length}</span></button>
+              <button type="button" onClick={() => { setJobsModalTab("completed"); setOpenModal("jobs"); }}><CheckCircle2 size={17} /> Completed jobs <span>{completedJobsCount}</span></button>
+              <button type="button" onClick={() => setDriverLicenseOpen(true)}><Car size={17} /> Add driver&apos;s license <span>{profile.driverLicenseVerificationStatus === "approved" ? "Verified" : profile.driverLicenseVerificationStatus === "pending" ? "Pending" : "New"}</span></button>
               <button type="button" onClick={() => setLocationOpen(true)}><MapPin size={17} /> {profile.location ? "Change Location" : "Set Up Your Location"} <span>{profile.location ? "Saved" : "New"}</span></button>
             </Card>
           </aside>
@@ -381,6 +441,7 @@ export default function DashboardPage() {
         ]);
       }} />}
       {verificationOpen && <IdentityVerificationModal profile={profile} onClose={() => setVerificationOpen(false)} onSubmitted={refreshProfile} />}
+      {driverLicenseOpen && <IdentityVerificationModal profile={profile} kind="driver_license" onClose={() => setDriverLicenseOpen(false)} onSubmitted={refreshProfile} />}
       {locationOpen && <WorkerLocationModal profile={profile} onClose={() => setLocationOpen(false)} onSaved={refreshProfile} />}
     </div>
   );
@@ -424,6 +485,7 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
   const [pendingCancel, setPendingCancel] = useState<Application | null>(null);
   const [pendingLiveCancel, setPendingLiveCancel] = useState<Application | null>(null);
   const [pendingComplete, setPendingComplete] = useState<Application | null>(null);
+  const [reportingId, setReportingId] = useState("");
 
   async function cancel(application: Application) {
     setBusyId(application.id);
@@ -470,14 +532,22 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
     }
   }
 
-  async function requestComplete(application: Application, stars = 0, review = "") {
+  async function requestComplete(application: Application, stars = 0, review = "", timelineCount?: number) {
     setBusyId(application.id);
     setBusyAction("complete");
     try {
-      const updated = await requestApplicationCompletion(application);
-      if (stars > 0) await rateClient(application.jobId, application.clientId, stars, review);
+      const updated = await requestApplicationCompletion(application, timelineCount);
       onApplicationUpdated({ ...application, ...updated, status: "completion_requested" });
-      toast.success(stars > 0 ? "Completion sent and client rating submitted." : "Completion sent to the client for confirmation.");
+      let ratingSaved = false;
+      if (stars > 0) {
+        try {
+          await rateClient(application.jobId, application.clientId, stars, review);
+          ratingSaved = true;
+        } catch {
+          toast.warning("Completion was sent, but the client rating could not be saved.");
+        }
+      }
+      toast.success(ratingSaved ? "Completion sent and client rating submitted." : "Completion sent to the client for confirmation.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to mark work complete.");
     } finally {
@@ -503,14 +573,39 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
     }
   }
 
+  async function reportIssue(application: Application) {
+    const id = completedJobId(application.id);
+    const reason = window.prompt(`Describe the issue for completed job ${id}`);
+    if (!reason?.trim()) return;
+    setReportingId(application.id);
+    try {
+      const result = await reportCompletedJob({
+        completedJobId: id,
+        jobId: application.jobId,
+        applicationId: application.id,
+        title: `Completed job issue: ${application.jobTitle ?? id}`,
+        reason: reason.trim()
+      });
+      toast.success(`Report submitted. Ticket ${result.ticketId ?? "created"}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to submit report.");
+    } finally {
+      setReportingId("");
+    }
+  }
+
   if (!applications.length) return <EmptyState title={`No ${mode === "completed" ? "completed jobs" : mode}`} body="Jobs will appear here as their status changes." />;
   return (
     <>
       <div className="grid gap-3">
         {applications.map(application => {
           const isBusy = busyId === application.id;
+          const timelinePay = applicationTimelinePay(application);
+          const timelineUnitLabel = perDurationUnit(application.jobDurationUnit);
           const statusLabel = application.status === "completed" || application.jobStatus === "completed"
             ? "done"
+            : isPayPerTimeline(application.jobPayType)
+              ? `${timelineUnitLabel} payments: ${timelinePay.paidTimelineCount}/${timelinePay.timelineCount} paid`
             : application.status === "completion_requested"
               ? "waiting for client confirmation"
               : application.status === "payment_sent"
@@ -521,6 +616,11 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
               <p className="text-xs font-bold uppercase tracking-[.16em] text-[#959087]">{application.jobCategory ?? "Job category"}</p>
               <p className="mt-1 font-black text-[#FFFBFF]">{application.jobTitle ?? "Job"}</p>
               <p className="mt-2 text-sm capitalize text-[#CCC6BB]">Status: {statusLabel}</p>
+              {mode === "completed" && (
+                <div className="mt-3 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-100">
+                  Completed Job ID: <span className="font-black">{completedJobId(application.id)}</span>
+                </div>
+              )}
               {mode === "requests" && (
                 <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm text-[#CCC6BB]">
                   <p><strong className="text-[#FFFBFF]">Location:</strong> {application.requestLocation ?? "Not provided"}</p>
@@ -531,8 +631,20 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
                 </div>
               )}
               {mode === "completed" && application.clientRating && <p className="mt-2 inline-flex items-center gap-1 text-sm font-black text-amber-200"><Star size={16} /> Client rating: {application.clientRating}/5</p>}
+              {isPayPerTimeline(application.jobPayType) && (
+                <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
+                  <p>Pay per {timelineUnitLabel}: {kes(timelinePay.workerPayPerTimeline)}</p>
+                  <p className="mt-1">Paid worker amount: {kes(timelinePay.paidWorkerAmount)}</p>
+                  <p className="mt-1">Remaining worker amount: {kes(timelinePay.remainingWorkerAmount)}</p>
+                </div>
+              )}
               <div className="mt-4 flex flex-wrap gap-2">
                 {mode === "live" && <Link href="/chat" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-bone px-4 py-2 text-sm font-black text-[#1E1B13]"><MessageCircle size={16} /> Chat with employer</Link>}
+                {mode === "completed" && (
+                  <Button type="button" variant="secondary" disabled={reportingId === application.id} onClick={() => void reportIssue(application)}>
+                    {reportingId === application.id ? "Reporting..." : "Report issue"}
+                  </Button>
+                )}
                 {mode === "requests" && application.status === "pending" && (
                   <>
                     <Button type="button" disabled={isBusy} onClick={() => void answerRequest(application, "accept")}>
@@ -549,8 +661,8 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
                   </Button>
                 )}
                 {application.status === "accepted" && application.jobStatus !== "completed" && (
-                  <Button type="button" disabled={isBusy} onClick={() => setPendingComplete(application)}>
-                    {isBusy && busyAction === "complete" ? "Sending..." : "Mark complete"}
+                    <Button type="button" disabled={isBusy} onClick={() => setPendingComplete(application)}>
+                    {isBusy && busyAction === "complete" ? "Sending..." : isPayPerTimeline(application.jobPayType) ? `Mark ${timelineUnitLabel} ${application.nextTimelineNumber ?? ""} complete` : "Mark complete"}
                   </Button>
                 )}
                 {mode === "live" && ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && (
@@ -599,15 +711,40 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
         </AppModal>
       )}
       {pendingComplete && (
-        <AppModal title="Mark job complete" onClose={() => setPendingComplete(null)} maxWidth="max-w-md">
-          <p className="text-sm text-[#CCC6BB]">Send completion to the client for payment confirmation. You can rate the client now or leave the rating empty.</p>
+        <AppModal title={isPayPerTimeline(pendingComplete.jobPayType) ? `Mark ${perDurationUnit(pendingComplete.jobDurationUnit)}s complete` : "Mark job complete"} onClose={() => setPendingComplete(null)} maxWidth="max-w-md">
+          <p className="text-sm text-[#CCC6BB]">
+            {isPayPerTimeline(pendingComplete.jobPayType)
+              ? `Choose how many ${perDurationUnit(pendingComplete.jobDurationUnit)}s you finished. The client will pay only the submitted ${perDurationUnit(pendingComplete.jobDurationUnit)}s.`
+              : "Send completion to the client for payment confirmation. You can rate the client now or leave the rating empty."}
+          </p>
           <form onSubmit={event => {
             event.preventDefault();
             const application = pendingComplete;
             const form = new FormData(event.currentTarget);
+            const timelinePay = applicationTimelinePay(application);
+            const submittedCount = Math.max(0, Number(application.submittedTimelineCount ?? 0));
+            const maxTimelineCount = Math.max(1, timelinePay.timelineCount - timelinePay.paidTimelineCount - submittedCount);
+            const timelineCount = isPayPerTimeline(application.jobPayType)
+              ? Math.max(1, Math.min(maxTimelineCount, Math.trunc(Number(form.get("timelineCount")) || 1)))
+              : undefined;
             setPendingComplete(null);
-            void requestComplete(application, Number(form.get("stars") ?? 0), String(form.get("review") ?? ""));
+            void requestComplete(application, Number(form.get("stars") ?? 0), String(form.get("review") ?? ""), timelineCount);
           }} className="mt-5 grid gap-4">
+            {isPayPerTimeline(pendingComplete.jobPayType) && (() => {
+              const unit = perDurationUnit(pendingComplete.jobDurationUnit);
+              const unitTitle = unit.charAt(0).toUpperCase() + unit.slice(1);
+              const timelinePay = applicationTimelinePay(pendingComplete);
+              const submittedCount = Math.max(0, Number(pendingComplete.submittedTimelineCount ?? 0));
+              const maxTimelineCount = Math.max(1, timelinePay.timelineCount - timelinePay.paidTimelineCount - submittedCount);
+              return (
+                <>
+                  <label className="temp-label">{unitTitle}s to mark complete
+                    <input name="timelineCount" type="number" min={1} max={maxTimelineCount} defaultValue={1} className="temp-input mt-2 p-3 outline-none" />
+                  </label>
+                  <p className="text-xs font-bold text-[#CCC6BB]">Available now: {maxTimelineCount} of {timelinePay.timelineCount} {unit}s.</p>
+                </>
+              );
+            })()}
             <StarRatingInput name="stars" label="Rate client optional" />
             <label className="temp-label">Review optional<textarea name="review" className="temp-input min-h-24 p-3 outline-none" placeholder="How was the client to work with?" /></label>
             <div className="flex flex-wrap gap-3">

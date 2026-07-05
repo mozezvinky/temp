@@ -1,6 +1,17 @@
-const CACHE_NAME = "pic-pwa-v2";
+const CACHE_NAME = "copic-pwa-v3";
 const OFFLINE_URL = "/offline";
-const ASSETS = ["/", OFFLINE_URL, "/manifest.webmanifest", "/icons/pic-icon.png", "/icons/icon.svg", "/download.webp"];
+const ASSETS = [
+  "/",
+  OFFLINE_URL,
+  "/manifest.webmanifest",
+  "/site.webmanifest",
+  "/favicon.svg",
+  "/favicon.ico",
+  "/apple-touch-icon.png",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/download.webp"
+];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -13,7 +24,7 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
-  const isStaticAsset = ASSETS.includes(url.pathname) || url.pathname.startsWith("/icons/");
+  const isStaticAsset = ASSETS.includes(url.pathname);
   if (!isStaticAsset) return;
   event.respondWith(
     fetch(event.request)
@@ -30,8 +41,8 @@ self.addEventListener("push", event => {
   const data = event.data ? event.data.json() : {};
   event.waitUntil(self.registration.showNotification(data.title || "Copic", {
     body: data.body || "You have a new Copic update.",
-    icon: "/icons/pic-icon.png",
-    badge: "/icons/maskable.svg",
+    icon: "/icon-192.png",
+    badge: "/favicon.svg",
     data: { url: data.url || "/notifications" }
   }));
 });

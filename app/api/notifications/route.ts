@@ -32,29 +32,16 @@ export async function GET(request: NextRequest) {
     }
 
     const db = adminDb();
-    const [notificationSnapshot, applicationSnapshot, archiveSnapshot, deleteSnapshot] = await Promise.all([
+    const [notificationSnapshot, archiveSnapshot, deleteSnapshot] = await Promise.all([
       db.collection("notifications").where("userId", "==", decoded.uid).limit(80).get(),
-      db.collection("applications").where("clientId", "==", decoded.uid).limit(80).get(),
       db.collection("notificationArchives").where("userId", "==", decoded.uid).limit(200).get(),
       db.collection("notificationDeletes").where("userId", "==", decoded.uid).limit(200).get()
     ]);
     const notifications = notificationSnapshot.docs
       .map<Record<string, unknown>>(doc => ({ id: doc.id, ...doc.data() }))
-    const applicationAlerts = applicationSnapshot.docs.map<Record<string, unknown>>(doc => {
-      const data = doc.data();
-      return {
-        id: `application-alert-${doc.id}`,
-        userId: decoded.uid,
-        title: "New application",
-        body: `A worker applied for ${typeof data.jobTitle === "string" ? data.jobTitle : "your job"}.`,
-        read: false,
-        href: `/applications?application=${doc.id}`,
-        createdAt: data.createdAt
-      };
-    });
     const archives = archiveSnapshot.docs.map(doc => ({ id: String(doc.data().notificationId ?? doc.id), archivedAt: doc.data().archivedAt }));
     const deletes = deleteSnapshot.docs.map(doc => ({ id: String(doc.data().notificationId ?? doc.id), deletedAt: doc.data().deletedAt }));
-    return NextResponse.json({ notifications: filterArchived(mergeNotifications(notifications, applicationAlerts), archives, archivedView, deletes) });
+    return NextResponse.json({ notifications: filterArchived(mergeNotifications(notifications, []), archives, archivedView, deletes) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load alerts.";
     if (message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded")) {

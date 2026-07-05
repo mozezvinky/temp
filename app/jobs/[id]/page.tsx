@@ -10,6 +10,8 @@ import type { Application, Job } from "@/types";
 import { kes } from "@/utils/money";
 import { workerVisiblePay } from "@/utils/pricing";
 import { displayJobQuantity } from "@/utils/jobUnits";
+import { isPayPerTimeline } from "@/utils/timeline-payments";
+import { perDurationUnit } from "@/utils/duration";
 import { Clock, MapPin } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
@@ -64,6 +66,11 @@ export default function JobDetailsPage() {
   if (!job) return <EmptyState title="Job unavailable" body="This job no longer exists." />;
   const alreadyApplied = applications.some(application => application.jobId === job.id);
   const quantityLabel = displayJobQuantity(job.quantity, job.unit, job.customUnit);
+  const timelinePay = isPayPerTimeline(job.payType);
+  const workerPay = timelinePay ? Number(job.workerPayPerTimeline ?? workerVisiblePay(job.payAmount ?? job.rateAmount ?? 0)) : workerVisiblePay(job.payAmount ?? job.rateAmount ?? 0);
+  const timelineCount = Number(job.timelineCount ?? 1);
+  const timelineUnitLabel = perDurationUnit(job.durationUnit);
+  const timelineUnitTitle = timelineUnitLabel.charAt(0).toUpperCase() + timelineUnitLabel.slice(1);
 
   return (
     <div className="mx-auto grid max-w-4xl gap-4 lg:grid-cols-[1.15fr_.85fr]">
@@ -72,10 +79,17 @@ export default function JobDetailsPage() {
         <h1 className="mt-2 text-3xl font-black text-[#FFFBFF]">{job.title}</h1>
         <p className="mt-3 text-sm leading-6 text-[#CCC6BB]">{job.description}</p>
         <div className="mt-5 flex flex-wrap gap-4 text-sm font-semibold text-[#D3C4B3]">
-          <span>{kes(workerVisiblePay(job.payAmount ?? job.rateAmount ?? 0))} / {job.payType === "timeline" ? "timeline" : "job"}</span>
+          <span>{kes(workerPay)} / {timelinePay ? timelineUnitLabel : "job"}</span>
           <span className="inline-flex items-center gap-1"><Clock size={16} /> {job.duration ?? `${job.durationHours}h`}</span>
           <span className="inline-flex items-center gap-1"><MapPin size={16} /> {job.location}, {job.county}</span>
         </div>
+        {timelinePay && (
+          <div className="mt-4 rounded-xl border border-bone/15 bg-bone/[.05] p-4 text-sm font-bold text-[#D3C4B3]">
+            <p>{timelineCount} {timelineUnitLabel}{timelineCount === 1 ? "" : "s"}</p>
+            <p className="mt-1">Total possible earning: {kes(Number(job.totalWorkerAmount ?? workerPay * timelineCount))}</p>
+            <p className="mt-1">{timelineUnitTitle} payments: {job.paidTimelineCount ?? 0}/{timelineCount} paid</p>
+          </div>
+        )}
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-black">
           {quantityLabel && <span className="design-chip px-3 py-1">{quantityLabel}</span>}
           <span className="design-chip px-3 py-1">{job.acceptedCount ?? 0}/{job.workersNeeded ?? 1} hired</span>

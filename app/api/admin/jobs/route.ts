@@ -8,6 +8,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+type AdminTimelineRecord = Record<string, unknown> & {
+  id: string;
+  jobId?: string;
+  workerId?: string;
+  timelineNumber?: number;
+  status?: string;
+};
+
 function dateMillis(value: unknown) {
   if (typeof value === "object" && value && "toMillis" in value && typeof (value as { toMillis?: unknown }).toMillis === "function") {
     return (value as { toMillis: () => number }).toMillis();
@@ -20,16 +28,60 @@ export async function GET(request: NextRequest) {
   try {
     await requireAdmin(request, "jobs:write");
     if (isSqlBackend()) {
-      const jobs = localDb().prepare("SELECT * FROM jobs ORDER BY createdAt DESC LIMIT 120").all();
+      const jobs = localDb().prepare(`
+        SELECT jobs.*,
+          (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = jobs.id AND job_timelines.status = 'paid') as paidTimelineCount,
+          (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = jobs.id AND job_timelines.status != 'paid') as unpaidTimelineCount,
+          (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = jobs.id AND job_timelines.status = 'submitted') as submittedTimelineCount
+        FROM jobs
+        ORDER BY createdAt DESC
+        LIMIT 120
+      `).all();
       const applications = localDb().prepare("SELECT * FROM applications ORDER BY createdAt DESC LIMIT 500").all();
-      return NextResponse.json({ jobs, applications });
+      const unpaidTimelines = localDb().prepare(`
+        SELECT job_timelines.*, applications.workerName, applications.jobTitle, users.displayName as workerUsername, users.email as workerEmail
+        FROM job_timelines
+        LEFT JOIN applications ON applications.id = job_timelines.applicationId
+        LEFT JOIN users ON users.uid = job_timelines.workerId
+        WHERE job_timelines.status IN ('submitted', 'approved')
+        ORDER BY job_timelines.updatedAt DESC
+      `).all();
+      const jobsWithTimelines = jobs.map(job => ({
+        ...job,
+        unpaidCompletedTimelines: unpaidTimelines.filter(timeline => timeline.jobId === job.id)
+      }));
+      return NextResponse.json({ jobs: jobsWithTimelines, applications });
     }
-    const [jobSnapshot, applicationSnapshot] = await Promise.all([
+    const [jobSnapshot, applicationSnapshot, timelineSnapshot] = await Promise.all([
       adminDb().collection("jobs").limit(150).get(),
-      adminDb().collection("applications").limit(500).get()
+      adminDb().collection("applications").limit(500).get(),
+      adminDb().collection("jobTimelines").limit(1000).get()
     ]);
+    const timelines = timelineSnapshot.docs.map<AdminTimelineRecord>(doc => ({ id: doc.id, ...doc.data() }));
+    const workerIds = [...new Set(timelines.map(item => String(item.workerId ?? "")).filter(Boolean))];
+    const workerSnaps = await Promise.all(workerIds.map(id => adminDb().collection("users").doc(id).get()));
+    const workers = new Map(workerSnaps.map(snap => [snap.id, snap.data() ?? {}]));
     const jobs = jobSnapshot.docs
-      .map<Record<string, unknown>>(doc => ({ id: doc.id, ...doc.data() }))
+      .map<Record<string, unknown>>(doc => {
+        const data = { id: doc.id, ...doc.data() };
+        const related = timelines.filter(item => item.jobId === doc.id);
+        const unpaidCompletedTimelines = related
+          .filter(item => item.status === "submitted" || item.status === "approved")
+          .map(item => {
+            const worker = workers.get(String(item.workerId ?? ""));
+            return {
+              ...item,
+              workerUsername: worker?.displayName ?? worker?.email ?? item.workerId
+            };
+          });
+        return {
+          ...data,
+          paidTimelineCount: related.filter(item => item.status === "paid").length,
+          unpaidTimelineCount: related.filter(item => item.status !== "paid").length,
+          submittedTimelineCount: related.filter(item => item.status === "submitted").length,
+          unpaidCompletedTimelines
+        };
+      })
       .sort((a, b) => dateMillis(b.createdAt) - dateMillis(a.createdAt))
       .slice(0, 120);
     const applications = applicationSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -43,6 +95,8 @@ export async function PATCH(request: NextRequest) {
   try {
     const admin = await requireAdmin(request, "jobs:write");
     const body = await request.json().catch(() => ({}));
+    const action = String(body.action ?? "update");
+    if (action === "send_payment_wall") return sendPaymentWall(request, admin, body);
     const jobId = String(body.jobId ?? "").trim();
     const reason = String(body.reason ?? "").trim();
     if (!jobId) return NextResponse.json({ error: "Choose a job to update." }, { status: 400 });
@@ -69,6 +123,44 @@ export async function PATCH(request: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update this job." }, { status: adminErrorStatus(error) });
   }
+}
+
+async function sendPaymentWall(request: NextRequest, admin: Awaited<ReturnType<typeof requireAdmin>>, body: Record<string, unknown>) {
+  const timelineId = String(body.timelineId ?? "").trim();
+  if (!timelineId) return NextResponse.json({ error: "Choose a completed timeline to send." }, { status: 400 });
+  const reason = String(body.reason ?? "Admin sent client payment wall.").trim() || "Admin sent client payment wall.";
+  if (isSqlBackend()) {
+    const timeline = localDb().prepare("SELECT * FROM job_timelines WHERE id = ?").get(timelineId);
+    if (!timeline) return NextResponse.json({ error: "Timeline was not found." }, { status: 404 });
+    const job = localDb().prepare("SELECT * FROM jobs WHERE id = ?").get(String(timeline.jobId));
+    if (!job) return NextResponse.json({ error: "Job was not found." }, { status: 404 });
+    const now = new Date().toISOString();
+    localDb().prepare(`
+      INSERT OR REPLACE INTO notifications (id, userId, title, body, read, href, createdAt)
+      VALUES (?, ?, 'Payment required', ?, 0, '/find-work', ?)
+    `).run(`notification-payment-wall-${timelineId}`, String(job.clientId), `Pay timeline ${timeline.timelineNumber} for ${job.title ?? "your job"}. Worker: ${timeline.workerId}.`, now);
+    await writeAdminAuditLog(request, { admin, targetUserId: String(job.clientId ?? ""), actionType: "timeline.payment_wall", oldValue: timeline, newValue: { timelineId }, reason });
+    return NextResponse.json({ success: true });
+  }
+  const db = adminDb();
+  const timelineSnap = await db.collection("jobTimelines").doc(timelineId).get();
+  if (!timelineSnap.exists) return NextResponse.json({ error: "Timeline was not found." }, { status: 404 });
+  const timeline = { id: timelineSnap.id, ...timelineSnap.data() } as AdminTimelineRecord;
+  const jobSnap = await db.collection("jobs").doc(String(timeline.jobId)).get();
+  if (!jobSnap.exists) return NextResponse.json({ error: "Job was not found." }, { status: 404 });
+  const job = jobSnap.data() ?? {};
+  const notificationRef = db.collection("notifications").doc();
+  await notificationRef.set({
+    id: notificationRef.id,
+    userId: String(job.clientId),
+    title: "Payment required",
+    body: `Pay timeline ${timeline.timelineNumber ?? ""} for ${job.title ?? "your job"}. Worker: ${timeline.workerId ?? "worker"}.`,
+    read: false,
+    href: "/find-work",
+    createdAt: FieldValue.serverTimestamp()
+  });
+  await writeAdminAuditLog(request, { admin, targetUserId: String(job.clientId ?? ""), actionType: "timeline.payment_wall", oldValue: timeline, newValue: { timelineId }, reason });
+  return NextResponse.json({ success: true });
 }
 
 function normalizeJobPatch(input: unknown) {

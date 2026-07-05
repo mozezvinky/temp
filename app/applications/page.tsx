@@ -9,6 +9,10 @@ import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { acceptApplication, cancelApplication, cancelLiveApplication, completeApplication, confirmWorkerPaymentReceived, requestApplicationCompletion, subscribeApplications } from "@/services/jobs";
 import { rateUser } from "@/services/ratings";
 import type { Application } from "@/types";
+import { applicationTimelinePay } from "@/utils/application-timeline-pay";
+import { perDurationUnit } from "@/utils/duration";
+import { isPayPerTimeline } from "@/utils/timeline-payments";
+import { kes } from "@/utils/money";
 import { ArrowLeft, Mail, MessageCircle, Phone, Star } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
@@ -73,9 +77,10 @@ export default function ApplicationsPage() {
       const updated = await completeApplication(application);
       setApplications(items => items.map(item => item.id === application.id ? { ...item, ...updated } : item));
       toast.success("Payment marked as sent. The worker must confirm they received it before the job completes.");
-      if (stars > 0) {
+      const canSaveRating = canRateAfterThisPayment(application) || updated.status === "completed" || updated.jobStatus === "completed";
+      if (stars > 0 && canSaveRating) {
         try {
-          await rateUser(application.jobId, application.workerId, stars, review);
+          await rateUser(application.jobId, application.workerId, stars, review, updated.paidTimelineRatingScopeId);
           toast.success("Worker rating submitted.");
         } catch {
           toast.warning("Payment was saved, but the rating could not be submitted.");
@@ -95,6 +100,22 @@ export default function ApplicationsPage() {
     const application = pendingCompletion;
     setPendingCompletion(null);
     void confirmComplete(application, Number(form.get("stars") ?? 0), String(form.get("review") ?? ""));
+  }
+
+  function canRateAfterThisPayment(application: Application) {
+    return !isPayPerTimeline(application.jobPayType) || Math.max(0, Math.trunc(Number(application.submittedTimelineCount ?? 0) || 0)) > 0;
+  }
+
+  function pendingPaymentLabel(application: Application) {
+    if (!isPayPerTimeline(application.jobPayType)) return "Pending payment";
+    const timelinePay = applicationTimelinePay(application);
+    const unit = perDurationUnit(application.jobDurationUnit);
+    return `Pending payment: ${timelinePay.submittedTimelineCount} ${unit}${timelinePay.submittedTimelineCount === 1 ? "" : "s"}`;
+  }
+
+  function pendingPaymentAmount(application: Application) {
+    if (!isPayPerTimeline(application.jobPayType)) return Number(application.jobAmount ?? 0);
+    return applicationTimelinePay(application).submittedWorkerAmount;
   }
 
   return (
@@ -132,7 +153,10 @@ export default function ApplicationsPage() {
           </div>
           {profile.role === "client" && (
             <div className="mt-4 rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-4">
-              <p className="text-lg font-black text-[#FFFBFF]">{application.workerName ?? "Worker applicant"}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-lg font-black text-[#FFFBFF]">{application.workerName ?? "Worker applicant"}</p>
+                <WorkerVerificationPill status={application.workerVerificationStatus} />
+              </div>
               <div className="mt-3 flex flex-wrap gap-3 text-sm text-[#CCC6BB]">
                 <span className="inline-flex items-center gap-1"><Star size={15} /> {application.workerRatingAverage ?? 0}</span>
                 <span>{application.workerCompletedJobs ?? 0} completed jobs</span>
@@ -168,7 +192,10 @@ export default function ApplicationsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">Worker profile</p>
-                <h2 className="mt-2 text-2xl font-black text-[#FFFBFF]">{viewingWorker.workerName ?? "Worker applicant"}</h2>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <h2 className="text-2xl font-black text-[#FFFBFF]">{viewingWorker.workerName ?? "Worker applicant"}</h2>
+                  <WorkerVerificationPill status={viewingWorker.workerVerificationStatus} />
+                </div>
               </div>
               <Button type="button" variant="ghost" onClick={() => setViewingWorker(null)}>Close</Button>
             </div>
@@ -195,18 +222,23 @@ export default function ApplicationsPage() {
       {pendingCompletion && (
         <div className="fixed inset-0 z-[75] grid place-items-center bg-black/70 p-4">
           <Card className="w-full max-w-md">
-            <h3 className="text-2xl font-black text-[#FFFBFF]">Confirm completion and pay worker</h3>
-            <p className="mt-2 text-sm text-[#CCC6BB]">
+            <h3 className="text-2xl font-black text-[#111] dark:text-[#FFFBFF]">Confirm completion and pay worker</h3>
+            <p className="mt-2 text-sm text-[#4b453e] dark:text-[#CCC6BB]">
               Confirm only if {pendingCompletion.workerName ?? "the worker"} has finished the work. Pay the worker directly outside the platform, then click below. The job will not be completed until the worker confirms they received the money.
             </p>
-            <div className="mt-4 rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-4 text-sm text-[#CCC6BB]">
-              <p><strong className="text-[#FFFBFF]">Worker:</strong> {pendingCompletion.workerName ?? "Worker"}</p>
-              <p className="mt-2"><strong className="text-[#FFFBFF]">Phone:</strong> {pendingCompletion.workerPhoneNumber ?? "No phone provided"}</p>
-              <p className="mt-2"><strong className="text-[#FFFBFF]">Agreed amount:</strong> KES {Number(pendingCompletion.jobAmount ?? 0).toLocaleString()}</p>
+            <div className="mt-4 rounded-xl border border-[#d8d8d8] bg-[#f3f4f5] p-4 text-sm text-[#4b453e] dark:border-[#4A463F] dark:bg-[#2A2A2B] dark:text-[#CCC6BB]">
+              <p><strong className="text-[#111] dark:text-[#FFFBFF]">Worker:</strong> {pendingCompletion.workerName ?? "Worker"}</p>
+              <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">Phone:</strong> {pendingCompletion.workerPhoneNumber ?? "No phone provided"}</p>
+              <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">{pendingPaymentLabel(pendingCompletion)}</strong></p>
+              <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">Amount to pay:</strong> {kes(pendingPaymentAmount(pendingCompletion))}</p>
             </div>
             <form onSubmit={submitCompletion} className="mt-5 grid gap-4">
-              <StarRatingInput name="stars" label="Rate worker optional" />
-              <label className="temp-label">Review optional<textarea name="review" placeholder="Optional public review" className="temp-input min-h-20 p-3 outline-none" /></label>
+              {canRateAfterThisPayment(pendingCompletion) ? (
+                <>
+                  <StarRatingInput name="stars" label="Rate worker optional" />
+                  <label className="temp-label">Review optional<textarea name="review" placeholder="Optional public review" className="temp-input min-h-20 p-3 outline-none" /></label>
+                </>
+              ) : <p className="rounded-xl bg-[#2A2A2B] p-3 text-sm text-[#CCC6BB]">Ratings appear when a submitted day/hour is ready to pay.</p>}
               <div className="flex flex-wrap gap-3">
               <Button type="button" variant="secondary" onClick={() => setPendingCompletion(null)}>Review first</Button>
               <Button type="submit" className="temp-success-button" disabled={completingId === pendingCompletion.id}>
@@ -227,6 +259,7 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
   const [confirmingPaymentId, setConfirmingPaymentId] = useState("");
   const [pendingCancel, setPendingCancel] = useState<Application | null>(null);
   const [pendingLiveCancel, setPendingLiveCancel] = useState<Application | null>(null);
+  const [pendingTimelineComplete, setPendingTimelineComplete] = useState<Application | null>(null);
   async function cancel(application: Application) {
     setCancellingId(application.id);
     try {
@@ -251,10 +284,10 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
       setCancellingId("");
     }
   }
-  async function requestComplete(application: Application) {
+  async function requestComplete(application: Application, timelineCount?: number) {
     setCompletingId(application.id);
     try {
-      const updated = await requestApplicationCompletion(application);
+      const updated = await requestApplicationCompletion(application, timelineCount);
       onCancel?.({ ...application, ...updated, status: "completion_requested" });
       toast.success("Completion sent to the client for confirmation.");
     } catch (error) {
@@ -283,27 +316,41 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
       <h2 className="text-2xl font-black text-[#FFFBFF]">{title}</h2>
       {applications.length ? applications.map(application => (
         <Card key={application.id}>
+          {(() => {
+            const timelinePay = applicationTimelinePay(application);
+            const timelineUnitLabel = perDurationUnit(application.jobDurationUnit);
+            const timelineUnitTitle = timelineUnitLabel.charAt(0).toUpperCase() + timelineUnitLabel.slice(1);
+            return (
+            <>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="font-black text-[#FFFBFF]">{application.jobTitle ?? "Job application"}</h3>
               {application.jobCategory && <p className="mt-1 text-xs font-bold uppercase tracking-[.16em] text-[#959087]">{application.jobCategory}</p>}
               <p className="mt-2 text-sm capitalize text-[#CCC6BB]">
                 {application.status === "accepted" && application.jobStatus !== "completed" ? (
-                  <span className="inline-flex rounded-full border border-emerald-300/40 bg-emerald-400/20 px-3 py-1 font-black text-emerald-100">Ongoing job</span>
+                  <span className="inline-flex rounded-full border border-emerald-500/40 bg-emerald-400/20 px-3 py-1 font-black text-emerald-800 dark:text-emerald-100">Ongoing job</span>
                 ) : application.status === "completion_requested" ? (
-                  <span className="inline-flex rounded-full border border-sky-300/40 bg-sky-400/20 px-3 py-1 font-black text-sky-100">Waiting for client confirmation</span>
+                  <span className="inline-flex rounded-full border border-sky-500/40 bg-sky-400/20 px-3 py-1 font-black text-sky-800 dark:text-sky-100">Waiting for client confirmation</span>
                 ) : application.status === "payment_sent" ? (
-                  <span className="inline-flex rounded-full border border-purple-300/40 bg-purple-400/20 px-3 py-1 font-black text-purple-100">Confirm payment received</span>
+                  <span className="inline-flex rounded-full border border-purple-500/40 bg-purple-400/20 px-3 py-1 font-black text-purple-800 dark:text-purple-100">Confirm payment received</span>
                 ) : <StatusPill status={application.status} />}
               </p>
+              {isPayPerTimeline(application.jobPayType) && (
+                <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
+                  <p>{timelineUnitTitle} payments: {timelinePay.paidTimelineCount}/{timelinePay.timelineCount} paid</p>
+                  <p className="mt-1">Pay per {timelineUnitLabel}: {kes(timelinePay.workerPayPerTimeline)}</p>
+                  <p className="mt-1">Paid worker amount: {kes(timelinePay.paidWorkerAmount)}</p>
+                  <p className="mt-1">Remaining worker amount: {kes(timelinePay.remainingWorkerAmount)}</p>
+                </div>
+              )}
             </div>
             {application.status === "accepted" && application.jobStatus !== "completed" && (
               <div className="flex flex-wrap gap-2">
                 <Link href="/chat" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-bone px-4 py-2 text-sm font-black text-[#1E1B13]">
                   <MessageCircle size={16} /> Chat with employer
                 </Link>
-                <Button type="button" disabled={completingId === application.id} onClick={() => void requestComplete(application)}>
-                  {completingId === application.id ? "Sending..." : "Mark complete"}
+                <Button type="button" disabled={completingId === application.id} onClick={() => isPayPerTimeline(application.jobPayType) ? setPendingTimelineComplete(application) : void requestComplete(application)}>
+                  {completingId === application.id ? "Sending..." : isPayPerTimeline(application.jobPayType) ? `Mark ${timelineUnitLabel} ${application.nextTimelineNumber ?? ""} complete` : "Mark complete"}
                 </Button>
                 <Button type="button" variant="secondary" disabled={cancellingId === application.id} onClick={() => setPendingLiveCancel(application)}>
                   {cancellingId === application.id ? "Cancelling..." : "Cancel live job"}
@@ -336,6 +383,9 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
           </div>
           {application.coverNote && <p className="mt-4 text-sm text-[#959087]">{application.coverNote}</p>}
           {application.clientRating && <p className="mt-3 inline-flex items-center gap-1 text-sm font-black text-amber-200"><Star size={16} /> Client rating: {application.clientRating}/5</p>}
+            </>
+          );
+          })()}
         </Card>
       )) : <EmptyState title={`No ${title.toLowerCase()}`} body={empty} />}
       {pendingCancel && (
@@ -374,22 +424,63 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
           </Card>
         </div>
       )}
+      {pendingTimelineComplete && (() => {
+        const timelinePay = applicationTimelinePay(pendingTimelineComplete);
+        const unit = perDurationUnit(pendingTimelineComplete.jobDurationUnit);
+        const unitTitle = unit.charAt(0).toUpperCase() + unit.slice(1);
+        const submittedCount = Math.max(0, Number(pendingTimelineComplete.submittedTimelineCount ?? 0));
+        const maxCount = Math.max(1, timelinePay.timelineCount - timelinePay.paidTimelineCount - submittedCount);
+        return (
+          <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70 p-4">
+            <Card className="w-full max-w-md">
+              <h3 className="text-2xl font-black text-[#FFFBFF]">Mark {unit}s complete</h3>
+              <p className="mt-2 text-sm text-[#CCC6BB]">Choose how many {unit}s you finished. The client will pay only the submitted {unit}s.</p>
+              <form onSubmit={event => {
+                event.preventDefault();
+                const form = new FormData(event.currentTarget);
+                const count = Math.max(1, Math.min(maxCount, Math.trunc(Number(form.get("timelineCount")) || 1)));
+                const application = pendingTimelineComplete;
+                setPendingTimelineComplete(null);
+                void requestComplete(application, count);
+              }} className="mt-5 grid gap-4">
+                <label className="temp-label">{unitTitle}s to mark complete
+                  <input name="timelineCount" type="number" min={1} max={maxCount} defaultValue={1} className="temp-input mt-2 p-3 outline-none" />
+                </label>
+                <p className="text-xs font-bold text-[#CCC6BB]">Available now: {maxCount} of {timelinePay.timelineCount} {unit}s.</p>
+                <div className="flex flex-wrap gap-3">
+                  <Button type="button" variant="secondary" onClick={() => setPendingTimelineComplete(null)}>Cancel</Button>
+                  <Button type="submit" disabled={completingId === pendingTimelineComplete.id}>Submit {unit}s</Button>
+                </div>
+              </form>
+            </Card>
+          </div>
+        );
+      })()}
     </section>
+  );
+}
+
+function WorkerVerificationPill({ status }: { status?: Application["workerVerificationStatus"] }) {
+  const verified = status === "approved";
+  return (
+    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${verified ? "border-emerald-500/40 bg-emerald-400/20 text-emerald-800 dark:text-emerald-100" : "border-amber-400/50 bg-amber-300/20 text-amber-800 dark:text-amber-100"}`}>
+      {verified ? "Verified" : "Unverified"}
+    </span>
   );
 }
 
 function StatusPill({ status }: { status: Application["status"] }) {
   if (status === "accepted") {
-    return <span className="inline-flex rounded-full border border-amber-300/50 bg-amber-300/20 px-3 py-1 text-sm font-black text-amber-100">Accepted</span>;
+    return <span className="inline-flex rounded-full border border-amber-400/50 bg-amber-300/20 px-3 py-1 text-sm font-black text-amber-800 dark:text-amber-100">Accepted</span>;
   }
   if (status === "completed") {
-    return <span className="inline-flex rounded-full border border-emerald-300/40 bg-emerald-400/20 px-3 py-1 text-sm font-black text-emerald-100">Done</span>;
+    return <span className="inline-flex rounded-full border border-emerald-500/40 bg-emerald-400/20 px-3 py-1 text-sm font-black text-emerald-800 dark:text-emerald-100">Done</span>;
   }
   if (status === "completion_requested") {
-    return <span className="inline-flex rounded-full border border-sky-300/40 bg-sky-400/20 px-3 py-1 text-sm font-black text-sky-100">Completion requested</span>;
+    return <span className="inline-flex rounded-full border border-sky-500/40 bg-sky-100 px-3 py-1 text-sm font-black !text-sky-950 dark:bg-sky-400/20 dark:!text-sky-100">Completion requested</span>;
   }
   if (status === "payment_sent") {
-    return <span className="inline-flex rounded-full border border-purple-300/40 bg-purple-400/20 px-3 py-1 text-sm font-black text-purple-100">Payment sent</span>;
+    return <span className="inline-flex rounded-full border border-purple-500/40 bg-purple-400/20 px-3 py-1 text-sm font-black text-purple-800 dark:text-purple-100">Payment sent</span>;
   }
   return <span className="text-sm capitalize text-[#CCC6BB]">Status: {status}</span>;
 }

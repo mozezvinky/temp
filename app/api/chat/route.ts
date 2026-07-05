@@ -3,6 +3,8 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { createLocalMessage, getLocalConversation, listLocalConversations, listLocalMessages } from "@/lib/local-sql";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 export const runtime = "nodejs";
 
@@ -82,13 +84,14 @@ async function ensureFirestoreConversations(userId: string) {
 export async function POST(request: NextRequest) {
   try {
     const decoded = await requireDecodedUser(request);
-    const body = await request.json().catch(() => ({}));
-    const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
-    const text = typeof body.body === "string" ? body.body.trim() : "";
-    if (!conversationId || !text) return NextResponse.json({ error: "Enter a message." }, { status: 400 });
+    const input = await parseMessageInput(request);
+    const conversationId = input.conversationId;
+    const text = input.text;
+    const imageUrl = input.imageUrl;
+    if (!conversationId || (!text && !imageUrl)) return NextResponse.json({ error: "Enter a message or choose an image." }, { status: 400 });
 
     if (isSqlBackend()) {
-      const message = createLocalMessage(conversationId, decoded.uid, text);
+      const message = createLocalMessage(conversationId, decoded.uid, text, imageUrl);
       if (!message) return NextResponse.json({ error: "Chat is not available for this job." }, { status: 403 });
       return NextResponse.json({ success: true, message });
     }
@@ -110,17 +113,18 @@ export async function POST(request: NextRequest) {
         conversationId,
         senderId: decoded.uid,
         body: text,
+        imageUrl: imageUrl ?? null,
         readBy: [decoded.uid],
         createdAt: FieldValue.serverTimestamp()
       });
-      transaction.set(conversationRef, { lastMessage: text, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      transaction.set(conversationRef, { lastMessage: text || "Image message", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       if (receiverId) {
         const notificationRef = db.collection("notifications").doc();
         transaction.set(notificationRef, {
           id: notificationRef.id,
           userId: receiverId,
           title: "New chat message",
-          body: text,
+          body: text || "Image message",
           read: false,
           href: "/chat",
           createdAt: FieldValue.serverTimestamp()
@@ -132,6 +136,37 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : "Unable to send message.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+async function parseMessageInput(request: NextRequest) {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.includes("multipart/form-data")) {
+    const body = await request.json().catch(() => ({}));
+    return {
+      conversationId: typeof body.conversationId === "string" ? body.conversationId : "",
+      text: typeof body.body === "string" ? body.body.trim() : "",
+      imageUrl: undefined as string | undefined
+    };
+  }
+
+  const form = await request.formData();
+  const conversationId = String(form.get("conversationId") ?? "");
+  const text = String(form.get("body") ?? "").trim();
+  const file = form.get("image");
+  const imageUrl = file instanceof File ? await saveChatImage(conversationId, file) : undefined;
+  return { conversationId, text, imageUrl };
+}
+
+async function saveChatImage(conversationId: string, file: File) {
+  if (!file.type.startsWith("image/")) throw new Error("Choose an image file.");
+  if (file.size <= 0 || file.size > 5 * 1024 * 1024) throw new Error("Chat images must be under 5 MB.");
+  const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+  const safeConversationId = conversationId.replace(/[^a-zA-Z0-9_-]/g, "");
+  const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
+  const uploadDir = join(process.cwd(), "public", "uploads", "chat", safeConversationId || "general");
+  await mkdir(uploadDir, { recursive: true });
+  await writeFile(join(uploadDir, fileName), Buffer.from(await file.arrayBuffer()));
+  return `/uploads/chat/${safeConversationId || "general"}/${fileName}`;
 }
 
 async function isCompletedConversation(conversation: Record<string, unknown>) {

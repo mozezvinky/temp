@@ -3,10 +3,10 @@
 import { AppModal } from "@/components/ui/AppModal";
 import { Button } from "@/components/ui/Button";
 import { loadMyVerification, submitVerification } from "@/services/kyc";
-import type { UserProfile, VerificationRecord } from "@/types";
+import type { UserProfile, VerificationKind, VerificationRecord } from "@/types";
 import { normalizeKenyanPhone } from "@/utils/phone";
 import { verificationLabel } from "@/utils/verification";
-import { CheckCircle2, ImagePlus, ShieldCheck } from "lucide-react";
+import { Car, CheckCircle2, ImagePlus, ShieldCheck } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { VerificationBadge } from "./VerificationBadge";
@@ -21,11 +21,13 @@ const emptyProgress: ProgressState = { idFront: 0, idBack: 0, selfieWithId: 0 };
 export function IdentityVerificationModal({
   profile,
   onClose,
-  onSubmitted
+  onSubmitted,
+  kind = "identity"
 }: {
   profile: UserProfile;
   onClose: () => void;
   onSubmitted?: () => Promise<void> | void;
+  kind?: VerificationKind;
 }) {
   const [verification, setVerification] = useState<VerificationRecord | null>(null);
   const [uploads, setUploads] = useState<UploadState>(emptyUploads);
@@ -38,8 +40,8 @@ export function IdentityVerificationModal({
   const [nationalId, setNationalId] = useState("");
 
   useEffect(() => {
-    void loadMyVerification().then(setVerification).catch(() => undefined);
-  }, []);
+    void loadMyVerification(kind).then(setVerification).catch(() => undefined);
+  }, [kind]);
 
   const previews = useMemo(() => ({
     idFront: uploads.idFront ? URL.createObjectURL(uploads.idFront) : "",
@@ -53,8 +55,11 @@ export function IdentityVerificationModal({
     });
   }, [previews]);
 
-  const status = verification?.status ?? profile.verificationStatus;
+  const isDriverLicense = kind === "driver_license";
+  const status = verification?.status ?? (isDriverLicense ? profile.driverLicenseVerificationStatus ?? "not_submitted" : profile.verificationStatus);
   const canSubmit = status === "not_submitted" || status === "rejected";
+  const documentName = isDriverLicense ? "Driver's license" : "National ID";
+  const selfieLabel = isDriverLicense ? "Selfie while holding driver's license" : "Selfie while holding ID";
 
   function setUpload(key: UploadKey, file: File | null) {
     setError("");
@@ -72,14 +77,15 @@ export function IdentityVerificationModal({
     const phone = normalizeKenyanPhone(phoneNumber);
     if (!fullName.trim()) return setError("Enter your full legal name.");
     if (!phone) return setError("Please enter a valid Kenyan phone number.");
-    if (!nationalId.trim()) return setError("Enter your National ID number.");
-    if (!uploads.idFront || !uploads.idBack || !uploads.selfieWithId) return setError("Upload the ID front, ID back, and a selfie holding the ID.");
+    if (!nationalId.trim()) return setError(isDriverLicense ? "Enter your driver's license number." : "Enter your National ID number.");
+    if (!uploads.idFront || !uploads.idBack || !uploads.selfieWithId) return setError(`Upload the ${documentName} front, ${documentName} back, and a selfie holding the document.`);
     setSubmitting(true);
     setError("");
     try {
       const result = await submitVerification({
         userId: profile.id,
         role: profile.role === "client" ? "client" : "worker",
+        kind,
         fullName: fullName.trim(),
         phoneNumber: phone,
         nationalId: nationalId.trim(),
@@ -88,7 +94,7 @@ export function IdentityVerificationModal({
         selfieWithIdFile: uploads.selfieWithId
       }, (field, value) => setProgress(current => ({ ...current, [field]: value })));
       setSubmitted(true);
-      setVerification(await loadMyVerification());
+      setVerification(await loadMyVerification(kind));
       await onSubmitted?.();
       toast.success(result.message ?? "Verification submitted for review.");
     } catch (caught) {
@@ -102,22 +108,22 @@ export function IdentityVerificationModal({
   }
 
   return (
-    <AppModal eyebrow="Account verification" title="Verify Identity" onClose={onClose} maxWidth="max-w-4xl">
+    <AppModal eyebrow={isDriverLicense ? "Driver verification" : "Account verification"} title={isDriverLicense ? "Add Driver's License" : "Verify Identity"} onClose={onClose} maxWidth="max-w-4xl">
       <div className="grid gap-5">
         <div className="rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <ShieldCheck className="text-[#D3C4B3]" />
+              {isDriverLicense ? <Car className="text-[#D3C4B3]" /> : <ShieldCheck className="text-[#D3C4B3]" />}
               <div>
                 <p className="text-sm font-black text-[#FFFBFF]">{verificationLabel(status)}</p>
-                <p className="text-sm text-[#CCC6BB]">Use clear photos. Your ID details and face must be readable.</p>
+                <p className="text-sm text-[#CCC6BB]">Use clear photos. Your {documentName.toLowerCase()} details and face must be readable.</p>
               </div>
             </div>
             <VerificationBadge status={status} />
           </div>
-          {submitted || status === "pending" ? <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">Your identity verification has been submitted and is awaiting admin review.</p> : null}
-          {status === "approved" ? <p className="mt-4 rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-100"><CheckCircle2 className="mr-2 inline" size={16} />Verified Identity</p> : null}
-          {status === "rejected" ? <p className="mt-4 rounded-xl border border-red-300/30 bg-red-400/10 p-3 text-sm font-bold text-red-100">{verification?.rejectionReason ?? profile.verificationRejectionReason ?? "Your previous verification was rejected. Please upload clearer images."}</p> : null}
+          {submitted || status === "pending" ? <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">Your {isDriverLicense ? "driver's license" : "identity"} verification has been submitted and is awaiting admin review.</p> : null}
+          {status === "approved" ? <p className="mt-4 rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-100"><CheckCircle2 className="mr-2 inline" size={16} />{isDriverLicense ? "Driver's License Verified" : "Verified Identity"}</p> : null}
+          {status === "rejected" ? <p className="mt-4 rounded-xl border border-red-300/30 bg-red-400/10 p-3 text-sm font-bold text-red-100">{verification?.rejectionReason ?? (isDriverLicense ? profile.driverLicenseRejectionReason : profile.verificationRejectionReason) ?? "Your previous verification was rejected. Please upload clearer images."}</p> : null}
         </div>
 
         {canSubmit && (
@@ -125,12 +131,12 @@ export function IdentityVerificationModal({
             <div className="grid gap-3 md:grid-cols-2">
               <label className="temp-label">Full name<input value={fullName} onChange={event => setFullName(event.target.value)} required className="temp-input p-3 outline-none" /></label>
               <label className="temp-label">Phone number<input value={phoneNumber} onChange={event => setPhoneNumber(event.target.value)} required placeholder="07XXXXXXXX" className="temp-input p-3 outline-none" /></label>
-              <label className="temp-label md:col-span-2">National ID number<input value={nationalId} onChange={event => setNationalId(event.target.value)} required inputMode="numeric" autoComplete="off" placeholder="National ID number" className="temp-input p-3 outline-none" /></label>
+              <label className="temp-label md:col-span-2">{isDriverLicense ? "Driver's license number" : "National ID number"}<input value={nationalId} onChange={event => setNationalId(event.target.value)} required inputMode={isDriverLicense ? "text" : "numeric"} autoComplete="off" placeholder={isDriverLicense ? "Driver's license number" : "National ID number"} className="temp-input p-3 outline-none" /></label>
             </div>
             <div className="identity-upload-grid grid gap-3">
-              <UploadBox label="Front side of National ID" file={uploads.idFront} preview={previews.idFront} progress={progress.idFront} disabled={submitting} onFile={file => setUpload("idFront", file)} />
-              <UploadBox label="Back side of National ID" file={uploads.idBack} preview={previews.idBack} progress={progress.idBack} disabled={submitting} onFile={file => setUpload("idBack", file)} />
-              <UploadBox label="Selfie while holding ID" file={uploads.selfieWithId} preview={previews.selfieWithId} progress={progress.selfieWithId} disabled={submitting} capture="user" onFile={file => setUpload("selfieWithId", file)} />
+              <UploadBox label={`Front side of ${documentName}`} file={uploads.idFront} preview={previews.idFront} progress={progress.idFront} disabled={submitting} onFile={file => setUpload("idFront", file)} />
+              <UploadBox label={`Back side of ${documentName}`} file={uploads.idBack} preview={previews.idBack} progress={progress.idBack} disabled={submitting} onFile={file => setUpload("idBack", file)} />
+              <UploadBox label={selfieLabel} file={uploads.selfieWithId} preview={previews.selfieWithId} progress={progress.selfieWithId} disabled={submitting} capture="user" onFile={file => setUpload("selfieWithId", file)} />
             </div>
             {error && <p className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}
             <Button type="submit" className="temp-success-button" disabled={submitting}>{submitting ? "Uploading securely..." : status === "rejected" ? "Resubmit verification" : "Submit for review"}</Button>

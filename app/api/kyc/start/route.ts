@@ -17,25 +17,33 @@ function usernameFor(fullName: string, email: string, uid: string) {
     .slice(0, 24) || uid.slice(0, 12);
 }
 
+function verificationDocId(uid: string, kind: string) {
+  return kind === "driver_license" ? `driver-license-${uid}` : uid;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const user = await requireVerifiedServerUser(request);
+    const kind = request.nextUrl.searchParams.get("kind") === "driver_license" ? "driver_license" : "identity";
     if (isSqlBackend()) {
-      const record = localDb().prepare("SELECT * FROM identity_verifications WHERE userId = ?").get(user.uid);
-      return NextResponse.json({ verification: publicVerification(record) });
+      const record = kind === "driver_license"
+        ? localDb().prepare("SELECT *, licenseNumber as nationalIdHash FROM driver_license_verifications WHERE userId = ?").get(user.uid)
+        : localDb().prepare("SELECT * FROM identity_verifications WHERE userId = ?").get(user.uid);
+      return NextResponse.json({ verification: publicVerification(record, kind) });
     }
-    const snapshot = await adminDb().collection("verifications").doc(user.uid).get();
-    return NextResponse.json({ verification: snapshot.exists ? publicVerification({ id: snapshot.id, ...snapshot.data() }) : null });
+    const snapshot = await adminDb().collection("verifications").doc(verificationDocId(user.uid, kind)).get();
+    return NextResponse.json({ verification: snapshot.exists ? publicVerification({ id: snapshot.id, ...snapshot.data() }, kind) : null });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load verification." }, { status: authErrorStatus(error) });
   }
 }
 
-function publicVerification(record: Record<string, unknown> | undefined) {
+function publicVerification(record: Record<string, unknown> | undefined, kind = "identity") {
   if (!record) return null;
   return {
     id: String(record.id ?? record.userId ?? ""),
     userId: String(record.userId ?? ""),
+    kind,
     status: record.status,
     rejectionReason: record.rejectionReason ?? null,
     createdAt: record.createdAt ?? record.submittedAt ?? null,
@@ -106,6 +114,7 @@ export async function POST(request: NextRequest) {
     }
     const isMultipart = request.headers.get("content-type")?.toLowerCase().includes("multipart/form-data");
     const input = isMultipart ? {} : await request.json().catch(() => ({})) as Record<string, unknown>;
+    let kind: "identity" | "driver_license" = "identity";
     let fullName = "";
     let phoneNumber = "";
     let nationalId = "";
@@ -115,6 +124,8 @@ export async function POST(request: NextRequest) {
 
     if (isMultipart) {
       const form = await request.formData();
+      kind = form.get("kind") === "driver_license" ? "driver_license" : "identity";
+      if (kind === "driver_license" && user.profile.role !== "worker") return NextResponse.json({ error: "Only workers can submit a driver's license." }, { status: 403 });
       fullName = String(form.get("fullName") ?? user.profile.displayName ?? "").trim();
       phoneNumber = String(form.get("phoneNumber") ?? user.profile.phoneNumber ?? "").trim();
       nationalId = String(form.get("nationalId") ?? "").replace(/\s+/g, "");
@@ -122,20 +133,25 @@ export async function POST(request: NextRequest) {
       const idBack = form.get("idBack");
       const selfieWithId = form.get("selfieWithId");
       if (!isImageFile(idFront) || !isImageFile(idBack) || !isImageFile(selfieWithId)) {
-        return NextResponse.json({ error: "Upload the ID front, ID back, and a selfie holding the ID as clear images under 8 MB each." }, { status: 400 });
+        return NextResponse.json({ error: kind === "driver_license" ? "Upload the license front, license back, and a selfie holding the license as clear images under 8 MB each." : "Upload the ID front, ID back, and a selfie holding the ID as clear images under 8 MB each." }, { status: 400 });
       }
       const submissionId = Date.now();
+      const frontName = kind === "driver_license" ? "driver-license-front" : "id-front";
+      const backName = kind === "driver_license" ? "driver-license-back" : "id-back";
+      const selfieName = kind === "driver_license" ? "selfie-with-driver-license" : "selfie-with-id";
       try {
         [idFrontUrl, idBackUrl, selfieWithIdUrl] = await Promise.all([
-          saveVerificationUpload(user.uid, submissionId, "id-front", idFront),
-          saveVerificationUpload(user.uid, submissionId, "id-back", idBack),
-          saveVerificationUpload(user.uid, submissionId, "selfie-with-id", selfieWithId)
+          saveVerificationUpload(user.uid, submissionId, frontName, idFront),
+          saveVerificationUpload(user.uid, submissionId, backName, idBack),
+          saveVerificationUpload(user.uid, submissionId, selfieName, selfieWithId)
         ]);
       } catch (error) {
         console.error("[kyc-upload] failed", error instanceof Error ? { name: error.name, message: error.message, bucketsTried: firebaseStorageBucketCandidates() } : { message: "unknown upload error", bucketsTried: firebaseStorageBucketCandidates() });
         return NextResponse.json({ error: shouldUseLocalVerificationStorage() ? "Verification images could not upload to local storage. Check file permissions and try again." : "Verification images could not upload because Firebase Storage is not available for this project. Confirm Storage is enabled and the bucket name matches your Firebase console." }, { status: 500 });
       }
     } else {
+      kind = input.kind === "driver_license" ? "driver_license" : "identity";
+      if (kind === "driver_license" && user.profile.role !== "worker") return NextResponse.json({ error: "Only workers can submit a driver's license." }, { status: 403 });
       fullName = String(input.fullName ?? user.profile.displayName ?? "").trim();
       phoneNumber = String(input.phoneNumber ?? user.profile.phoneNumber ?? "").trim();
       nationalId = String(input.nationalId ?? "").replace(/\s+/g, "");
@@ -145,7 +161,7 @@ export async function POST(request: NextRequest) {
     }
     const email = String(user.email || user.profile.email || "").trim();
     if (!fullName || !email || !phoneNumber || !nationalId || !idFrontUrl || !idBackUrl || !selfieWithIdUrl) {
-      return NextResponse.json({ error: "Upload the ID front, ID back, and a selfie holding the ID, then complete your contact details." }, { status: 400 });
+      return NextResponse.json({ error: kind === "driver_license" ? "Upload the license front, license back, and a selfie holding the license, then complete your contact details." : "Upload the ID front, ID back, and a selfie holding the ID, then complete your contact details." }, { status: 400 });
     }
     const ownedPrefix = `verification/${user.uid}/`;
     if (![idFrontUrl, idBackUrl, selfieWithIdUrl].every(path => path.startsWith(ownedPrefix))) {
@@ -156,14 +172,32 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: "One or more verification uploads could not be found. Please upload all three images again." }, { status: 400 });
     }
-    if (!/^\d{5,12}$/.test(nationalId)) {
+    if (kind === "identity" && !/^\d{5,12}$/.test(nationalId)) {
       return NextResponse.json({ error: "Enter a valid ID number." }, { status: 400 });
+    }
+    if (kind === "driver_license" && !/^[a-z0-9-]{4,24}$/i.test(nationalId)) {
+      return NextResponse.json({ error: "Enter a valid driver's license number." }, { status: 400 });
     }
     const submittedAt = new Date().toISOString();
     const idHash = nationalIdHash(nationalId);
     const username = usernameFor(fullName, email, user.uid);
 
     if (isSqlBackend()) {
+      if (kind === "driver_license") {
+        const current = localDb().prepare("SELECT status FROM driver_license_verifications WHERE userId = ?").get(user.uid);
+        if (current?.status === "pending") return NextResponse.json({ error: "Your driver's license is already awaiting review." }, { status: 409 });
+        if (current?.status === "approved") return NextResponse.json({ error: "Your driver's license is already verified." }, { status: 409 });
+        localDb().prepare(`
+          INSERT INTO driver_license_verifications (userId, role, fullName, email, phoneNumber, username, licenseNumber, idFrontUrl, idBackUrl, selfieWithIdUrl, status, rejectionReason, reviewedBy, submittedAt, reviewedAt, updatedAt)
+          VALUES (?, 'worker', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, NULL, ?)
+          ON CONFLICT(userId) DO UPDATE SET fullName=excluded.fullName, email=excluded.email, phoneNumber=excluded.phoneNumber,
+            username=excluded.username, licenseNumber=excluded.licenseNumber, idFrontUrl=excluded.idFrontUrl, idBackUrl=excluded.idBackUrl,
+            selfieWithIdUrl=excluded.selfieWithIdUrl, status='pending', rejectionReason=NULL, reviewedBy=NULL, submittedAt=excluded.submittedAt,
+            reviewedAt=NULL, updatedAt=excluded.updatedAt
+        `).run(user.uid, fullName, email, phoneNumber, username, nationalId, idFrontUrl, idBackUrl, selfieWithIdUrl, submittedAt, submittedAt);
+        localDb().prepare("UPDATE users SET driverLicenseVerificationStatus = 'pending', phoneNumber = ?, updatedAt = ? WHERE uid = ?").run(phoneNumber, submittedAt, user.uid);
+        return NextResponse.json({ success: true, status: "pending", message: "Your driver's license was submitted for manual review." });
+      }
       const current = localDb().prepare("SELECT status FROM identity_verifications WHERE userId = ?").get(user.uid);
       if (current?.status === "pending") return NextResponse.json({ error: "Your verification is already awaiting review." }, { status: 409 });
       if (current?.status === "approved") return NextResponse.json({ error: "Your account is already verified." }, { status: 409 });
@@ -182,6 +216,22 @@ export async function POST(request: NextRequest) {
     }
 
     const db = adminDb();
+    if (kind === "driver_license") {
+      const verificationRef = db.collection("verifications").doc(verificationDocId(user.uid, kind));
+      const userRef = db.collection("users").doc(user.uid);
+      const currentVerification = await verificationRef.get();
+      if (currentVerification.data()?.status === "pending") return NextResponse.json({ error: "Your driver's license is already awaiting review." }, { status: 409 });
+      if (currentVerification.data()?.status === "approved") return NextResponse.json({ error: "Your driver's license is already verified." }, { status: 409 });
+      await db.runTransaction(async transaction => {
+        transaction.set(verificationRef, {
+          id: verificationRef.id, userId: user.uid, kind, role: "worker", provider: "manual", fullName, email, phoneNumber, username,
+          licenseNumber: nationalId, idFrontUrl, idBackUrl, selfieWithIdUrl, status: "pending", driverLicenseVerificationStatus: "pending",
+          rejectionReason: null, reviewedBy: null, reviewedAt: null, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+        transaction.set(userRef, { driverLicenseVerificationStatus: "pending", driverLicenseRejectionReason: null, phoneNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      });
+      return NextResponse.json({ success: true, status: "pending", message: "Your driver's license was submitted for manual review." });
+    }
     const claimRef = db.collection("identityClaims").doc(idHash);
     const verificationRef = db.collection("verifications").doc(user.uid);
     const userRef = db.collection("users").doc(user.uid);

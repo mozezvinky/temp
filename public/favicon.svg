@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">COPIC suitcase app icon</title>
+  <desc id="desc">Centered transparent lime-green suitcase app icon without wordmark.</desc>
+  <defs>
+    <mask id="briefcase-cutouts" maskUnits="userSpaceOnUse">
+      <rect width="360" height="344" fill="#fff"/>
+      <rect x="116" y="24" width="128" height="66" rx="8" fill="#000"/>
+      <path d="M-8 170 L144 210" stroke="#000" stroke-width="13" stroke-linecap="round"/>
+      <path d="M216 210 L368 170" stroke="#000" stroke-width="13" stroke-linecap="round"/>
+      <rect x="143" y="174" width="74" height="82" rx="18" fill="#000"/>
+    </mask>
+  </defs>
+
+  <g transform="translate(38 47.8) scale(1.211)">
+    <g fill="#A0E820" mask="url(#briefcase-cutouts)">
+      <rect x="94" y="0" width="172" height="124" rx="32"/>
+      <rect x="0" y="64" width="360" height="280" rx="34"/>
+    </g>
+    <rect x="156" y="188" width="48" height="54" rx="9" fill="#A0E820"/>
+  </g>
+</svg>

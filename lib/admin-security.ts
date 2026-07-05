@@ -11,8 +11,8 @@ const MAIN_ADMIN_EMAIL = "kelvinodiambo@gmail.com";
 
 export const adminRolePermissions: Record<AdminRole, AdminPermission[]> = {
   super_admin: ["tickets:read", "tickets:write", "users:read", "users:write", "jobs:write", "applications:write", "kyc:write", "finance:read", "finance:adjust", "audit:read", "admins:manage", "moderation:write"],
-  support_admin: ["tickets:read", "tickets:write", "users:read"],
-  finance_admin: ["tickets:read", "tickets:write", "users:read", "finance:read"],
+  support_admin: ["tickets:read", "tickets:write", "users:read", "finance:read", "finance:adjust"],
+  finance_admin: ["tickets:read", "tickets:write", "users:read", "finance:read", "finance:adjust"],
   kyc_admin: ["tickets:read", "users:read", "kyc:write"],
   moderator: ["tickets:read", "users:read", "moderation:write"]
 };

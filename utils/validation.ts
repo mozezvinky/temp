@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 
 export const jobSchema = z.object({
   title: z.string().trim().min(1, "Please enter a job title.").max(90, "Job title is too long."),
@@ -13,8 +14,10 @@ export const jobSchema = z.object({
   unit: z.preprocess(value => value === "" || value === null || typeof value === "undefined" ? undefined : value, z.string().trim().max(40, "Unit is too long.").optional()),
   customUnit: z.preprocess(value => value === "" || value === null || typeof value === "undefined" ? undefined : value, z.string().trim().max(60, "Custom unit is too long.").optional()),
   paymentMethod: z.enum(["mpesa", "cash"]).default("mpesa"),
-  payType: z.enum(["fixed", "timeline"]),
+  payType: z.enum(["fixed", "timeline", "pay_per_timeline"]),
   payAmount: z.coerce.number().min(50, "Budget must be at least KES 50."),
+  timelineCount: z.preprocess(value => value === "" || value === null || typeof value === "undefined" ? undefined : value, z.coerce.number().int("Timeline count must be a whole number.").min(1, "Timeline count must be at least 1.").optional()),
+  clientPayPerTimeline: z.preprocess(value => value === "" || value === null || typeof value === "undefined" ? undefined : value, z.coerce.number().optional()),
   location: z.string().trim().min(1, "Please enter a location."),
   county: z.string().trim().min(1, "Please enter a county."),
   locationDetails: z.object({
@@ -27,6 +30,33 @@ export const jobSchema = z.object({
     longitude: z.number().finite()
   }),
   requiredSkills: z.array(z.string()).max(12, "Please add no more than 12 skills.").default([])
+}).superRefine((value, context) => {
+  if (!isPayPerTimeline(value.payType)) return;
+  const clientPay = Number(value.clientPayPerTimeline ?? value.payAmount);
+  const timelineCount = Number(value.timelineCount ?? value.durationValue);
+  if (!Number.isFinite(timelineCount) || timelineCount < 1) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["timelineCount"], message: "Timeline count must be at least 1." });
+  }
+  if (!Number.isFinite(clientPay) || clientPay <= 100) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["clientPayPerTimeline"], message: "Pay per timeline must be greater than KES 100." });
+  }
+  if (timelinePaymentSummary(clientPay, timelineCount).workerPayPerTimeline < 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["clientPayPerTimeline"], message: "Worker pay per timeline cannot be negative." });
+  }
+}).transform(value => {
+  if (!isPayPerTimeline(value.payType)) return value;
+  const summary = timelinePaymentSummary(Number(value.clientPayPerTimeline ?? value.payAmount), Number(value.timelineCount ?? value.durationValue));
+  return {
+    ...value,
+    payType: "pay_per_timeline" as const,
+    payAmount: summary.clientPayPerTimeline,
+    timelineCount: summary.timelineCount,
+    clientPayPerTimeline: summary.clientPayPerTimeline,
+    workerPayPerTimeline: summary.workerPayPerTimeline,
+    totalClientAmount: summary.totalClientAmount,
+    totalWorkerAmount: summary.totalWorkerAmount,
+    totalPlatformFee: summary.totalPlatformFee
+  };
 });
 
 export const profileSchema = z.object({

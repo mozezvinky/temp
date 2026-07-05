@@ -131,6 +131,13 @@ export async function PATCH(request: NextRequest) {
       if (application.workerId !== decoded.uid) throw new AuthRouteError("You can only answer your own hire requests.", 403);
       if (application.source !== "direct_hire") throw new AuthRouteError("This is not a direct hire request.", 400);
       if (application.status !== "pending") throw new AuthRouteError("This request has already been answered.", 400);
+      if (response === "accept") {
+        const workerSnap = await transaction.get(db.collection("users").doc(decoded.uid));
+        const worker = workerSnap.data() ?? {};
+        if (worker.isLocked === true || Number(worker.outstandingServiceFee ?? 0) > 0) {
+          throw new AuthRouteError(String(worker.lockReason ?? "Service Fee Payment Required"), 403);
+        }
+      }
       const jobRef = db.collection("jobs").doc(String(application.jobId));
       const jobSnap = await transaction.get(jobRef);
       if (!jobSnap.exists) throw new AuthRouteError("Job was not found.", 404);

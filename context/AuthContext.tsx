@@ -29,7 +29,16 @@ function storedRecoveredRole(userId: string): Role | null {
 }
 
 function roleHintHeaders(userId: string): Record<string, string> {
-  const role = storedRecoveredRole(userId);
+  if (typeof window === "undefined") return {};
+  const pendingRole = window.localStorage.getItem(`temp.profile.pendingRole.${userId}`);
+  const routeRole = window.location.pathname.startsWith("/jobs")
+    ? "worker"
+    : window.location.pathname.startsWith("/find-work") || window.location.pathname.startsWith("/workers") || window.location.pathname.startsWith("/completed-requests")
+      ? "client"
+      : "";
+  const role = pendingRole === "worker" || pendingRole === "client" || pendingRole === "admin"
+    ? pendingRole
+    : routeRole;
   return role ? { "X-Temp-Role": role } : {};
 }
 
@@ -86,6 +95,8 @@ function recoveredProfile(user: User, role: Role): UserProfile {
     ratingCount: 0,
     completedJobs: 0,
     verificationStatus: "not_submitted",
+    driverLicenseVerificationStatus: "not_submitted",
+    driverLicenseRejectionReason: null,
     profileCompleted: false,
     isLocked: false,
     outstandingServiceFee: 0,
@@ -102,7 +113,14 @@ function profileFromDocument(user: User, data: Record<string, unknown>): UserPro
   const pendingRole = typeof window !== "undefined" ? window.localStorage.getItem(`temp.profile.pendingRole.${user.uid}`) : null;
   const documentRole = data.role as UserProfile["role"];
   const roles = Array.isArray(data.roles) ? data.roles.filter((role): role is Role => role === "worker" || role === "client" || role === "admin") : documentRole === "worker" || documentRole === "client" || documentRole === "admin" ? [documentRole] : [];
-  const role = storedRole && (roles.includes(storedRole) || pendingRole === storedRole) ? storedRole : documentRole;
+  const pendingProfileRole = pendingRole === "worker" || pendingRole === "client" || pendingRole === "admin" ? pendingRole : null;
+  const role = pendingProfileRole && (roles.includes(pendingProfileRole) || pendingProfileRole === documentRole)
+    ? pendingProfileRole
+    : documentRole === "worker" || documentRole === "client" || documentRole === "admin"
+      ? documentRole
+      : storedRole && roles.includes(storedRole)
+        ? storedRole
+        : documentRole;
   rememberAvailableRoles(user.uid, roles);
   if (role === "worker" || role === "client" || role === "admin") rememberRecoveredRole(user.uid, role, user.email ?? undefined);
   return {
@@ -130,6 +148,8 @@ function profileFromDocument(user: User, data: Record<string, unknown>): UserPro
     completedJobs: Number(data.completedJobs ?? 0),
     verificationStatus: normalizeVerificationStatus(data.verificationStatus ?? data.identityVerificationStatus ?? data.kycStatus),
     verificationRejectionReason: typeof data.verificationRejectionReason === "string" ? data.verificationRejectionReason : null,
+    driverLicenseVerificationStatus: normalizeVerificationStatus(data.driverLicenseVerificationStatus),
+    driverLicenseRejectionReason: typeof data.driverLicenseRejectionReason === "string" ? data.driverLicenseRejectionReason : null,
     profileCompleted: Boolean(data.profileCompleted),
     isLocked: Boolean(data.isLocked),
     outstandingServiceFee: Number(data.outstandingServiceFee ?? 0),

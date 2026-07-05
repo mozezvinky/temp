@@ -14,12 +14,17 @@ import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { jobCategoryOptions } from "@/lib/jobCategories";
 import { completeApplication, deleteJob, subscribeApplications, subscribeClientJobs, updateJob } from "@/services/jobs";
 import { rateUser } from "@/services/ratings";
+import { reportCompletedJob } from "@/services/reports";
 import { CheckCircle2, MoreVertical, Plus } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { Application, Job } from "@/types";
-import { durationLabel, durationToHours, durationUnits, type DurationUnit } from "@/utils/duration";
+import { durationLabel, durationToHours, durationUnits, perDurationUnit, type DurationUnit } from "@/utils/duration";
+import { TIMELINE_PLATFORM_FEE, isPayPerTimeline } from "@/utils/timeline-payments";
+import { kes } from "@/utils/money";
+import { completedJobId } from "@/utils/completed-job-id";
+import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 
 export default function FindWorkPage() {
   const { profile, loading, isAuthorized, refreshProfile } = useProtectedRoute(["client", "admin"]);
@@ -39,6 +44,7 @@ export default function FindWorkPage() {
   const [completedTab, setCompletedTab] = useState<"requests" | "history">("requests");
   const [postWorkOpen, setPostWorkOpen] = useState(false);
   const [verificationOpen, setVerificationOpen] = useState(false);
+  const [reportingJobId, setReportingJobId] = useState("");
 
   useEffect(() => {
     if (!profile || profile.role !== "client") return;
@@ -135,6 +141,26 @@ export default function FindWorkPage() {
     return applications.filter(application => application.jobId === jobId && application.status === "completion_requested");
   }
 
+  function canRateAfterThisPayment(application: Application) {
+    return !isPayPerTimeline(application.jobPayType) || Math.max(0, Math.trunc(Number(application.submittedTimelineCount ?? 0) || 0)) > 0;
+  }
+
+  function paymentUnitLabel(application: Application) {
+    return perDurationUnit(application.jobDurationUnit);
+  }
+
+  function pendingPaymentLabel(application: Application) {
+    if (!isPayPerTimeline(application.jobPayType)) return "Pending payment";
+    const timelinePay = applicationTimelinePay(application);
+    const unit = paymentUnitLabel(application);
+    return `Pending payment: ${timelinePay.submittedTimelineCount} ${unit}${timelinePay.submittedTimelineCount === 1 ? "" : "s"}`;
+  }
+
+  function pendingPaymentAmount(application: Application) {
+    if (!isPayPerTimeline(application.jobPayType)) return Number(application.jobAmount ?? 0);
+    return applicationTimelinePay(application).submittedWorkerAmount;
+  }
+
   async function finishJob(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!progressJob || !selectedApplicationIds.length) return;
@@ -148,9 +174,10 @@ export default function FindWorkPage() {
         const updated = await completeApplication(application);
         completed.push(updated);
         const stars = Number(form.get(`stars-${application.id}`) ?? 0);
-        if (stars > 0) {
+        const canSaveRating = canRateAfterThisPayment(application) || updated.status === "completed" || updated.jobStatus === "completed";
+        if (stars > 0 && canSaveRating) {
           try {
-            await rateUser(application.jobId, application.workerId, stars, String(form.get(`review-${application.id}`) ?? ""));
+            await rateUser(application.jobId, application.workerId, stars, String(form.get(`review-${application.id}`) ?? ""), updated.paidTimelineRatingScopeId);
           } catch {
             ratingFailed = true;
           }
@@ -158,10 +185,13 @@ export default function FindWorkPage() {
       }
       setApplications(items => items.map(item => {
         const updated = completed.find(application => application.id === item.id);
-        return updated ? { ...item, ...updated, status: "payment_sent" } : item;
+        return updated ? { ...item, ...updated, status: isPayPerTimeline(item.jobPayType) ? updated.status : "payment_sent" } : item;
       }));
+      if (progressJob && completed.some(application => application.jobStatus === "completed" || application.status === "completed")) {
+        setPostedJobs(items => items.map(job => job.id === progressJob.id ? { ...job, status: "completed" } : job));
+      }
       setPaymentStep("complete");
-      toast.success("Payment marked as sent. The worker must confirm they received it.");
+      toast.success(isPayPerTimeline(progressJob.payType) ? "Timeline payment marked as paid." : "Payment marked as sent. The worker must confirm they received it.");
       if (ratingFailed) toast.warning("Payment was saved, but one rating could not be submitted.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to complete this job.";
@@ -185,6 +215,26 @@ export default function FindWorkPage() {
     setPaymentStep("progress");
   }
 
+  async function reportCompletedClientJob(job: Job) {
+    const id = completedJobId(job.id);
+    const reason = window.prompt(`Describe the issue for completed job ${id}`);
+    if (!reason?.trim()) return;
+    setReportingJobId(job.id);
+    try {
+      const result = await reportCompletedJob({
+        completedJobId: id,
+        jobId: job.id,
+        title: `Completed job issue: ${job.title ?? id}`,
+        reason: reason.trim()
+      });
+      toast.success(`Report submitted. Ticket ${result.ticketId ?? "created"}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to submit report.");
+    } finally {
+      setReportingJobId("");
+    }
+  }
+
   if (loading || !isAuthorized) return <LoadingSpinner label="Checking client access" />;
   const visiblePostedJobs = postedJobs.filter(job => !job.rehireOfJobId);
   const activeJobs = visiblePostedJobs.filter(job => job.status !== "completed");
@@ -192,11 +242,19 @@ export default function FindWorkPage() {
   const completedRequests = applications.filter(application => application.status === "completion_requested");
   const menuJob = postedJobs.find(job => job.id === jobMenuOpen) ?? null;
   const selectedPaymentApplications = applications.filter(application => selectedApplicationIds.includes(application.id));
+  const progressTimelineCount = Math.max(1, Math.trunc(Number(progressJob?.timelineCount ?? 1) || 1));
+  const progressPaidTimelineCount = Math.min(progressTimelineCount, Math.max(0, Math.trunc(Number(progressJob?.paidTimelineCount ?? 0) || 0)));
+  const progressClientPayPerTimeline = Number(progressJob?.clientPayPerTimeline ?? progressJob?.payAmount ?? progressJob?.rateAmount ?? 0);
+  const progressWorkerPayPerTimeline = Number(progressJob?.workerPayPerTimeline && progressJob.workerPayPerTimeline > 0 ? progressJob.workerPayPerTimeline : Math.max(0, progressClientPayPerTimeline - TIMELINE_PLATFORM_FEE));
+  const progressRemainingWorkerAmount = progressWorkerPayPerTimeline * Math.max(0, progressTimelineCount - progressPaidTimelineCount);
+  const progressPaymentUnitLabel = perDurationUnit(progressJob?.durationUnit);
+  const progressPaymentUnitTitle = progressPaymentUnitLabel.charAt(0).toUpperCase() + progressPaymentUnitLabel.slice(1);
   const ratingApplications = selectedPaymentApplications.length
     ? selectedPaymentApplications
     : progressJob
       ? payableApplicationsForJob(progressJob.id)
       : [];
+  const rateableApplications = ratingApplications.filter(canRateAfterThisPayment);
   const visibleProgressApplications = progressJob
     ? acceptedApplicationsForJob(progressJob.id).filter(application => progressCategory === "All" || (application.jobCategory ?? progressJob.category) === progressCategory)
     : [];
@@ -286,19 +344,21 @@ export default function FindWorkPage() {
                   <section className="space-y-3">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[.18em] text-[#959087]">Needs action</p>
-                    <h3 className="mt-1 text-xl font-black text-[#FFFBFF]">Completed requests</h3>
+                    <h3 className="mt-1 text-xl font-black text-[#111] dark:text-[#FFFBFF]">Completed requests</h3>
                   </div>
                   <div className="grid gap-3">
                     {completedRequests.length ? completedRequests.map(application => {
+                      const pendingAmount = pendingPaymentAmount(application);
                       return (
-                        <div key={`request-${application.id}`} className="rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-4">
-                          <p className="text-xs font-bold uppercase tracking-[.16em] text-[#959087]">{application.jobCategory ?? "Completion requested"}</p>
-                          <h4 className="mt-2 text-lg font-black text-[#FFFBFF]">{application.jobTitle ?? "Completed job request"}</h4>
-                          <p className="mt-2 text-sm text-[#CCC6BB]">{application.workerName ?? "A worker"} marked this job as complete. Confirm completion, pay the worker directly, then the worker confirms receiving payment.</p>
-                          <div className="mt-3 grid gap-1 text-sm text-[#CCC6BB]">
-                            {application.workerEmail && <p><strong className="text-[#FFFBFF]">Email:</strong> {application.workerEmail}</p>}
-                            {application.workerPhoneNumber && <p><strong className="text-[#FFFBFF]">Phone:</strong> {application.workerPhoneNumber}</p>}
-                            {application.jobAmount ? <p><strong className="text-[#FFFBFF]">Amount:</strong> Ksh {Number(application.jobAmount).toLocaleString()}</p> : null}
+                        <div key={`request-${application.id}`} className="rounded-xl border border-[#d8d8d8] !bg-white p-4 !text-[#111] dark:border-[#4A463F] dark:!bg-[#2A2A2B] dark:!text-[#FFFBFF]">
+                          <p className="text-xs font-bold uppercase tracking-[.16em] text-[#4b453e] dark:text-[#959087]">{application.jobCategory ?? "Completion requested"}</p>
+                          <h4 className="mt-2 text-lg font-black">{application.jobTitle ?? "Completed job request"}</h4>
+                          <p className="mt-2 text-sm text-[#4b453e] dark:text-[#CCC6BB]">{application.workerName ?? "A worker"} marked this job as complete. Confirm completion, pay the worker directly, then the worker confirms receiving payment.</p>
+                          <div className="mt-3 grid gap-1 text-sm text-[#4b453e] dark:text-[#CCC6BB]">
+                            {application.workerEmail && <p><strong className="text-[#111] dark:text-[#FFFBFF]">Email:</strong> {application.workerEmail}</p>}
+                            {application.workerPhoneNumber && <p><strong className="text-[#111] dark:text-[#FFFBFF]">Phone:</strong> {application.workerPhoneNumber}</p>}
+                            <p><strong className="text-[#111] dark:text-[#FFFBFF]">{pendingPaymentLabel(application)}</strong></p>
+                            {pendingAmount > 0 ? <p><strong className="text-[#111] dark:text-[#FFFBFF]">Amount to pay:</strong> {kes(pendingAmount)}</p> : null}
                           </div>
                           <div className="mt-4 flex flex-wrap gap-2">
                             <Link href={`/completed-requests?application=${application.id}`} onClick={() => setCompletedOpen(false)} className="temp-success-button inline-flex min-h-11 items-center rounded-xl px-4 py-2 text-sm font-black">
@@ -321,7 +381,13 @@ export default function FindWorkPage() {
                     {completedJobs.length ? completedJobs.map(job => (
                       <div key={`completed-${job.id}`} className="space-y-2">
                         <JobCard job={job} />
-                        {job.recurrenceStatus === "cancelled" && <p className="rounded-xl border border-amber-300/40 bg-amber-300/15 p-3 text-sm font-bold text-amber-100">Ended early after {job.cancelledAfterPeriods ?? 0} paid month(s).</p>}
+                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-100">
+                          <span>Completed Job ID: <strong>{completedJobId(job.id)}</strong></span>
+                          <Button type="button" variant="secondary" disabled={reportingJobId === job.id} onClick={() => void reportCompletedClientJob(job)}>
+                            {reportingJobId === job.id ? "Reporting..." : "Report issue"}
+                          </Button>
+                        </div>
+                        {job.recurrenceStatus === "cancelled" && <p className="rounded-xl border border-amber-500/40 bg-amber-300/15 p-3 text-sm font-bold text-amber-800 dark:text-amber-100">Ended early after {job.cancelledAfterPeriods ?? 0} paid month(s).</p>}
                       </div>
                     )) : <EmptyState title="No past completed jobs" body="Fully completed jobs will appear here after workers confirm payment." />}
                   </div>
@@ -352,7 +418,7 @@ export default function FindWorkPage() {
                 <label className="temp-label">Category<select name="category" required defaultValue={editingJob.category} className="temp-input p-3 outline-none">
                   {jobCategoryOptions.map((option, index) => <option key={`edit-${option}-${index}`} value={option}>{option}</option>)}
                 </select></label>
-                <label className="temp-label">Pay type<select name="payType" defaultValue={editingJob.payType} className="temp-input p-3 outline-none"><option value="fixed">Fixed pay</option><option value="timeline">Per timeline</option></select></label>
+                <label className="temp-label">Pay type<select name="payType" defaultValue={editingJob.payType} className="temp-input p-3 outline-none"><option value="fixed">Fixed pay</option><option value="pay_per_timeline">Pay per {perDurationUnit(editingJob.durationUnit)}</option></select></label>
                 {!isJobInProgress(editingJob) && <label className="temp-label sm:col-span-2">Status<select name="status" defaultValue={editingJob.status} className="temp-input p-3 outline-none"><option value="open">Open</option><option value="cancelled">Cancelled</option></select></label>}
               </div>
               <div className="flex flex-wrap justify-end gap-3">
@@ -381,7 +447,9 @@ export default function FindWorkPage() {
                   <p className="mt-2 text-sm text-[#CCC6BB]">Select one worker, multiple workers, or filter by category before continuing to payment.</p>
                 </div>
                 <div className="temp-progress-status rounded-xl p-4 text-sm">
-                  {acceptedCount(progressJob.id)} of {progressJob.workersNeeded ?? 1} workers accepted. This job is in progress.
+                  {isPayPerTimeline(progressJob.payType)
+                    ? `${progressPaymentUnitTitle} payments: ${progressPaidTimelineCount}/${progressTimelineCount} paid. Remaining worker amount: ${kes(progressRemainingWorkerAmount)}.`
+                    : `${acceptedCount(progressJob.id)} of ${progressJob.workersNeeded ?? 1} workers accepted. This job is in progress.`}
                 </div>
                 <div className="flex flex-wrap items-end justify-between gap-3">
                   <label className="temp-label min-w-48">Category<select value={progressCategory} onChange={event => setProgressCategory(event.target.value)} className="temp-input p-3 outline-none">
@@ -391,11 +459,13 @@ export default function FindWorkPage() {
                   <Button type="button" variant="secondary" onClick={() => {
                     const visibleIds = visiblePayableApplications.map(application => application.id);
                     setSelectedApplicationIds(visibleIds);
-                  }} disabled={!visiblePayableApplications.length}>Select all in category</Button>
+                  }} disabled={!visiblePayableApplications.length}>{isPayPerTimeline(progressJob.payType) ? `Pay all submitted ${progressPaymentUnitLabel}s` : "Select all in category"}</Button>
                 </div>
                 <div className="grid gap-3">
                   {visibleProgressApplications.length ? visibleProgressApplications.map(application => {
                     const canPay = application.status === "completion_requested";
+                    const timelinePay = applicationTimelinePay(application);
+                    const submittedAmount = pendingPaymentAmount(application);
                     return (
                     <div key={application.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-4">
                       <label className={`flex items-center gap-3 ${canPay ? "" : "opacity-70"}`}>
@@ -403,16 +473,18 @@ export default function FindWorkPage() {
                         <span>
                         <p className="text-xs font-bold uppercase tracking-[.16em] text-[#959087]">{application.jobCategory ?? progressJob.category}</p>
                         <p className="font-black text-[#FFFBFF]">{application.workerName ?? "Worker applicant"}</p>
+                        {isPayPerTimeline(application.jobPayType) && <p className="mt-1 text-xs font-bold text-[#CCC6BB]">Pending payment: {timelinePay.submittedTimelineCount} {progressPaymentUnitLabel}{timelinePay.submittedTimelineCount === 1 ? "" : "s"} · {application.paidTimelineCount ?? 0}/{application.timelineCount ?? 1} paid</p>}
+                        {canPay && submittedAmount > 0 && <p className="mt-1 text-xs font-black text-[#FFFBFF]">Amount to pay: {kes(submittedAmount)}</p>}
                         </span>
                       </label>
-                      {canPay ? (
-                        <Button type="button" className="temp-success-button" onClick={() => { setSelectedApplicationIds([application.id]); setPaymentStep("review"); }}>
-                          Pay this worker
-                        </Button>
+                        {canPay ? (
+                          <Button type="button" className="temp-success-button" onClick={() => { setSelectedApplicationIds([application.id]); setPaymentStep("review"); }}>
+                            {isPayPerTimeline(application.jobPayType) ? `Pay submitted ${progressPaymentUnitLabel}${timelinePay.submittedTimelineCount === 1 ? "" : "s"}` : "Pay this worker"}
+                          </Button>
                       ) : application.status === "payment_sent" ? (
-                        <span className="rounded-full border border-purple-300/30 bg-purple-400/10 px-3 py-1 text-xs font-black text-purple-100">Waiting for worker payment confirmation</span>
+                        <span className="rounded-full border border-purple-500/30 bg-purple-400/10 px-3 py-1 text-xs font-black text-purple-800 dark:text-purple-100">Waiting for worker payment confirmation</span>
                       ) : (
-                        <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-xs font-black text-amber-100">Worker must mark complete first</span>
+                        <span className="rounded-full border border-amber-500/30 bg-amber-400/10 px-3 py-1 text-xs font-black text-amber-800 dark:text-amber-100">Worker must mark complete first</span>
                       )}
                     </div>
                   );
@@ -426,13 +498,14 @@ export default function FindWorkPage() {
               <form onSubmit={finishJob} className="mt-6 grid gap-4">
                 <p className="text-sm text-[#CCC6BB]">Pay each worker directly outside the platform. The job will be completed only after every worker confirms they have received their payment.</p>
                 <div className="grid gap-3">
-                  {ratingApplications.length ? ratingApplications.map(application => (
+                  {rateableApplications.length ? rateableApplications.map(application => (
                     <div key={`rating-${application.id}`} className="rounded-xl bg-[#2A2A2B] p-4">
                       <p className="text-sm font-black text-[#FFFBFF]">{application.workerName ?? "Worker"}</p>
+                      <p className="mt-1 text-sm font-bold text-[#CCC6BB]">{pendingPaymentLabel(application)} · Amount to pay: {kes(pendingPaymentAmount(application))}</p>
                       <StarRatingInput name={`stars-${application.id}`} label="Rate worker optional" />
                       <label className="temp-label mt-3">Review optional<textarea name={`review-${application.id}`} placeholder="Optional public review" className="temp-input min-h-20 p-3 outline-none" /></label>
                     </div>
-                  )) : <p className="rounded-xl bg-[#2A2A2B] p-3 text-sm text-[#CCC6BB]">Select a worker first to add a rating.</p>}
+                  )) : <p className="rounded-xl bg-[#2A2A2B] p-3 text-sm text-[#CCC6BB]">{ratingApplications.length ? "Ratings appear when a submitted day/hour is ready to pay." : "Select a worker first to add a rating."}</p>}
                 </div>
                 <label className="temp-label">Remarks optional<textarea name="remarks" placeholder="Optional note" className="temp-input min-h-24 p-3 outline-none" /></label>
                 <Button type="submit" className="temp-success-button" disabled={finishingJob}>{finishingJob ? "Saving..." : "I Have Paid The Worker"}</Button>
@@ -441,7 +514,7 @@ export default function FindWorkPage() {
 
             {paymentStep === "complete" && (
               <div className="mt-6 rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-5 text-center">
-                <h3 className="text-xl font-black text-emerald-100">Payment marked as sent</h3>
+                <h3 className="text-xl font-black text-emerald-800 dark:text-emerald-100">Payment marked as sent</h3>
                 <p className="mt-2 text-sm text-[#CCC6BB]">The worker has been asked to confirm they received payment. The job will be completed and the service-fee lock will begin only after the worker confirms receipt.</p>
                 <p className="mt-4 rounded-xl border border-[#4A463F] bg-[#171718] p-3 text-sm font-black text-[#FFFBFF]">Rating option: use the stars in the payment review step before clicking I Have Paid The Worker.</p>
                 <Button type="button" className="temp-success-button mt-5" onClick={closeProgress}>Done</Button>

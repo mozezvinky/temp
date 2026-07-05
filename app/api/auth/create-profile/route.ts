@@ -63,6 +63,8 @@ export async function POST(request: NextRequest) {
           emailVerified: existingData?.emailVerified === true,
           emailVerifiedAt: existingData?.emailVerifiedAt ?? null,
           verificationStatus: existingData?.verificationStatus ?? "not_submitted",
+          driverLicenseVerificationStatus: existingData?.driverLicenseVerificationStatus ?? "not_submitted",
+          driverLicenseRejectionReason: existingData?.driverLicenseRejectionReason ?? null,
           profileCompleted: existingData?.profileCompleted === true,
           skills: Array.isArray(existingData?.skills) ? existingData?.skills : [],
           skillProfiles: Array.isArray(existingData?.skillProfiles) ? existingData?.skillProfiles : [],

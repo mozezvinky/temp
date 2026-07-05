@@ -1,11 +1,12 @@
 "use client";
 
 import { requireAuth } from "@/lib/firebase";
-import type { VerificationRecord } from "@/types";
+import type { VerificationKind, VerificationRecord } from "@/types";
 
 export interface VerificationSubmission {
   userId: string;
   role: "client" | "worker";
+  kind?: VerificationKind;
   fullName: string;
   phoneNumber: string;
   nationalId: string;
@@ -29,6 +30,7 @@ export async function submitVerification(input: VerificationSubmission, onProgre
   const token = await user.getIdToken();
 
   const form = new FormData();
+  form.set("kind", input.kind ?? "identity");
   form.set("fullName", input.fullName);
   form.set("phoneNumber", input.phoneNumber);
   form.set("nationalId", input.nationalId);
@@ -73,10 +75,10 @@ export async function submitVerification(input: VerificationSubmission, onProgre
   });
 }
 
-export async function loadMyVerification() {
+export async function loadMyVerification(kind: VerificationKind = "identity") {
   const user = requireAuth().currentUser;
   if (!user) throw new Error("Please sign in before loading verification.");
-  const response = await fetch("/api/kyc/start", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
+  const response = await fetch(`/api/kyc/start?kind=${kind}`, { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
   const result = await response.json().catch(() => ({})) as { verification?: VerificationRecord | null; error?: string };
   if (!response.ok) throw new Error(result.error ?? "Unable to load verification.");
   return result.verification ?? null;

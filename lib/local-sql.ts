@@ -5,6 +5,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateServiceFee } from "@/utils/money";
+import { isPayPerTimeline, timelinePaymentSummary, TIMELINE_PLATFORM_FEE } from "@/utils/timeline-payments";
 
 type SqlValue = string | number | bigint | null | Uint8Array;
 type SqlStatement = {
@@ -40,6 +41,8 @@ export function localDb() {
       photoURL TEXT,
       emailVerified INTEGER NOT NULL DEFAULT 0,
       verificationStatus TEXT NOT NULL DEFAULT 'not_submitted',
+      driverLicenseVerificationStatus TEXT NOT NULL DEFAULT 'not_submitted',
+      driverLicenseRejectionReason TEXT,
       profileCompleted INTEGER NOT NULL DEFAULT 0,
       skills TEXT NOT NULL DEFAULT '[]',
       skillProfiles TEXT NOT NULL DEFAULT '[]',
@@ -85,6 +88,12 @@ export function localDb() {
       unit TEXT,
       customUnit TEXT,
       paymentMethod TEXT NOT NULL DEFAULT 'mpesa',
+      timelineCount INTEGER NOT NULL DEFAULT 1,
+      clientPayPerTimeline REAL,
+      workerPayPerTimeline REAL,
+      totalClientAmount REAL,
+      totalWorkerAmount REAL,
+      totalPlatformFee REAL,
       requiredSkills TEXT NOT NULL,
       applicants TEXT NOT NULL DEFAULT '[]',
       assignedWorkerId TEXT,
@@ -119,6 +128,23 @@ export function localDb() {
       requestDuration TEXT,
       requestDescription TEXT,
       clientRating INTEGER,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS job_timelines (
+      id TEXT PRIMARY KEY,
+      jobId TEXT NOT NULL,
+      applicationId TEXT,
+      workerId TEXT,
+      clientId TEXT NOT NULL,
+      timelineNumber INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      submittedAt TEXT,
+      approvedAt TEXT,
+      paidAt TEXT,
+      workerAmount REAL NOT NULL,
+      clientAmount REAL NOT NULL,
+      platformFee REAL NOT NULL,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
@@ -178,6 +204,20 @@ export function localDb() {
       lastMessage TEXT,
       unreadForUser INTEGER NOT NULL DEFAULT 0,
       unreadForAdmin INTEGER NOT NULL DEFAULT 1,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      userName TEXT,
+      userRole TEXT NOT NULL,
+      title TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      completedJobId TEXT,
+      relatedJobId TEXT,
+      relatedApplicationId TEXT,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
@@ -273,6 +313,24 @@ export function localDb() {
       reviewedAt TEXT,
       updatedAt TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS driver_license_verifications (
+      userId TEXT PRIMARY KEY,
+      role TEXT NOT NULL,
+      fullName TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phoneNumber TEXT NOT NULL,
+      username TEXT NOT NULL,
+      licenseNumber TEXT NOT NULL,
+      idFrontUrl TEXT NOT NULL,
+      idBackUrl TEXT NOT NULL,
+      selfieWithIdUrl TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      rejectionReason TEXT,
+      reviewedBy TEXT,
+      submittedAt TEXT NOT NULL,
+      reviewedAt TEXT,
+      updatedAt TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
       jobId TEXT NOT NULL,
@@ -288,6 +346,7 @@ export function localDb() {
       conversationId TEXT NOT NULL,
       senderId TEXT NOT NULL,
       body TEXT NOT NULL,
+      imageUrl TEXT,
       readBy TEXT NOT NULL DEFAULT '[]',
       createdAt TEXT NOT NULL
     );
@@ -295,11 +354,14 @@ export function localDb() {
     CREATE INDEX IF NOT EXISTS idx_jobs_client_created ON jobs(clientId, createdAt);
     CREATE INDEX IF NOT EXISTS idx_applications_worker_created ON applications(workerId, createdAt);
     CREATE INDEX IF NOT EXISTS idx_applications_client_created ON applications(clientId, createdAt);
+    CREATE INDEX IF NOT EXISTS idx_job_timelines_job ON job_timelines(jobId, timelineNumber);
+    CREATE INDEX IF NOT EXISTS idx_job_timelines_application ON job_timelines(applicationId, timelineNumber);
     CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(userId, createdAt);
     CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status, updatedAt);
     CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket ON ticket_messages(ticketId, createdAt);
     CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_logs(createdAt);
     CREATE INDEX IF NOT EXISTS idx_identity_verifications_status ON identity_verifications(status, submittedAt);
+    CREATE INDEX IF NOT EXISTS idx_driver_license_verifications_status ON driver_license_verifications(status, submittedAt);
     CREATE INDEX IF NOT EXISTS idx_conversations_client ON conversations(clientId, updatedAt);
     CREATE INDEX IF NOT EXISTS idx_conversations_worker ON conversations(workerId, updatedAt);
     CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversationId, createdAt);
@@ -309,6 +371,12 @@ export function localDb() {
   ensureColumn("jobs", "unit", "TEXT");
   ensureColumn("jobs", "customUnit", "TEXT");
   ensureColumn("jobs", "paymentMethod", "TEXT NOT NULL DEFAULT 'mpesa'");
+  ensureColumn("jobs", "timelineCount", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn("jobs", "clientPayPerTimeline", "REAL");
+  ensureColumn("jobs", "workerPayPerTimeline", "REAL");
+  ensureColumn("jobs", "totalClientAmount", "REAL");
+  ensureColumn("jobs", "totalWorkerAmount", "REAL");
+  ensureColumn("jobs", "totalPlatformFee", "REAL");
   ensureColumn("jobs", "durationValue", "REAL");
   ensureColumn("jobs", "durationUnit", "TEXT");
   ensureColumn("jobs", "totalPeriods", "INTEGER NOT NULL DEFAULT 1");
@@ -320,12 +388,16 @@ export function localDb() {
   ensureColumn("jobs", "nextPaymentDate", "TEXT");
   ensureColumn("jobs", "cancelledAfterPeriods", "INTEGER");
   ensureColumn("applications", "clientRating", "INTEGER");
+  ensureColumn("ratings", "ratingScopeId", "TEXT");
   ensureColumn("applications", "source", "TEXT NOT NULL DEFAULT 'application'");
   ensureColumn("applications", "requestLocation", "TEXT");
   ensureColumn("applications", "requestStartDate", "TEXT");
   ensureColumn("applications", "requestDuration", "TEXT");
   ensureColumn("applications", "requestDescription", "TEXT");
+  ensureColumn("conversation_messages", "imageUrl", "TEXT");
   ensureColumn("users", "skillProfiles", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn("users", "driverLicenseVerificationStatus", "TEXT NOT NULL DEFAULT 'not_submitted'");
+  ensureColumn("users", "driverLicenseRejectionReason", "TEXT");
   ensureColumn("users", "roles", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn("users", "photoURL", "TEXT");
   ensureColumn("users", "photoPositionX", "REAL NOT NULL DEFAULT 50");
@@ -394,6 +466,8 @@ export function rowToUser(row: Record<string, unknown>): UserProfile {
     ratingCount: Number(row.ratingCount ?? 0),
     completedJobs: Number(row.completedJobs ?? 0),
     verificationStatus: String(row.verificationStatus ?? "not_submitted") as UserProfile["verificationStatus"],
+    driverLicenseVerificationStatus: String(row.driverLicenseVerificationStatus ?? "not_submitted") as UserProfile["driverLicenseVerificationStatus"],
+    driverLicenseRejectionReason: typeof row.driverLicenseRejectionReason === "string" ? row.driverLicenseRejectionReason : null,
     profileCompleted: Number(row.profileCompleted ?? 0) === 1,
     isLocked: Number(row.isLocked ?? 0) === 1,
     lockReason: typeof row.lockReason === "string" ? row.lockReason : undefined,
@@ -413,10 +487,15 @@ function rowToJob(row: Record<string, unknown>): Job {
     : storedTotalPeriods;
   const totalPeriods = Math.max(1, Number.isFinite(rehireTotalPeriods) ? rehireTotalPeriods : 1);
   const completedPeriods = Math.min(totalPeriods, Math.max(0, Number(row.completedPeriods ?? 0)));
+  const payType = String(row.payType) as Job["payType"];
+  const paymentSummary = isPayPerTimeline(payType)
+    ? timelinePaymentSummary(Number(row.clientPayPerTimeline ?? row.payAmount ?? 0), Number(row.timelineCount ?? durationValue ?? 1))
+    : null;
   return {
     id: String(row.id),
     clientId: String(row.clientId),
     clientName: String(row.clientName),
+    clientVerificationStatus: typeof row.clientVerificationStatus === "string" ? row.clientVerificationStatus as Job["clientVerificationStatus"] : undefined,
     createdBy: String(row.createdBy),
     title: String(row.title),
     description: String(row.description),
@@ -425,7 +504,16 @@ function rowToJob(row: Record<string, unknown>): Job {
     county: String(row.county),
     locationDetails: parseJson<LocationFields | undefined>(row.locationDetails, undefined),
     payAmount: Number(row.payAmount ?? 0),
-    payType: String(row.payType) as Job["payType"],
+    payType,
+    timelineCount: paymentSummary?.timelineCount ?? Number(row.timelineCount ?? 1),
+    clientPayPerTimeline: paymentSummary?.clientPayPerTimeline ?? (row.clientPayPerTimeline == null ? undefined : Number(row.clientPayPerTimeline)),
+    workerPayPerTimeline: paymentSummary?.workerPayPerTimeline ?? (row.workerPayPerTimeline == null ? undefined : Number(row.workerPayPerTimeline)),
+    totalClientAmount: paymentSummary?.totalClientAmount ?? (row.totalClientAmount == null ? undefined : Number(row.totalClientAmount)),
+    totalWorkerAmount: paymentSummary?.totalWorkerAmount ?? (row.totalWorkerAmount == null ? undefined : Number(row.totalWorkerAmount)),
+    totalPlatformFee: paymentSummary?.totalPlatformFee ?? (row.totalPlatformFee == null ? undefined : Number(row.totalPlatformFee)),
+    paidTimelineCount: Number(row.paidTimelineCount ?? 0),
+    unpaidTimelineCount: Number(row.unpaidTimelineCount ?? Math.max(0, Number(row.timelineCount ?? 1) - Number(row.paidTimelineCount ?? 0))),
+    submittedTimelineCount: Number(row.submittedTimelineCount ?? 0),
     duration: String(row.duration),
     durationHours: Number(row.durationHours ?? 0),
     durationValue,
@@ -450,8 +538,8 @@ function rowToJob(row: Record<string, unknown>): Job {
     status: String(row.status ?? "open") as Job["status"],
     rateType: row.rateType as Job["rateType"],
     rateAmount: Number(row.rateAmount ?? row.payAmount ?? 0),
-    createdAt: null,
-    updatedAt: null as unknown as Job["updatedAt"]
+    createdAt: typeof row.createdAt === "string" ? row.createdAt : null,
+    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : null
   };
 }
 
@@ -540,16 +628,27 @@ export function createLocalJob(input: {
   unit?: string;
   customUnit?: string;
   paymentMethod?: Job["paymentMethod"];
+  timelineCount?: number;
+  clientPayPerTimeline?: number;
+  workerPayPerTimeline?: number;
+  totalClientAmount?: number;
+  totalWorkerAmount?: number;
+  totalPlatformFee?: number;
   requiredSkills: string[];
 }) {
   const createdAt = nowIso();
   const rateType = input.payType;
+  const timelineSummary = isPayPerTimeline(input.payType)
+    ? timelinePaymentSummary(Number(input.clientPayPerTimeline ?? input.payAmount), Number(input.timelineCount ?? input.durationValue ?? 1))
+    : null;
   localDb().prepare(`
     INSERT INTO jobs (
       id, clientId, clientName, createdBy, title, description, category, location, county, locationDetails,
-      payAmount, payType, duration, durationHours, durationValue, durationUnit, workersNeeded, quantity, unit, customUnit, paymentMethod, requiredSkills, applicants, assignedWorkerId, status,
+      payAmount, payType, duration, durationHours, durationValue, durationUnit, workersNeeded, quantity, unit, customUnit, paymentMethod,
+      timelineCount, clientPayPerTimeline, workerPayPerTimeline, totalClientAmount, totalWorkerAmount, totalPlatformFee,
+      requiredSkills, applicants, assignedWorkerId, status,
       rateType, rateAmount, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', NULL, 'open', ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', NULL, 'open', ?, ?, ?, ?)
   `).run(
     input.id,
     input.clientId,
@@ -572,12 +671,37 @@ export function createLocalJob(input: {
     input.unit ?? null,
     input.customUnit ?? null,
     input.paymentMethod ?? "mpesa",
+    timelineSummary?.timelineCount ?? 1,
+    timelineSummary?.clientPayPerTimeline ?? null,
+    timelineSummary?.workerPayPerTimeline ?? null,
+    timelineSummary?.totalClientAmount ?? null,
+    timelineSummary?.totalWorkerAmount ?? null,
+    timelineSummary?.totalPlatformFee ?? null,
     jsonString(input.requiredSkills),
     rateType,
     input.payAmount,
     createdAt,
     createdAt
   );
+  if (timelineSummary) {
+    const insertTimeline = localDb().prepare(`
+      INSERT INTO job_timelines (id, jobId, clientId, timelineNumber, status, workerAmount, clientAmount, platformFee, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+    `);
+    for (let timelineNumber = 1; timelineNumber <= timelineSummary.timelineCount; timelineNumber += 1) {
+      insertTimeline.run(
+        `${input.id}-timeline-${timelineNumber}`,
+        input.id,
+        input.clientId,
+        timelineNumber,
+        timelineSummary.workerPayPerTimeline,
+        timelineSummary.clientPayPerTimeline,
+        TIMELINE_PLATFORM_FEE,
+        createdAt,
+        createdAt
+      );
+    }
+  }
   localDb().prepare(`
     INSERT INTO activities (id, userId, role, type, title, description, relatedId, read, createdAt)
     VALUES (?, ?, 'client', 'job_posted', 'Job posted', ?, ?, 0, ?)
@@ -586,17 +710,42 @@ export function createLocalJob(input: {
 }
 
 export function getLocalJob(id: string) {
-  const row = localDb().prepare("SELECT * FROM jobs WHERE id = ?").get(id);
+  const row = localDb().prepare(`
+    SELECT jobs.*, clients.verificationStatus as clientVerificationStatus,
+      SUM(CASE WHEN job_timelines.status = 'paid' THEN 1 ELSE 0 END) as paidTimelineCount,
+      SUM(CASE WHEN job_timelines.status = 'submitted' THEN 1 ELSE 0 END) as submittedTimelineCount
+    FROM jobs
+    LEFT JOIN users clients ON clients.uid = jobs.clientId
+    LEFT JOIN job_timelines ON job_timelines.jobId = jobs.id
+    WHERE jobs.id = ?
+    GROUP BY jobs.id
+  `).get(id);
   return row ? rowToJob(row) : null;
 }
 
 export function listLocalOpenJobs() {
   return localDb().prepare(`
-    SELECT jobs.*, COUNT(applications.id) as acceptedCount
+    SELECT jobs.*, clients.verificationStatus as clientVerificationStatus,
+      (SELECT COUNT(*) FROM applications WHERE applications.jobId = jobs.id AND applications.status IN ('accepted', 'completion_requested', 'payment_sent')) as acceptedCount,
+      (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = jobs.id AND job_timelines.status = 'paid') as paidTimelineCount,
+      (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = jobs.id AND job_timelines.status = 'submitted') as submittedTimelineCount
     FROM jobs
-    LEFT JOIN applications ON applications.jobId = jobs.id AND applications.status IN ('accepted', 'completion_requested', 'payment_sent')
+    LEFT JOIN users clients ON clients.uid = jobs.clientId
     WHERE jobs.status = 'open'
-    GROUP BY jobs.id
+    ORDER BY jobs.createdAt DESC
+    LIMIT 80
+  `).all().map(rowToJob);
+}
+
+export function listLocalWorkerVisibleJobs() {
+  return localDb().prepare(`
+    SELECT jobs.*, clients.verificationStatus as clientVerificationStatus,
+      (SELECT COUNT(*) FROM applications WHERE applications.jobId = jobs.id AND applications.status IN ('accepted', 'completion_requested', 'payment_sent')) as acceptedCount,
+      (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = jobs.id AND job_timelines.status = 'paid') as paidTimelineCount,
+      (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = jobs.id AND job_timelines.status = 'submitted') as submittedTimelineCount
+    FROM jobs
+    LEFT JOIN users clients ON clients.uid = jobs.clientId
+    WHERE jobs.status IN ('open', 'pending', 'live', 'assigned', 'active', 'in_progress')
     ORDER BY jobs.createdAt DESC
     LIMIT 80
   `).all().map(rowToJob);
@@ -604,11 +753,13 @@ export function listLocalOpenJobs() {
 
 export function listLocalClientJobs(clientId: string) {
   return localDb().prepare(`
-    SELECT jobs.*, COUNT(applications.id) as acceptedCount
+    SELECT jobs.*, clients.verificationStatus as clientVerificationStatus,
+      (SELECT COUNT(*) FROM applications WHERE applications.jobId = jobs.id AND applications.status IN ('accepted', 'completion_requested', 'payment_sent')) as acceptedCount,
+      (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = jobs.id AND job_timelines.status = 'paid') as paidTimelineCount,
+      (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = jobs.id AND job_timelines.status = 'submitted') as submittedTimelineCount
     FROM jobs
-    LEFT JOIN applications ON applications.jobId = jobs.id AND applications.status IN ('accepted', 'completion_requested', 'payment_sent')
+    LEFT JOIN users clients ON clients.uid = jobs.clientId
     WHERE jobs.clientId = ?
-    GROUP BY jobs.id
     ORDER BY jobs.createdAt DESC
     LIMIT 80
   `).all(clientId).map(rowToJob);
@@ -669,6 +820,11 @@ export function deleteLocalJob(id: string, clientId: string) {
 }
 
 function rowToApplication(row: Record<string, unknown>) {
+  const timelineCount = row.timelineCount == null ? undefined : Math.max(1, Math.trunc(Number(row.timelineCount) || 1));
+  const clientPayPerTimeline = row.clientPayPerTimeline != null ? Number(row.clientPayPerTimeline) : row.jobAmount != null ? Number(row.jobAmount) : undefined;
+  const workerPayPerTimeline = row.workerPayPerTimeline != null && Number(row.workerPayPerTimeline) > 0
+    ? Number(row.workerPayPerTimeline)
+    : clientPayPerTimeline == null ? undefined : Math.max(0, clientPayPerTimeline - TIMELINE_PLATFORM_FEE);
   return {
     id: String(row.id),
     jobId: String(row.jobId),
@@ -678,6 +834,19 @@ function rowToApplication(row: Record<string, unknown>) {
     jobCategory: typeof row.jobCategory === "string" ? row.jobCategory : undefined,
     jobStatus: typeof row.jobStatus === "string" ? row.jobStatus : undefined,
     jobAmount: row.jobAmount == null ? undefined : Number(row.jobAmount),
+    jobPayType: typeof row.jobPayType === "string" ? row.jobPayType : undefined,
+    jobDurationUnit: typeof row.jobDurationUnit === "string" ? row.jobDurationUnit : undefined,
+    timelineCount,
+    clientPayPerTimeline,
+    workerPayPerTimeline,
+    totalClientAmount: row.totalClientAmount != null && Number(row.totalClientAmount) > 0 ? Number(row.totalClientAmount) : timelineCount && clientPayPerTimeline != null ? clientPayPerTimeline * timelineCount : undefined,
+    totalWorkerAmount: row.totalWorkerAmount != null && Number(row.totalWorkerAmount) > 0 ? Number(row.totalWorkerAmount) : timelineCount && workerPayPerTimeline != null ? workerPayPerTimeline * timelineCount : undefined,
+    totalPlatformFee: row.totalPlatformFee == null ? undefined : Number(row.totalPlatformFee),
+    paidTimelineCount: Number(row.paidTimelineCount ?? 0),
+    submittedTimelineCount: Number(row.submittedTimelineCount ?? 0),
+    unpaidTimelineCount: timelineCount == null ? undefined : Math.max(0, timelineCount - Number(row.paidTimelineCount ?? 0)),
+    nextTimelineNumber: row.nextTimelineNumber == null ? undefined : Number(row.nextTimelineNumber),
+    nextPayableTimelineNumber: row.nextPayableTimelineNumber == null ? undefined : Number(row.nextPayableTimelineNumber),
     workerName: typeof row.workerName === "string" ? row.workerName : undefined,
     workerEmail: typeof row.workerEmail === "string" ? row.workerEmail : undefined,
     workerPhoneNumber: typeof row.workerPhoneNumber === "string" ? row.workerPhoneNumber : undefined,
@@ -771,7 +940,7 @@ export function createLocalDirectHireRequest(input: {
   if (input.workerId === input.clientId) throw new Error("You cannot hire yourself.");
   const worker = getLocalUser(input.workerId);
   if (!worker || worker.role !== "worker") throw new Error("Choose a valid worker.");
-  if (worker.isLocked) throw new Error("This worker is not available for new jobs.");
+  if (worker.isLocked || Number(worker.outstandingServiceFee ?? 0) > 0) throw new Error("This worker is not available for new jobs.");
   if (countLocalActiveAcceptedApplications(input.workerId) > 0) throw new Error("This worker is occupied on another job right now.");
   const createdAt = nowIso();
   localDb().exec("BEGIN IMMEDIATE");
@@ -834,6 +1003,10 @@ export function respondLocalDirectHireRequest(applicationId: string, workerId: s
       VALUES (?, ?, 'Direct hire rejected', ?, 0, '/workers', ?)
     `).run(`notification-direct-hire-rejected-${applicationId}`, application.clientId, `${application.workerName ?? "The worker"} rejected your direct hire request for ${application.jobTitle ?? "the job"}.`, now);
   } else {
+    const worker = getLocalUser(workerId);
+    if (worker?.isLocked || Number(worker?.outstandingServiceFee ?? 0) > 0) {
+      throw new Error(worker?.lockReason ?? "Service Fee Payment Required");
+    }
     localDb().exec("BEGIN IMMEDIATE");
     try {
       localDb().prepare("UPDATE applications SET status = 'accepted', updatedAt = ? WHERE id = ?").run(now, applicationId);
@@ -881,6 +1054,10 @@ export function acceptLocalApplication(applicationId: string, clientId: string) 
   if (application.status !== "accepted") {
     const now = nowIso();
     localDb().prepare("UPDATE applications SET status = 'accepted', updatedAt = ? WHERE id = ?").run(now, applicationId);
+    if (isPayPerTimeline(job.payType)) {
+      localDb().prepare("UPDATE job_timelines SET applicationId = ?, workerId = ?, updatedAt = ? WHERE jobId = ? AND applicationId IS NULL")
+        .run(applicationId, application.workerId, now, job.id);
+    }
   }
   upsertLocalConversation(job.id, clientId, application.workerId);
   const acceptedCount = countLocalAcceptedApplications(job.id);
@@ -978,10 +1155,70 @@ export function cancelLocalApplication(applicationId: string, workerId: string) 
   return updated ? rowToApplication(updated) : { ...application, status: "withdrawn" as const };
 }
 
-export function requestLocalApplicationCompletion(applicationId: string, workerId: string) {
+export function requestLocalApplicationCompletion(applicationId: string, workerId: string, timelineCountToSubmit = 1) {
   const row = localDb().prepare("SELECT * FROM applications WHERE id = ? AND workerId = ?").get(applicationId, workerId);
   if (!row) return null;
   const application = rowToApplication(row);
+  const job = getLocalJob(application.jobId);
+  if (job && isPayPerTimeline(job.payType)) {
+    const now = nowIso();
+    const existingTimelineCount = localDb().prepare("SELECT COUNT(*) as count FROM job_timelines WHERE jobId = ?").get(application.jobId);
+    if (Number(existingTimelineCount?.count ?? 0) === 0) {
+      const timelineSummary = timelinePaymentSummary(Number(job.clientPayPerTimeline ?? job.payAmount ?? 0), Number(job.timelineCount ?? 1));
+      for (let timelineNumber = 1; timelineNumber <= timelineSummary.timelineCount; timelineNumber += 1) {
+        localDb().prepare(`
+          INSERT INTO job_timelines (id, jobId, applicationId, workerId, clientId, timelineNumber, status, workerAmount, clientAmount, platformFee, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+        `).run(
+          `${application.jobId}-timeline-${timelineNumber}`,
+          application.jobId,
+          applicationId,
+          application.workerId,
+          application.clientId,
+          timelineNumber,
+          timelineSummary.workerPayPerTimeline,
+          timelineSummary.clientPayPerTimeline,
+          TIMELINE_PLATFORM_FEE,
+          now,
+          now
+        );
+      }
+    } else {
+      localDb().prepare("UPDATE job_timelines SET applicationId = ?, workerId = ?, updatedAt = ? WHERE jobId = ? AND (applicationId IS NULL OR applicationId = '')")
+        .run(applicationId, application.workerId, now, application.jobId);
+    }
+    const blocking = localDb().prepare("SELECT id FROM job_timelines WHERE applicationId = ? AND status IN ('submitted', 'approved') LIMIT 1").get(applicationId);
+    if (blocking) throw new Error("The previous submitted timeline must be paid before submitting the next timeline.");
+    const requestedCount = Math.max(1, Math.trunc(Number(timelineCountToSubmit) || 1));
+    const timelines = localDb().prepare("SELECT * FROM job_timelines WHERE applicationId = ? AND status = 'pending' ORDER BY timelineNumber ASC").all(applicationId).slice(0, requestedCount);
+    if (!timelines.length) throw new Error("All timelines have already been submitted or paid.");
+    const updateTimeline = localDb().prepare("UPDATE job_timelines SET status = 'submitted', submittedAt = ?, updatedAt = ? WHERE id = ? AND status = 'pending'");
+    for (const timeline of timelines) updateTimeline.run(now, now, String(timeline.id));
+    localDb().prepare("UPDATE applications SET status = 'completion_requested', updatedAt = ? WHERE id = ? AND workerId = ?").run(now, applicationId, workerId);
+    localDb().prepare("UPDATE jobs SET status = 'live', updatedAt = ? WHERE id = ?").run(now, application.jobId);
+    const submittedNumbers = timelines.map(timeline => Number(timeline.timelineNumber ?? 0)).filter(Boolean);
+    const paymentUnit = String(job.durationUnit ?? "timeline").replace(/s$/, "") || "timeline";
+    const title = "Pending payment";
+    const body = `Pending payment: ${submittedNumbers.length} ${paymentUnit}${submittedNumbers.length === 1 ? "" : "s"} for ${application.jobTitle ?? "your job"}.`;
+    localDb().prepare(`
+      INSERT OR REPLACE INTO notifications (id, userId, title, body, read, href, createdAt)
+      VALUES (?, ?, ?, ?, 0, ?, ?)
+    `).run(`notification-timeline-submitted-${applicationId}-${submittedNumbers.join("-")}`, application.clientId, title, body, `/find-work`, now);
+    const updated = localDb().prepare(`
+      SELECT applications.*, jobs.category as jobCategory, jobs.status as jobStatus, jobs.payAmount as jobAmount, jobs.payType as jobPayType, jobs.durationUnit as jobDurationUnit,
+        jobs.timelineCount as timelineCount, jobs.clientPayPerTimeline as clientPayPerTimeline, jobs.workerPayPerTimeline as workerPayPerTimeline,
+        jobs.totalClientAmount as totalClientAmount, jobs.totalWorkerAmount as totalWorkerAmount, jobs.totalPlatformFee as totalPlatformFee,
+        (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status = 'paid') as paidTimelineCount,
+        (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status = 'submitted') as submittedTimelineCount,
+        (SELECT MIN(timelineNumber) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status = 'pending') as nextTimelineNumber,
+        (SELECT MIN(timelineNumber) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status IN ('submitted', 'approved')) as nextPayableTimelineNumber
+      FROM applications
+      LEFT JOIN jobs ON jobs.id = applications.jobId
+      WHERE applications.id = ?
+    `).get(applicationId);
+    return updated ? rowToApplication(updated) : { ...application, status: "completion_requested" as const };
+  }
+  if (application.status === "completion_requested") return application;
   if (application.status !== "accepted") throw new Error("Only accepted jobs can be marked complete.");
   const now = nowIso();
   localDb().prepare("UPDATE applications SET status = 'completion_requested', updatedAt = ? WHERE id = ? AND workerId = ?").run(now, applicationId, workerId);
@@ -993,12 +1230,78 @@ export function requestLocalApplicationCompletion(applicationId: string, workerI
   return updated ? rowToApplication(updated) : { ...application, status: "completion_requested" as const };
 }
 
-export function confirmLocalWorkerPaid(applicationId: string, clientId: string) {
+export function confirmLocalWorkerPaid(applicationId: string, clientId: string, timelineIds?: string[]) {
   const row = localDb().prepare("SELECT * FROM applications WHERE id = ? AND clientId = ?").get(applicationId, clientId);
   if (!row) return null;
   const application = rowToApplication(row);
   const job = getLocalJob(application.jobId);
   if (job && job.clientId !== clientId) return null;
+  if (job && isPayPerTimeline(job.payType)) {
+    const now = nowIso();
+    const selected = Array.isArray(timelineIds) && timelineIds.length
+      ? timelineIds
+      : localDb().prepare("SELECT id FROM job_timelines WHERE applicationId = ? AND status IN ('submitted', 'approved') ORDER BY timelineNumber ASC").all(applicationId).map(item => String(item.id));
+    if (!selected.length) throw new Error("Choose submitted timelines to pay.");
+    const placeholders = selected.map(() => "?").join(",");
+    const payableRows = localDb().prepare(`SELECT * FROM job_timelines WHERE applicationId = ? AND id IN (${placeholders}) AND status IN ('submitted', 'approved')`).all(applicationId, ...selected);
+    if (payableRows.length !== selected.length) throw new Error("One or more selected timelines cannot be paid.");
+    const paidTimelineNumbers = payableRows.map(row => Number(row.timelineNumber ?? 0)).filter(Number.isFinite);
+    const paidTimelineRatingScopeId = `timeline:${applicationId}:${payableRows.map(row => String(row.id)).sort().join("-")}`;
+    let serviceFee = 0;
+    let allPaid = false;
+    localDb().exec("BEGIN IMMEDIATE");
+    try {
+      localDb().prepare(`UPDATE job_timelines SET status = 'paid', approvedAt = COALESCE(approvedAt, ?), paidAt = ?, updatedAt = ? WHERE applicationId = ? AND id IN (${placeholders}) AND status IN ('submitted', 'approved')`)
+        .run(now, now, now, applicationId, ...selected);
+      const remaining = localDb().prepare("SELECT COUNT(*) as count FROM job_timelines WHERE jobId = ? AND status != 'paid'").get(application.jobId);
+      allPaid = Number(remaining?.count ?? 0) === 0;
+      serviceFee = payableRows.reduce((sum, row) => sum + Number(row.platformFee ?? TIMELINE_PLATFORM_FEE), 0);
+      localDb().prepare("UPDATE applications SET status = ?, updatedAt = ? WHERE id = ?").run(allPaid ? "completed" : "accepted", now, applicationId);
+      localDb().prepare("UPDATE jobs SET status = ?, updatedAt = ? WHERE id = ?").run(allPaid ? "completed" : "live", now, application.jobId);
+      if (serviceFee > 0) {
+        localDb().prepare(`
+          UPDATE users
+          SET isLocked = 1, outstandingServiceFee = outstandingServiceFee + ?, lockReason = ?, updatedAt = ?
+          WHERE uid = ?
+        `).run(serviceFee, "Service Fee Payment Required", now, application.workerId);
+      }
+      if (allPaid) {
+        localDb().prepare("UPDATE conversations SET locked = 1, updatedAt = ? WHERE jobId = ?").run(now, application.jobId);
+        localDb().prepare("UPDATE users SET completedJobs = completedJobs + 1, updatedAt = ? WHERE uid IN (?, ?)").run(now, application.workerId, application.clientId);
+      }
+      const paymentUnit = String(job.durationUnit ?? "timeline").replace(/s$/, "") || "timeline";
+      const paymentUnitTitle = paymentUnit.charAt(0).toUpperCase() + paymentUnit.slice(1);
+      localDb().prepare(`
+        INSERT OR REPLACE INTO notifications (id, userId, title, body, read, href, createdAt)
+        VALUES (?, ?, ?, ?, 0, '/dashboard', ?)
+      `).run(`notification-timeline-paid-${applicationId}-${now}`, application.workerId, `${paymentUnitTitle} paid`, `${payableRows.length} ${paymentUnit} payment${payableRows.length === 1 ? "" : "s"} marked paid for ${application.jobTitle ?? "your job"}. Service fee due: KES ${serviceFee.toLocaleString()}.`, now);
+      if (serviceFee > 0) {
+        localDb().prepare(`
+          INSERT OR REPLACE INTO notifications (id, userId, title, body, read, href, createdAt)
+          VALUES (?, ?, 'Account action required', ?, 0, '/dashboard', ?)
+        `).run(`notification-service-fee-timeline-${applicationId}-${now}`, application.workerId, `A ${paymentUnit} payment was marked paid. Pay the KES ${serviceFee.toLocaleString()} service fee to continue using Copic.`, now);
+      }
+      localDb().exec("COMMIT");
+    } catch (error) {
+      localDb().exec("ROLLBACK");
+      throw error;
+    }
+    const updated = localDb().prepare(`
+      SELECT applications.*, jobs.category as jobCategory, jobs.status as jobStatus, jobs.payAmount as jobAmount, jobs.payType as jobPayType, jobs.durationUnit as jobDurationUnit,
+        jobs.timelineCount as timelineCount, jobs.clientPayPerTimeline as clientPayPerTimeline, jobs.workerPayPerTimeline as workerPayPerTimeline,
+        jobs.totalClientAmount as totalClientAmount, jobs.totalWorkerAmount as totalWorkerAmount, jobs.totalPlatformFee as totalPlatformFee,
+        (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status = 'paid') as paidTimelineCount,
+        (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status = 'submitted') as submittedTimelineCount,
+        (SELECT MIN(timelineNumber) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status = 'pending') as nextTimelineNumber,
+        (SELECT MIN(timelineNumber) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status IN ('submitted', 'approved')) as nextPayableTimelineNumber
+      FROM applications
+      LEFT JOIN jobs ON jobs.id = applications.jobId
+      WHERE applications.id = ?
+    `).get(applicationId);
+    return updated
+      ? { ...rowToApplication(updated), workerLocked: serviceFee > 0, outstandingServiceFee: serviceFee, paidTimelineNumbers, paidTimelineRatingScopeId }
+      : { ...application, status: allPaid ? "completed" as const : "accepted" as const, workerLocked: serviceFee > 0, outstandingServiceFee: serviceFee, paidTimelineNumbers, paidTimelineRatingScopeId };
+  }
   if (application.status !== "completion_requested") throw new Error("The worker must request completion before payment can be confirmed.");
   const now = nowIso();
   localDb().prepare("UPDATE applications SET status = 'payment_sent', updatedAt = ? WHERE id = ?").run(now, applicationId);
@@ -1030,7 +1333,7 @@ export function completeLocalApplication(applicationId: string, workerId: string
     localDb().prepare("UPDATE applications SET status = 'completed', updatedAt = ? WHERE id = ?").run(now, applicationId);
     if (job) localDb().prepare("UPDATE jobs SET status = 'completed', completedPeriods = 1, recurrenceStatus = 'completed', updatedAt = ? WHERE id = ?").run(now, job.id);
     localDb().prepare("UPDATE users SET completedJobs = completedJobs + 1, updatedAt = ? WHERE uid IN (?, ?)").run(now, application.workerId, application.clientId);
-    localDb().prepare("UPDATE users SET isLocked = 1, outstandingServiceFee = ?, lockReason = ?, updatedAt = ? WHERE uid = ?")
+    localDb().prepare("UPDATE users SET isLocked = 1, outstandingServiceFee = outstandingServiceFee + ?, lockReason = ?, updatedAt = ? WHERE uid = ?")
       .run(serviceFee, "Service Fee Payment Required", now, application.workerId);
     localDb().prepare(`
       INSERT OR REPLACE INTO notifications (id, userId, title, body, read, href, createdAt)
@@ -1127,6 +1430,7 @@ function rowToMessage(row: Record<string, unknown>) {
     conversationId: String(row.conversationId),
     senderId: String(row.senderId),
     body: String(row.body),
+    imageUrl: typeof row.imageUrl === "string" ? row.imageUrl : undefined,
     readBy: parseJson<string[]>(row.readBy, []),
     createdAt: null
   };
@@ -1183,22 +1487,25 @@ export function listLocalMessages(conversationId: string) {
   return localDb().prepare("SELECT * FROM conversation_messages WHERE conversationId = ? ORDER BY createdAt ASC LIMIT 120").all(conversationId).map(rowToMessage);
 }
 
-export function createLocalMessage(conversationId: string, senderId: string, body: string) {
+export function createLocalMessage(conversationId: string, senderId: string, body: string, imageUrl?: string) {
   const conversation = getLocalConversation(conversationId);
   if (!conversation || conversation.locked || !conversation.participants.includes(senderId)) return null;
+  const messageText = body.trim();
+  const preview = messageText || (imageUrl ? "Image message" : "");
+  if (!preview) return null;
   const id = crypto.randomUUID();
   const createdAt = nowIso();
   localDb().prepare(`
-    INSERT INTO conversation_messages (id, conversationId, senderId, body, readBy, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, conversationId, senderId, body, jsonString([senderId]), createdAt);
-  localDb().prepare("UPDATE conversations SET lastMessage = ?, updatedAt = ? WHERE id = ?").run(body, createdAt, conversationId);
+    INSERT INTO conversation_messages (id, conversationId, senderId, body, imageUrl, readBy, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, conversationId, senderId, messageText, imageUrl ?? null, jsonString([senderId]), createdAt);
+  localDb().prepare("UPDATE conversations SET lastMessage = ?, updatedAt = ? WHERE id = ?").run(preview, createdAt, conversationId);
   const receiverId = conversation.participants.find(id => id !== senderId);
   if (receiverId) {
     localDb().prepare(`
       INSERT INTO notifications (id, userId, title, body, read, href, createdAt)
       VALUES (?, ?, 'New chat message', ?, 0, '/chat', ?)
-    `).run(`message-${id}`, receiverId, body, createdAt);
+    `).run(`message-${id}`, receiverId, preview, createdAt);
   }
   const row = localDb().prepare("SELECT * FROM conversation_messages WHERE id = ?").get(id);
   return row ? rowToMessage(row) : null;
@@ -1231,7 +1538,19 @@ export function listLocalApplications(userId: string, role: "client" | "worker")
       clients.ratingCount as clientRatingCount,
       jobs.category as jobCategory,
       jobs.status as jobStatus,
-      jobs.payAmount as jobAmount
+      jobs.payAmount as jobAmount,
+      jobs.payType as jobPayType,
+      jobs.durationUnit as jobDurationUnit,
+      jobs.timelineCount as timelineCount,
+      jobs.clientPayPerTimeline as clientPayPerTimeline,
+      jobs.workerPayPerTimeline as workerPayPerTimeline,
+      jobs.totalClientAmount as totalClientAmount,
+      jobs.totalWorkerAmount as totalWorkerAmount,
+      jobs.totalPlatformFee as totalPlatformFee,
+      (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status = 'paid') as paidTimelineCount,
+      (SELECT COUNT(*) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status = 'submitted') as submittedTimelineCount,
+      (SELECT MIN(timelineNumber) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status = 'pending') as nextTimelineNumber,
+      (SELECT MIN(timelineNumber) FROM job_timelines WHERE job_timelines.jobId = applications.jobId AND job_timelines.status IN ('submitted', 'approved')) as nextPayableTimelineNumber
     FROM applications
     LEFT JOIN users workers ON workers.uid = applications.workerId
     LEFT JOIN users clients ON clients.uid = applications.clientId
@@ -1246,12 +1565,25 @@ export function listLocalNotifications(userId: string) {
   return localDb().prepare("SELECT * FROM notifications WHERE userId = ? ORDER BY createdAt DESC LIMIT 80").all(userId).map(row => ({
     id: String(row.id),
     userId: String(row.userId),
-    title: String(row.title),
-    body: String(row.body),
+    title: normalizeNotificationTitle(String(row.title), String(row.body)),
+    body: normalizeNotificationBody(String(row.body)),
     read: Number(row.read ?? 0) === 1,
     href: typeof row.href === "string" ? row.href : undefined,
     createdAt: null
   }));
+}
+
+function normalizeNotificationTitle(title: string, body: string) {
+  return /^Days? submitted$/i.test(title) || /^Days? \d/i.test(body) ? "Pending payment" : title;
+}
+
+function normalizeNotificationBody(body: string) {
+  const match = body.match(/^Days? ([\d,\s]+) for (.+?) are ready for payment\.$/i)
+    ?? body.match(/^Day (\d+) for (.+?) is ready for payment\.$/i);
+  if (!match) return body;
+  const count = match[1].split(",").map(item => item.trim()).filter(Boolean).length;
+  const jobTitle = match[2] ?? "your job";
+  return `Pending payment: ${count} day${count === 1 ? "" : "s"} for ${jobTitle}.`;
 }
 
 export function saveLocalWorkerSkill(userId: string, skill: WorkerSkillProfile) {
@@ -1305,6 +1637,38 @@ export function listLocalServiceFeePayments() {
   `).all().map(rowToServiceFeePayment);
 }
 
+export function listLocalOutstandingServiceFeeRequests() {
+  const payments = listLocalServiceFeePayments();
+  const blockedWorkerIds = new Set(payments
+    .filter(payment => payment.status !== "approved" && payment.status !== "rejected")
+    .map(payment => payment.workerId));
+  const workers = localDb().prepare(`
+    SELECT *
+    FROM users
+    WHERE (role = 'worker' OR roles LIKE '%worker%') AND outstandingServiceFee > 0
+    ORDER BY updatedAt DESC
+    LIMIT 200
+  `).all().map(rowToUser);
+  return workers
+    .filter(worker => !blockedWorkerIds.has(worker.id))
+    .map<ServiceFeePayment>(worker => ({
+      id: `service-fee-due:${worker.id}`,
+      workerId: worker.id,
+      workerName: worker.displayName,
+      username: usernameForUser(worker),
+      transactionCode: "Not submitted yet",
+      screenshotUrl: null,
+      status: "service_fee_due",
+      amount: Number(worker.outstandingServiceFee ?? 0),
+      rejectionReason: null,
+      matchedMpesaRecordId: null,
+      submittedAt: null,
+      reviewedAt: null,
+      reviewedBy: null,
+      requiresWorkerSubmission: true
+    }));
+}
+
 export function getLatestLocalServiceFeePayment(workerId: string) {
   const row = localDb().prepare(`
     SELECT service_fee_payments.*, users.displayName as workerName
@@ -1323,12 +1687,22 @@ export function reviewLocalServiceFeePayment(id: string, adminId: string, action
   const payment = rowToServiceFeePayment(row);
   const now = nowIso();
   if (action === "approve") {
+    const worker = getLocalUser(payment.workerId);
+    const remainingOutstanding = Math.max(0, Number(worker?.outstandingServiceFee ?? 0) - Number(payment.amount ?? 0));
     localDb().prepare("UPDATE service_fee_payments SET status = 'approved', rejectionReason = NULL, reviewedAt = ?, reviewedBy = ? WHERE id = ?").run(now, adminId, id);
-    localDb().prepare("UPDATE users SET isLocked = 0, outstandingServiceFee = 0, lockReason = NULL, updatedAt = ? WHERE uid = ?").run(now, payment.workerId);
+    localDb().prepare("UPDATE users SET isLocked = ?, outstandingServiceFee = ?, lockReason = ?, updatedAt = ? WHERE uid = ?")
+      .run(remainingOutstanding > 0 ? 1 : 0, remainingOutstanding, remainingOutstanding > 0 ? "Service Fee Payment Required" : null, now, payment.workerId);
     localDb().prepare(`
       INSERT OR REPLACE INTO notifications (id, userId, title, body, read, href, createdAt)
-      VALUES (?, ?, 'Account unlocked', 'Your payment was approved. You can apply for jobs again.', 0, '/jobs', ?)
-    `).run(`notification-service-fee-approved-${id}`, payment.workerId, now);
+      VALUES (?, ?, ?, ?, 0, ?, ?)
+    `).run(
+      `notification-service-fee-approved-${id}`,
+      payment.workerId,
+      remainingOutstanding > 0 ? "Account action required" : "Account unlocked",
+      remainingOutstanding > 0 ? `Your payment was approved, but KES ${remainingOutstanding.toLocaleString()} service fee is still due.` : "Your payment was approved. You can apply for jobs again.",
+      remainingOutstanding > 0 ? "/dashboard" : "/jobs",
+      now
+    );
   } else {
     localDb().prepare("UPDATE service_fee_payments SET status = 'rejected', rejectionReason = ?, reviewedAt = ?, reviewedBy = ? WHERE id = ?").run(reason ?? "Payment could not be verified.", now, adminId, id);
     localDb().prepare("UPDATE users SET isLocked = 1, outstandingServiceFee = ?, lockReason = ?, updatedAt = ? WHERE uid = ?").run(payment.amount, reason ?? "Payment rejected. Please resubmit.", now, payment.workerId);
@@ -1383,10 +1757,11 @@ export function deleteLocalNotification(userId: string, id: string) {
   localDb().prepare("DELETE FROM notifications WHERE id = ? AND userId = ?").run(id, userId);
 }
 
-export function createLocalRating(input: { id: string; jobId: string; fromUserId: string; toUserId: string; stars: number; review: string }) {
-  const existing = localDb().prepare("SELECT id FROM ratings WHERE jobId = ? AND fromUserId = ? AND toUserId = ? LIMIT 1").get(input.jobId, input.fromUserId, input.toUserId);
+export function createLocalRating(input: { id: string; jobId: string; fromUserId: string; toUserId: string; stars: number; review: string; ratingScopeId?: string }) {
+  const ratingScopeId = input.ratingScopeId || input.jobId;
+  const existing = localDb().prepare("SELECT id FROM ratings WHERE jobId = ? AND fromUserId = ? AND toUserId = ? AND COALESCE(ratingScopeId, jobId) = ? LIMIT 1").get(input.jobId, input.fromUserId, input.toUserId, ratingScopeId);
   if (existing) return String(existing.id);
-  localDb().prepare("INSERT INTO ratings (id, jobId, fromUserId, toUserId, stars, review, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)").run(input.id, input.jobId, input.fromUserId, input.toUserId, input.stars, input.review, nowIso());
+  localDb().prepare("INSERT INTO ratings (id, jobId, fromUserId, toUserId, stars, review, ratingScopeId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(input.id, input.jobId, input.fromUserId, input.toUserId, input.stars, input.review, ratingScopeId, nowIso());
   const aggregate = localDb().prepare("SELECT AVG(stars) as average, COUNT(*) as count FROM ratings WHERE toUserId = ?").get(input.toUserId);
   localDb().prepare("UPDATE users SET ratingAverage = ?, ratingCount = ?, updatedAt = ? WHERE uid = ?").run(Number(aggregate?.average ?? 0), Number(aggregate?.count ?? 0), nowIso(), input.toUserId);
   return input.id;

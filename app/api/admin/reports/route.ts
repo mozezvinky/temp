@@ -1,6 +1,7 @@
 import { adminErrorStatus, requireAdmin } from "@/lib/admin-security";
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminDb } from "@/lib/firebase-admin";
+import { localDb } from "@/lib/local-sql";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -9,7 +10,10 @@ export async function GET(request: NextRequest) {
   try {
     await requireAdmin(request, "moderation:write");
     const kind = request.nextUrl.searchParams.get("kind") === "disputes" ? "disputes" : "reports";
-    if (isSqlBackend()) return NextResponse.json({ items: [] });
+    if (isSqlBackend()) {
+      const items = localDb().prepare("SELECT * FROM reports ORDER BY createdAt DESC LIMIT 50").all();
+      return NextResponse.json({ items });
+    }
     const snapshot = await adminDb().collection(kind).orderBy("createdAt", "desc").limit(50).get();
     return NextResponse.json({ items: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
   } catch (error) {

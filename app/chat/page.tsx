@@ -5,10 +5,10 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
-import { sendMessage, subscribeMessages, subscribeUserConversations } from "@/services/chat";
+import { sendImage, sendMessage, subscribeMessages, subscribeUserConversations } from "@/services/chat";
 import type { Conversation, Message } from "@/types";
-import { Lock, Send } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { ImagePlus, Lock, Send } from "lucide-react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 export default function ChatPage() {
@@ -17,6 +17,8 @@ export default function ChatPage() {
   const [selectedId, setSelectedId] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sendingImage, setSendingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -57,6 +59,21 @@ export default function ChatPage() {
     }
   }
 
+  async function chooseImage(event: ChangeEvent<HTMLInputElement>) {
+    if (!profile || !conversation) return;
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setSendingImage(true);
+    try {
+      await sendImage(conversation, profile.id, file);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to send image.");
+    } finally {
+      setSendingImage(false);
+    }
+  }
+
   if (authLoading || !isAuthorized || !profile) return <LoadingSpinner label="Opening chat" />;
   if (loading) return <LoadingSpinner label="Opening chat" />;
   if (!conversations.length) return <EmptyState title="No conversations yet" body="Chat becomes available after a job arrangement is accepted." />;
@@ -90,12 +107,18 @@ export default function ChatPage() {
             </div>
             <div className="min-h-64 space-y-3">
               {messages.length ? messages.map(message => (
-                <p key={message.id} className={`max-w-[80%] rounded-xl p-3 text-sm ${message.senderId === profile?.id ? "ml-auto bg-bone text-[#1E1B13]" : "bg-[#2A2A2B] text-[#CCC6BB]"}`}>{message.body ?? "Image message"}</p>
+                <div key={message.id} className={`max-w-[80%] rounded-xl p-3 text-sm ${message.senderId === profile?.id ? "ml-auto bg-bone text-[#1E1B13]" : "bg-[#2A2A2B] text-[#CCC6BB]"}`}>
+                  {message.imageUrl && <img src={message.imageUrl} alt="Chat upload" className="max-h-72 w-full rounded-lg object-cover" />}
+                  {message.body && <p className={message.imageUrl ? "mt-2" : ""}>{message.body}</p>}
+                  {!message.body && !message.imageUrl && <p>Message</p>}
+                </div>
               )) : <p className="text-sm text-[#959087]">No messages yet.</p>}
             </div>
             {!conversation.locked && (
               <form className="mt-4 flex gap-2" onSubmit={send}>
                 <input name="body" required className="temp-input min-w-0 flex-1 rounded-xl px-4 py-3 outline-none" placeholder="Message" />
+                <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={chooseImage} />
+                <Button type="button" variant="secondary" disabled={sendingImage} onClick={() => imageInputRef.current?.click()}><ImagePlus size={18} /></Button>
                 <Button type="submit"><Send size={18} /></Button>
               </form>
             )}

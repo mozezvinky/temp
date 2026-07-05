@@ -7,18 +7,30 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useAuth } from "@/context/AuthContext";
 import type { Application, Job } from "@/types";
+import { perDurationUnit } from "@/utils/duration";
 import { kes } from "@/utils/money";
+import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { BriefcaseBusiness, Search } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type JobsPayload = { jobs?: Job[]; applications?: Application[]; error?: string };
+type AdminTimeline = {
+  id: string;
+  jobId: string;
+  workerId?: string;
+  workerUsername?: string;
+  workerName?: string;
+  timelineNumber?: number;
+  status?: string;
+};
+type AdminJob = Job & { unpaidCompletedTimelines?: AdminTimeline[] };
 
 const jobStatuses: Job["status"][] = ["draft", "open", "pending", "live", "assigned", "active", "in_progress", "completed", "disputed", "cancelled", "moderated"];
 
 export default function AdminJobsPage() {
   const { user } = useAuth();
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobs, setJobs] = useState<AdminJob[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -97,6 +109,22 @@ export default function AdminJobsPage() {
     }
   }
 
+  async function sendPaymentWall(job: AdminJob, timeline: AdminTimeline) {
+    if (!user) return;
+    try {
+      const response = await fetch("/api/admin/jobs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` },
+        body: JSON.stringify({ action: "send_payment_wall", timelineId: timeline.id, reason: `Payment wall sent for ${job.title} timeline ${timeline.timelineNumber ?? ""}.` })
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Unable to send payment wall.");
+      toast.success("Payment wall sent to client.");
+    } catch (wallError) {
+      toast.error(wallError instanceof Error ? wallError.message : "Unable to send payment wall.");
+    }
+  }
+
   if (loading) return <LoadingSpinner label="Loading jobs" />;
   if (error) return <p className="rounded-xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-200">{error}</p>;
 
@@ -119,6 +147,10 @@ export default function AdminJobsPage() {
           const related = jobApplications(job.id);
           const live = related.filter(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status));
           const requests = related.filter(application => application.status === "completion_requested");
+          const timelinePay = isPayPerTimeline(job.payType);
+          const paidTimelines = Number(job.paidTimelineCount ?? 0);
+          const timelineCount = Number(job.timelineCount ?? 1);
+          const unpaidCompletedTimelines = job.unpaidCompletedTimelines ?? [];
           return (
             <Card key={job.id}>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -129,11 +161,34 @@ export default function AdminJobsPage() {
                   <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
                     <span className="rounded-lg bg-[#2A2A2B] px-3 py-1 text-[#D8CFBC]">Applied {related.length}</span>
                     <span className="rounded-lg bg-[#2A2A2B] px-3 py-1 text-[#D8CFBC]">Live {live.length}</span>
-                    <span className="rounded-lg bg-emerald-400/15 px-3 py-1 text-emerald-100">Complete requests {requests.length}</span>
+                    <span className="rounded-lg bg-emerald-100 px-3 py-1 text-emerald-900 dark:bg-emerald-400/15 dark:text-emerald-100">Complete requests {requests.length}</span>
+                    {timelinePay && <span className="rounded-lg bg-sky-100 px-3 py-1 text-sky-950 dark:bg-sky-400/15 dark:text-sky-100">Timelines {paidTimelines}/{timelineCount} paid</span>}
                   </div>
+                  {timelinePay && (
+                    <div className="mt-3 grid gap-1 text-sm font-bold text-[#CCC6BB]">
+                      <p>Total client amount: {kes(Number(job.totalClientAmount ?? 0))}</p>
+                      <p>Worker amount: {kes(Number(job.totalWorkerAmount ?? 0))}</p>
+                      <p>Platform fee: {kes(Number(job.totalPlatformFee ?? 0))}</p>
+                      <p>Unpaid timelines: {Number(job.unpaidTimelineCount ?? Math.max(0, timelineCount - paidTimelines))}</p>
+                      <p>Payment status: {paidTimelines >= timelineCount ? "paid" : paidTimelines > 0 ? "partially paid" : "unpaid"}</p>
+                    </div>
+                  )}
+                  {!!unpaidCompletedTimelines.length && (
+                    <div className="mt-4 rounded-xl border border-amber-300/40 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-400/10 dark:text-amber-100">
+                      <p className="font-black">Completed timelines not paid: {unpaidCompletedTimelines.length}</p>
+                      <div className="mt-3 grid gap-2">
+                        {unpaidCompletedTimelines.map(timeline => (
+                          <div key={timeline.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/80 p-2 dark:bg-black/20">
+                            <span>Timeline {timeline.timelineNumber ?? ""} - {timeline.workerUsername ?? timeline.workerName ?? timeline.workerId ?? "Worker"}</span>
+                            <Button type="button" className="min-h-9 px-3 py-1.5 text-xs" onClick={() => void sendPaymentWall(job, timeline)}>Send payment wall</Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-black">{kes(Number(job.payAmount ?? job.rateAmount ?? 0))}</p>
+                  <p className="text-lg font-black">{timelinePay ? kes(Number(job.totalClientAmount ?? job.payAmount ?? 0)) : kes(Number(job.payAmount ?? job.rateAmount ?? 0))}</p>
                   <Button type="button" variant="secondary" className="mt-3" onClick={() => setEditingJob(job)}>Edit anything</Button>
                 </div>
               </div>
@@ -159,7 +214,7 @@ export default function AdminJobsPage() {
               <label className="temp-label">Location<input name="location" defaultValue={editingJob.location} className="temp-input p-3 outline-none" /></label>
               <label className="temp-label">County<input name="county" defaultValue={editingJob.county ?? ""} className="temp-input p-3 outline-none" /></label>
               <label className="temp-label">Pay amount<input name="payAmount" type="number" min={0} defaultValue={editingJob.payAmount ?? editingJob.rateAmount ?? 0} className="temp-input p-3 outline-none" /></label>
-              <label className="temp-label">Pay type<select name="payType" defaultValue={editingJob.payType ?? "fixed"} className="temp-input p-3 outline-none"><option value="fixed">Fixed pay</option><option value="timeline">Per timeline</option></select></label>
+              <label className="temp-label">Pay type<select name="payType" defaultValue={editingJob.payType ?? "fixed"} className="temp-input p-3 outline-none"><option value="fixed">Fixed pay</option><option value="pay_per_timeline">Pay per {perDurationUnit(editingJob.durationUnit)}</option></select></label>
               <label className="temp-label">Duration<input name="duration" defaultValue={editingJob.duration ?? ""} className="temp-input p-3 outline-none" /></label>
               <label className="temp-label">Duration hours<input name="durationHours" type="number" min={0} defaultValue={editingJob.durationHours ?? 0} className="temp-input p-3 outline-none" /></label>
               <label className="temp-label">Workers needed<input name="workersNeeded" type="number" min={1} defaultValue={editingJob.workersNeeded ?? 1} className="temp-input p-3 outline-none" /></label>

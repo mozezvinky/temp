@@ -3,11 +3,21 @@ import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-us
 import { adminDb } from "@/lib/firebase-admin";
 import { createLocalJob, markLocalEmailVerified } from "@/lib/local-sql";
 import { jobSchema } from "@/utils/validation";
+import { isPayPerTimeline, TIMELINE_PLATFORM_FEE, timelinePaymentSummary } from "@/utils/timeline-payments";
 import { FieldValue } from "firebase-admin/firestore";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+
+type TimelineJobData = {
+  timelineCount?: number;
+  clientPayPerTimeline?: number;
+  workerPayPerTimeline?: number;
+  totalClientAmount?: number;
+  totalWorkerAmount?: number;
+  totalPlatformFee?: number;
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,6 +38,7 @@ export async function POST(request: NextRequest) {
       }
       if (user.emailVerified !== true && currentUser.emailVerified === true) markLocalEmailVerified(currentUser.uid);
       const data = parsed.data;
+      const timelineData = data as typeof data & TimelineJobData;
       const jobId = randomUUID();
       const job = createLocalJob({
         id: jobId,
@@ -50,6 +61,12 @@ export async function POST(request: NextRequest) {
         unit: data.unit,
         customUnit: data.customUnit,
         paymentMethod: data.paymentMethod,
+        timelineCount: timelineData.timelineCount,
+        clientPayPerTimeline: timelineData.clientPayPerTimeline,
+        workerPayPerTimeline: timelineData.workerPayPerTimeline,
+        totalClientAmount: timelineData.totalClientAmount,
+        totalWorkerAmount: timelineData.totalWorkerAmount,
+        totalPlatformFee: timelineData.totalPlatformFee,
         requiredSkills: data.requiredSkills
       });
       return NextResponse.json({ success: true, jobId: job?.id });
@@ -67,10 +84,14 @@ export async function POST(request: NextRequest) {
     const jobRef = db.collection("jobs").doc();
     const activityRef = db.collection("activities").doc();
     const data = parsed.data;
+    const timelineSummary = isPayPerTimeline(data.payType)
+      ? timelinePaymentSummary(Number(data.clientPayPerTimeline ?? data.payAmount), Number(data.timelineCount ?? data.durationValue ?? 1))
+      : null;
     const batch = db.batch();
     batch.set(jobRef, {
       id: jobRef.id,
       ...data,
+      ...(timelineSummary ?? {}),
       clientId: currentUser.uid,
       clientName: userData.displayName ?? currentUser.displayName ?? currentUser.email ?? "Copic client",
       createdBy: currentUser.uid,
@@ -82,6 +103,23 @@ export async function POST(request: NextRequest) {
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
     });
+    if (timelineSummary) {
+      for (let timelineNumber = 1; timelineNumber <= timelineSummary.timelineCount; timelineNumber += 1) {
+        const timelineRef = db.collection("jobTimelines").doc();
+        batch.set(timelineRef, {
+          id: timelineRef.id,
+          jobId: jobRef.id,
+          clientId: currentUser.uid,
+          timelineNumber,
+          status: "pending",
+          workerAmount: timelineSummary.workerPayPerTimeline,
+          clientAmount: timelineSummary.clientPayPerTimeline,
+          platformFee: TIMELINE_PLATFORM_FEE,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      }
+    }
     batch.set(activityRef, {
       id: activityRef.id,
       userId: currentUser.uid,

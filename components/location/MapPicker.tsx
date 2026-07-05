@@ -266,14 +266,14 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
           />
         </label>
         {(searching || searchResults.length > 0) && (
-          <div className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-[#4A463F] bg-[#11120D] p-2 shadow-2xl">
-            {searching && <p className="px-3 py-2 text-sm text-[#CCC6BB]">Searching locations...</p>}
+          <div className="temp-location-results absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-[#4A463F] bg-[#11120D] p-2 shadow-2xl">
+            {searching && <p className="temp-location-results-loading px-3 py-2 text-sm text-[#CCC6BB]">Searching locations...</p>}
             {!searching && searchResults.map(result => (
               <button
                 key={result.id}
                 type="button"
                 onClick={() => selectSearchResult(result)}
-                className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#FFFBF4] transition hover:bg-[#2A2A2B]"
+                className="temp-location-result block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#FFFBF4] transition hover:bg-[#2A2A2B]"
               >
                 {result.label}
               </button>
@@ -282,12 +282,12 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
         )}
       </div>
       {value.addressText && (
-        <p className="rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-3 text-sm font-semibold text-[#FFFBF4]">
+        <p className="temp-selected-location rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-3 text-sm font-semibold text-[#FFFBF4]">
           Selected location: {value.addressText}
         </p>
       )}
-      {locationNotice && <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">{locationNotice}</p>}
-      {locationError && <p className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{locationError}</p>}
+      {locationNotice && <p className="temp-location-notice rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">{locationNotice}</p>}
+      {locationError && <p className="temp-location-error rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{locationError}</p>}
       {token ? (
         <div className="h-64 overflow-hidden rounded-xl border border-[#4A463F] md:h-72">
           <Map

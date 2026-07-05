@@ -49,17 +49,20 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
 
   const snapshot = await adminDb().collection("users").doc(decoded.uid).get();
   const data = snapshot.exists ? snapshot.data() as Partial<UserProfile> : null;
-  const role = data?.role;
+  const role = activeRoleFor(data, fallbackRole ?? roleFromRequest(request));
+  const profile = snapshot.exists && data
+    ? ({ id: snapshot.id, uid: snapshot.id, ...data, role, roles: rolesFor(data) } as UserProfile)
+    : null;
   return {
     id: decoded.uid,
     uid: decoded.uid,
     email: typeof data?.email === "string" ? data.email : email,
     username: usernameFor(data?.displayName ?? displayName, data?.email ?? email, decoded.uid),
-    role: role === "client" || role === "worker" || role === "admin" ? role : undefined,
+    role,
     displayName: typeof data?.displayName === "string" ? data.displayName : displayName,
     emailVerified: data?.emailVerified ?? decoded.email_verified === true,
     localProfileFound: false,
-    profile: snapshot.exists ? ({ id: snapshot.id, uid: snapshot.id, ...data } as UserProfile) : null,
+    profile,
     decoded
   };
 }
@@ -124,6 +127,18 @@ function authTokenFromRequest(request: NextRequest) {
 function roleFromRequest(request: NextRequest): Role | null {
   const value = request.headers.get("x-temp-role") ?? request.cookies.get("temp-role")?.value ?? "";
   return value === "client" || value === "worker" || value === "admin" ? value : null;
+}
+
+function rolesFor(data: Partial<UserProfile> | null): Role[] {
+  const role = data?.role;
+  const roles = Array.isArray(data?.roles) ? data.roles : [];
+  return Array.from(new Set([...roles, role].filter((item): item is Role => item === "client" || item === "worker" || item === "admin")));
+}
+
+function activeRoleFor(data: Partial<UserProfile> | null, roleHint?: Role | null): Role | undefined {
+  const roles = rolesFor(data);
+  if (roleHint && roles.includes(roleHint)) return roleHint;
+  return roles[0];
 }
 
 function usernameFor(displayName: string, email: string | undefined, uid: string) {

@@ -16,10 +16,14 @@ export async function GET(request: NextRequest) {
     const status = request.nextUrl.searchParams.get("status") ?? "pending";
     if (!['pending', 'approved', 'rejected', 'all'].includes(status)) return NextResponse.json({ error: "Invalid verification filter." }, { status: 400 });
     if (isSqlBackend()) {
-      const rows = status === "all"
-        ? localDb().prepare("SELECT * FROM identity_verifications ORDER BY submittedAt DESC LIMIT 100").all()
-        : localDb().prepare("SELECT * FROM identity_verifications WHERE status = ? ORDER BY submittedAt DESC LIMIT 100").all(status);
-      return NextResponse.json({ verifications: await Promise.all(rows.map(async row => signDocumentPaths({ ...row, id: row.userId, createdAt: row.submittedAt }))) });
+      const identityRows = status === "all"
+        ? localDb().prepare("SELECT *, 'identity' as kind FROM identity_verifications ORDER BY submittedAt DESC LIMIT 100").all()
+        : localDb().prepare("SELECT *, 'identity' as kind FROM identity_verifications WHERE status = ? ORDER BY submittedAt DESC LIMIT 100").all(status);
+      const licenseRows = status === "all"
+        ? localDb().prepare("SELECT *, 'driver_license' as kind FROM driver_license_verifications ORDER BY submittedAt DESC LIMIT 100").all()
+        : localDb().prepare("SELECT *, 'driver_license' as kind FROM driver_license_verifications WHERE status = ? ORDER BY submittedAt DESC LIMIT 100").all(status);
+      const rows = [...identityRows, ...licenseRows].sort((first, second) => timestampMillis(second.submittedAt) - timestampMillis(first.submittedAt)).slice(0, 100);
+      return NextResponse.json({ verifications: await Promise.all(rows.map(async row => signDocumentPaths({ ...row, id: row.kind === "driver_license" ? `driver-license-${row.userId}` : row.userId, createdAt: row.submittedAt }))) });
     }
     const collection = adminDb().collection("verifications");
     const snapshot = status === "all" ? await collection.orderBy("createdAt", "desc").limit(100).get() : await collection.where("status", "==", status).limit(100).get();
@@ -71,6 +75,8 @@ export async function PATCH(request: NextRequest) {
     const admin = await requireAdmin(request, "kyc:write");
     const body = await request.json().catch(() => ({}));
     const userId = String(body.userId ?? "").trim();
+    const id = String(body.id ?? "").trim();
+    const kind = body.kind === "driver_license" || id.startsWith("driver-license-") ? "driver_license" : "identity";
     const status = String(body.status ?? "") as Extract<VerificationStatus, "approved" | "rejected">;
     const rejectionReason = String(body.rejectionReason ?? "").trim();
     if (!userId) return NextResponse.json({ error: "Choose a verification request." }, { status: 400 });
@@ -78,37 +84,44 @@ export async function PATCH(request: NextRequest) {
     const reason = status === "approved" ? "Manual ID verification approved." : rejectionReason || "The submitted ID images could not be verified.";
 
     if (isSqlBackend()) {
-      const existing = localDb().prepare("SELECT * FROM identity_verifications WHERE userId = ?").get(userId);
+      const table = kind === "driver_license" ? "driver_license_verifications" : "identity_verifications";
+      const existing = localDb().prepare(`SELECT * FROM ${table} WHERE userId = ?`).get(userId);
       if (!existing) return NextResponse.json({ error: "Verification request not found." }, { status: 404 });
       const now = new Date().toISOString();
       localDb().exec("BEGIN");
       try {
-        localDb().prepare("UPDATE identity_verifications SET status = ?, rejectionReason = ?, reviewedBy = ?, reviewedAt = ?, updatedAt = ? WHERE userId = ?")
+        localDb().prepare(`UPDATE ${table} SET status = ?, rejectionReason = ?, reviewedBy = ?, reviewedAt = ?, updatedAt = ? WHERE userId = ?`)
           .run(status, status === "rejected" ? reason : null, admin.uid, now, now, userId);
-        localDb().prepare("UPDATE users SET verificationStatus = ?, updatedAt = ? WHERE uid = ?").run(status, now, userId);
+        if (kind === "driver_license") {
+          localDb().prepare("UPDATE users SET driverLicenseVerificationStatus = ?, driverLicenseRejectionReason = ?, updatedAt = ? WHERE uid = ?").run(status, status === "rejected" ? reason : null, now, userId);
+        } else {
+          localDb().prepare("UPDATE users SET verificationStatus = ?, updatedAt = ? WHERE uid = ?").run(status, now, userId);
+        }
         localDb().prepare("INSERT INTO notifications (id, userId, title, body, href, read, createdAt) VALUES (?, ?, ?, ?, '/profile', 0, ?)")
-          .run(crypto.randomUUID(), userId, status === "approved" ? "Account verified" : "ID verification rejected", status === "approved" ? "Your account is now Verified." : reason, now);
+          .run(crypto.randomUUID(), userId, status === "approved" ? (kind === "driver_license" ? "Driver's license verified" : "Account verified") : (kind === "driver_license" ? "Driver's license rejected" : "ID verification rejected"), status === "approved" ? (kind === "driver_license" ? "Your driver's license is now verified." : "Your account is now Verified.") : reason, now);
         localDb().exec("COMMIT");
       } catch (error) {
         localDb().exec("ROLLBACK");
         throw error;
       }
-      await writeAdminAuditLog(request, { admin, targetUserId: userId, actionType: "kyc.manual_review", oldValue: { status: existing.status }, newValue: { status, rejectionReason: status === "rejected" ? reason : null }, reason });
+      await writeAdminAuditLog(request, { admin, targetUserId: userId, actionType: kind === "driver_license" ? "driver_license.manual_review" : "kyc.manual_review", oldValue: { status: existing.status }, newValue: { status, rejectionReason: status === "rejected" ? reason : null }, reason });
       return NextResponse.json({ success: true });
     }
 
     const db = adminDb();
-    const verificationRef = db.collection("verifications").doc(userId);
+    const verificationRef = db.collection("verifications").doc(kind === "driver_license" ? `driver-license-${userId}` : userId);
     const userRef = db.collection("users").doc(userId);
     const existing = await verificationRef.get();
     if (!existing.exists) return NextResponse.json({ error: "Verification request not found." }, { status: 404 });
     const notificationRef = db.collection("notifications").doc();
     await db.runTransaction(async transaction => {
-      transaction.set(verificationRef, { status, identityVerificationStatus: status, rejectionReason: status === "rejected" ? reason : null, reviewedBy: admin.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      transaction.set(userRef, { verificationStatus: status, identityVerificationStatus: status, verificationRejectionReason: status === "rejected" ? reason : null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      transaction.set(notificationRef, { id: notificationRef.id, userId, title: status === "approved" ? "Account verified" : "ID verification rejected", body: status === "approved" ? "Your account is now Verified." : reason, href: "/profile", read: false, createdAt: FieldValue.serverTimestamp() });
+      transaction.set(verificationRef, { status, [kind === "driver_license" ? "driverLicenseVerificationStatus" : "identityVerificationStatus"]: status, rejectionReason: status === "rejected" ? reason : null, reviewedBy: admin.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      transaction.set(userRef, kind === "driver_license"
+        ? { driverLicenseVerificationStatus: status, driverLicenseRejectionReason: status === "rejected" ? reason : null, updatedAt: FieldValue.serverTimestamp() }
+        : { verificationStatus: status, identityVerificationStatus: status, verificationRejectionReason: status === "rejected" ? reason : null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      transaction.set(notificationRef, { id: notificationRef.id, userId, title: status === "approved" ? (kind === "driver_license" ? "Driver's license verified" : "Account verified") : (kind === "driver_license" ? "Driver's license rejected" : "ID verification rejected"), body: status === "approved" ? (kind === "driver_license" ? "Your driver's license is now verified." : "Your account is now Verified.") : reason, href: "/profile", read: false, createdAt: FieldValue.serverTimestamp() });
     });
-    await writeAdminAuditLog(request, { admin, targetUserId: userId, actionType: "kyc.manual_review", oldValue: { status: existing.data()?.status }, newValue: { status, rejectionReason: status === "rejected" ? reason : null }, reason });
+    await writeAdminAuditLog(request, { admin, targetUserId: userId, actionType: kind === "driver_license" ? "driver_license.manual_review" : "kyc.manual_review", oldValue: { status: existing.data()?.status }, newValue: { status, rejectionReason: status === "rejected" ? reason : null }, reason });
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to review this verification." }, { status: adminErrorStatus(error) });

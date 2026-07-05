@@ -30,17 +30,31 @@ export function subscribeNotifications(userId: string, callback: (items: AppNoti
   void userId;
   let stopped = false;
   let inFlight = false;
+  let intervalMs = 30_000;
+  let timeoutId: number | null = null;
+  const quotaCooldownUntil = () => {
+    if (process.env.NEXT_PUBLIC_DATA_BACKEND === "local-sqlite") {
+      window.localStorage.removeItem("temp.dataQuotaPausedUntil");
+      return 0;
+    }
+    return Number(window.localStorage.getItem("temp.dataQuotaPausedUntil") ?? 0);
+  };
   const load = async () => {
     if (inFlight || stopped) return;
     if (typeof navigator !== "undefined" && !navigator.onLine) throw new Error("offline");
+    if (Date.now() < quotaCooldownUntil()) throw new Error("quota-paused");
     inFlight = true;
     try {
     const user = requireAuth().currentUser;
     if (!user) throw new Error("Please sign in to load alerts.");
     const token = await user.getIdToken();
-    const response = await fetch(`/api/notifications${archived ? "?archived=true" : ""}`, { headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch(`/api/notifications${archived ? "?archived=true" : ""}`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to load alerts.");
+    if (payload.degraded && payload.reason === "quota") {
+      window.localStorage.setItem("temp.dataQuotaPausedUntil", String(Date.now() + 300_000));
+      intervalMs = 300_000;
+    }
     if (!stopped) callback(Array.isArray(payload.notifications) ? payload.notifications as AppNotification[] : []);
     } finally {
       inFlight = false;
@@ -53,20 +67,30 @@ export function subscribeNotifications(userId: string, callback: (items: AppNoti
     }
     void load()
       .then(() => {
-        window.localStorage.removeItem("temp.dataQuotaPausedUntil");
+        if (Date.now() >= quotaCooldownUntil()) intervalMs = 30_000;
       })
       .catch(error => {
         if (!stopped) onError?.(error);
         const message = error instanceof Error ? error.message : "";
-        const quotaLimited = message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded");
+        const quotaLimited = message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded") || message.includes("quota-paused");
         if (quotaLimited) window.localStorage.setItem("temp.dataQuotaPausedUntil", String(Date.now() + 300_000));
+        if (quotaLimited) intervalMs = 300_000;
+      })
+      .finally(() => {
+        if (stopped) return;
+        const delay = Math.max(intervalMs, quotaCooldownUntil() - Date.now(), 0);
+        timeoutId = window.setTimeout(run, delay);
       });
   };
   run();
-  const resume = () => run();
+  const resume = () => {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+    run();
+  };
   window.addEventListener("online", resume);
   return () => {
     stopped = true;
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
     window.removeEventListener("online", resume);
   };
 }

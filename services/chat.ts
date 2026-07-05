@@ -71,8 +71,16 @@ export async function sendMessage(conversation: Conversation, senderId: string, 
   });
 }
 
-export async function sendImage() {
-  throw new Error("Image chat will be available after file messaging is connected.");
+export async function sendImage(conversation: Conversation, senderId: string, image: File, body = "") {
+  void senderId;
+  const form = new FormData();
+  form.set("conversationId", conversation.id);
+  form.set("body", body);
+  form.set("image", image);
+  await apiChat("/api/chat", {
+    method: "POST",
+    body: form
+  });
 }
 
 export function setTyping() {

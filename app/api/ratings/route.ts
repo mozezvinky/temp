@@ -1,5 +1,6 @@
 import { isSqlBackend } from "@/lib/data-backend";
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-user-profile";
+import { adminDb } from "@/lib/firebase-admin";
 import { createLocalRating, getLocalUser, localDb } from "@/lib/local-sql";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -8,8 +9,8 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   try {
-    const token = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
-    const decoded = await adminAuth().verifyIdToken(token);
+    const currentUser = await getCurrentUserProfile(request);
+    const decoded = currentUser.decoded;
     const toUserId = request.nextUrl.searchParams.get("toUserId") ?? decoded.uid;
     if (isSqlBackend()) {
       return NextResponse.json(localRatingsResponse(toUserId));
@@ -56,13 +57,12 @@ function ratingAggregate(ratings: Array<{ stars?: unknown }>) {
 
 export async function POST(request: NextRequest) {
   try {
-    const authorization = request.headers.get("authorization") ?? "";
-    const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-    if (!token) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-    const decoded = await adminAuth().verifyIdToken(token);
+    const currentUser = await getCurrentUserProfile(request);
+    const decoded = currentUser.decoded;
     const body = await request.json().catch(() => ({}));
     const jobId = typeof body.jobId === "string" ? body.jobId : "";
     const toUserId = typeof body.toUserId === "string" ? body.toUserId : "";
+    const ratingScopeId = typeof body.ratingScopeId === "string" && body.ratingScopeId.trim() ? body.ratingScopeId.trim() : jobId;
     const stars = Number(body.stars);
     const review = typeof body.review === "string" ? body.review.trim() : "";
     if (!jobId || !toUserId || !Number.isInteger(stars) || stars < 1 || stars > 5) {
@@ -71,29 +71,40 @@ export async function POST(request: NextRequest) {
 
     if (isSqlBackend()) {
       const user = getLocalUser(decoded.uid);
-      if (!user || (user.role !== "worker" && user.role !== "client")) return NextResponse.json({ error: "This account cannot submit ratings." }, { status: 403 });
-      const application = user.role === "client"
-        ? localDb().prepare("SELECT id FROM applications WHERE jobId = ? AND clientId = ? AND workerId = ? AND status IN ('payment_sent', 'completed') LIMIT 1").get(jobId, decoded.uid, toUserId)
+      const raterRole = currentUser.profile?.role;
+      if (!user || (raterRole !== "worker" && raterRole !== "client")) return NextResponse.json({ error: "This account cannot submit ratings." }, { status: 403 });
+      const application = raterRole === "client"
+        ? localDb().prepare("SELECT applications.*, jobs.payType as jobPayType FROM applications LEFT JOIN jobs ON jobs.id = applications.jobId WHERE applications.jobId = ? AND applications.clientId = ? AND applications.workerId = ? AND applications.status IN ('accepted', 'completion_requested', 'payment_sent', 'completed') LIMIT 1").get(jobId, decoded.uid, toUserId)
         : localDb().prepare("SELECT id FROM applications WHERE jobId = ? AND workerId = ? AND clientId = ? AND status IN ('accepted', 'completion_requested', 'payment_sent', 'completed') LIMIT 1").get(jobId, decoded.uid, toUserId);
-      if (!application) return NextResponse.json({ error: "This completed job could not be verified." }, { status: 403 });
-      const id = createLocalRating({ id: crypto.randomUUID(), jobId, fromUserId: decoded.uid, toUserId, stars, review });
-      if (user.role === "client") localDb().prepare("UPDATE applications SET clientRating = ? WHERE id = ?").run(stars, String(application.id));
+      const timelinePaid = raterRole === "client"
+        ? localDb().prepare("SELECT id FROM job_timelines WHERE jobId = ? AND workerId = ? AND status = 'paid' LIMIT 1").get(jobId, toUserId)
+        : null;
+      const clientCanRate = raterRole !== "client" || ["payment_sent", "completed"].includes(String(application?.status ?? "")) || (!!timelinePaid && String(application?.jobPayType ?? "") === "pay_per_timeline");
+      if (!application || !clientCanRate) return NextResponse.json({ error: "This completed job could not be verified." }, { status: 403 });
+      const id = createLocalRating({ id: crypto.randomUUID(), jobId, fromUserId: decoded.uid, toUserId, stars, review, ratingScopeId });
+      if (raterRole === "client") localDb().prepare("UPDATE applications SET clientRating = ? WHERE id = ?").run(stars, String(application.id));
       return NextResponse.json({ success: true, id });
     }
 
     const db = adminDb();
-    const raterProfile = await db.collection("users").doc(decoded.uid).get();
-    const raterRole = raterProfile.data()?.role;
+    const raterRole = currentUser.profile?.role;
     const applicationSnap = raterRole === "client"
       ? await db.collection("applications").where("jobId", "==", jobId).where("clientId", "==", decoded.uid).where("workerId", "==", toUserId).limit(1).get()
       : await db.collection("applications").where("jobId", "==", jobId).where("workerId", "==", decoded.uid).where("clientId", "==", toUserId).limit(1).get();
     const applicationStatus = String(applicationSnap.docs[0]?.data().status ?? "");
-    const canRate = raterRole === "client" ? ["payment_sent", "completed"].includes(applicationStatus) : ["accepted", "completion_requested", "payment_sent", "completed"].includes(applicationStatus);
+    const jobSnap = await db.collection("jobs").doc(jobId).get();
+    const paidTimelineSnap = raterRole === "client"
+      ? await db.collection("jobTimelines").where("jobId", "==", jobId).where("workerId", "==", toUserId).where("status", "==", "paid").limit(1).get()
+      : null;
+    const canRate = raterRole === "client"
+      ? ["payment_sent", "completed"].includes(applicationStatus) || (String(jobSnap.data()?.payType) === "pay_per_timeline" && !!paidTimelineSnap && !paidTimelineSnap.empty)
+      : ["accepted", "completion_requested", "payment_sent", "completed"].includes(applicationStatus);
     if (applicationSnap.empty || !canRate) {
       return NextResponse.json({ error: "This completed job could not be verified." }, { status: 403 });
     }
-    const existing = await db.collection("ratings").where("jobId", "==", jobId).where("fromUserId", "==", decoded.uid).where("toUserId", "==", toUserId).limit(1).get();
-    if (!existing.empty) return NextResponse.json({ success: true, id: existing.docs[0].id });
+    const existing = await db.collection("ratings").where("jobId", "==", jobId).where("fromUserId", "==", decoded.uid).where("toUserId", "==", toUserId).limit(20).get();
+    const existingForScope = existing.docs.find(doc => String(doc.data().ratingScopeId ?? doc.data().jobId) === ratingScopeId);
+    if (existingForScope) return NextResponse.json({ success: true, id: existingForScope.id });
     const ratingRef = db.collection("ratings").doc();
     const userRef = db.collection("users").doc(toUserId);
     await db.runTransaction(async transaction => {
@@ -102,12 +113,13 @@ export async function POST(request: NextRequest) {
       const currentAverage = Number(userSnap.data()?.ratingAverage ?? 0);
       const nextCount = currentCount + 1;
       const nextAverage = ((currentAverage * currentCount) + stars) / nextCount;
-      transaction.set(ratingRef, { id: ratingRef.id, jobId, fromUserId: decoded.uid, toUserId, stars, review, createdAt: FieldValue.serverTimestamp() });
+      transaction.set(ratingRef, { id: ratingRef.id, jobId, ratingScopeId, fromUserId: decoded.uid, toUserId, stars, review, createdAt: FieldValue.serverTimestamp() });
       transaction.set(userRef, { ratingAverage: nextAverage, ratingCount: nextCount, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       if (raterRole === "client") transaction.set(applicationSnap.docs[0].ref, { clientRating: stars, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     });
     return NextResponse.json({ success: true, id: ratingRef.id });
   } catch (error) {
+    if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save rating." }, { status: 500 });
   }
 }

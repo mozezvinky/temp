@@ -1,7 +1,7 @@
 import { isSqlBackend, logDataMode } from "@/lib/data-backend";
 import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-user-profile";
 import { adminDb } from "@/lib/firebase-admin";
-import { cancelLocalNextPeriod, cancelLocalRemainingPeriods, completeLocalJob, countLocalAcceptedApplications, deleteLocalJob, getLocalJob, listLocalClientJobs, listLocalOpenJobs, updateLocalJob } from "@/lib/local-sql";
+import { cancelLocalNextPeriod, cancelLocalRemainingPeriods, completeLocalJob, countLocalAcceptedApplications, deleteLocalJob, getLocalJob, listLocalClientJobs, listLocalWorkerVisibleJobs, localDb, updateLocalJob } from "@/lib/local-sql";
 import type { Job, JobStatus, Role } from "@/types";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -36,7 +36,12 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ job });
       }
 
-      const jobs = (scope === "client" ? listLocalClientJobs(currentUser.uid) : listLocalOpenJobs().filter(job => job.clientId !== currentUser.uid)).filter(job => !job.rehireOfJobId);
+      const jobs = (scope === "client"
+        ? listLocalClientJobs(currentUser.uid)
+        : scope === "worker-active"
+          ? listLocalWorkerActiveJobs(currentUser.uid)
+          : listLocalWorkerVisibleJobs().filter(job => job.clientId !== currentUser.uid)
+      ).filter(job => !job.rehireOfJobId);
       return NextResponse.json({ jobs });
     }
 
@@ -55,23 +60,41 @@ export async function GET(request: NextRequest) {
       if (profile?.role !== "admin" && profile?.role === "client" && jobSnap.data()?.clientId !== currentUser.uid) {
         return NextResponse.json({ error: "You do not have access to this job." }, { status: 403 });
       }
-      return NextResponse.json({ job });
+      return NextResponse.json({ job: await enrichFirestoreJobClient(db, await enrichFirestoreJobTimelines(db, job as Record<string, unknown>)) });
     }
 
     const snapshot = await (scope === "client"
       ? db.collection("jobs").where("clientId", "==", currentUser.uid).limit(80).get()
-      : db.collection("jobs").where("status", "==", "open").limit(80).get()
+      : scope === "worker-active"
+        ? getFirestoreWorkerActiveJobSnapshot(db, currentUser.uid)
+        : db.collection("jobs").where("status", "==", "open").limit(80).get()
     );
-    const jobs = snapshot.docs
+    const snapshotDocs = Array.isArray(snapshot) ? snapshot : snapshot.docs;
+    const jobs = snapshotDocs
       .map<Record<string, unknown>>(doc => ({ id: doc.id, ...doc.data() }))
       .filter(job => !job.rehireOfJobId)
-      .filter(job => scope === "client" || job.clientId !== currentUser.uid)
+      .filter(job => scope === "client" || scope === "worker-active" || job.clientId !== currentUser.uid)
       .sort((a, b) => timestampMillis(b.createdAt) - timestampMillis(a.createdAt));
-    const applicationSnaps = await Promise.all(jobs.map(job => db.collection("applications").where("jobId", "==", job.id).limit(120).get()));
-    const responseJobs = jobs.map((job, index) => ({
+    const clientIds = [...new Set(jobs.map(job => typeof job.clientId === "string" ? job.clientId : "").filter(Boolean))];
+    const [applicationSnaps, timelineSnaps, clientSnaps] = await Promise.all([
+      Promise.all(jobs.map(job => db.collection("applications").where("jobId", "==", job.id).limit(120).get())),
+      Promise.all(jobs.map(job => db.collection("jobTimelines").where("jobId", "==", job.id).limit(120).get())),
+      Promise.all(clientIds.map(id => db.collection("users").doc(id).get()))
+    ]);
+    const clients = new Map(clientSnaps.map(snap => [snap.id, snap.data() ?? {}]));
+    const responseJobs = jobs.map((job, index) => {
+      const timelines = timelineSnaps[index].docs.map(doc => doc.data());
+      const paidTimelineCount = timelines.filter(item => item.status === "paid").length;
+      const submittedTimelineCount = timelines.filter(item => item.status === "submitted").length;
+      return {
       ...job,
-      acceptedCount: applicationSnaps[index].docs.filter(doc => ["accepted", "completion_requested", "payment_sent"].includes(String(doc.data().status))).length
-    }));
+      clientVerificationStatus: typeof clients.get(String(job.clientId))?.verificationStatus === "string" ? clients.get(String(job.clientId))?.verificationStatus : undefined,
+      acceptedCount: applicationSnaps[index].docs.filter(doc => ["accepted", "completion_requested", "payment_sent"].includes(String(doc.data().status))).length,
+      paidTimelineCount,
+      submittedTimelineCount,
+      unpaidTimelineCount: Math.max(0, Number(job.timelineCount ?? timelines.length) - paidTimelineCount)
+    };
+    });
     return NextResponse.json({
       jobs: responseJobs
     });
@@ -81,6 +104,42 @@ export async function GET(request: NextRequest) {
     console.error("[api/jobs] load failed", error instanceof Error ? { name: error.name, message: error.message } : { message: "unknown error" });
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+function listLocalWorkerActiveJobs(workerId: string) {
+  const rows = localDb().prepare(`
+    SELECT DISTINCT jobs.id
+    FROM applications
+    INNER JOIN jobs ON jobs.id = applications.jobId
+    WHERE applications.workerId = ?
+      AND applications.status IN ('accepted', 'completion_requested', 'payment_sent')
+      AND jobs.status NOT IN ('completed', 'cancelled')
+    ORDER BY jobs.updatedAt DESC
+    LIMIT 80
+  `).all(workerId);
+  return rows
+    .map(row => getLocalJob(String(row.id ?? "")))
+    .filter((job): job is Job => !!job);
+}
+
+async function getFirestoreWorkerActiveJobSnapshot(db: FirebaseFirestore.Firestore, workerId: string) {
+  const applicationSnap = await db.collection("applications").where("workerId", "==", workerId).limit(80).get();
+  const jobIds = [...new Set(applicationSnap.docs
+    .filter(doc => ["accepted", "completion_requested", "payment_sent"].includes(String(doc.data().status)))
+    .map(doc => String(doc.data().jobId ?? ""))
+    .filter(Boolean))];
+  const jobSnaps = await Promise.all(jobIds.map(id => db.collection("jobs").doc(id).get()));
+  return jobSnaps.filter(snap => snap.exists && !["completed", "cancelled"].includes(String(snap.data()?.status)));
+}
+
+async function enrichFirestoreJobClient(db: FirebaseFirestore.Firestore, job: Record<string, unknown>) {
+  const clientId = typeof job.clientId === "string" ? job.clientId : "";
+  if (!clientId) return job;
+  const clientSnap = await db.collection("users").doc(clientId).get();
+  return {
+    ...job,
+    clientVerificationStatus: typeof clientSnap.data()?.verificationStatus === "string" ? clientSnap.data()?.verificationStatus : undefined
+  };
 }
 
 export async function PATCH(request: NextRequest) {
@@ -238,6 +297,19 @@ function timestampMillis(value: unknown) {
   return typeof value === "object" && value && "toMillis" in value && typeof (value as { toMillis?: unknown }).toMillis === "function"
     ? (value as { toMillis: () => number }).toMillis()
     : 0;
+}
+
+async function enrichFirestoreJobTimelines(db: FirebaseFirestore.Firestore, job: Record<string, unknown>) {
+  const snapshot = await db.collection("jobTimelines").where("jobId", "==", String(job.id)).limit(120).get();
+  const timelines = snapshot.docs.map(doc => doc.data());
+  const paidTimelineCount = timelines.filter(item => item.status === "paid").length;
+  const submittedTimelineCount = timelines.filter(item => item.status === "submitted").length;
+  return {
+    ...job,
+    paidTimelineCount,
+    submittedTimelineCount,
+    unpaidTimelineCount: Math.max(0, Number(job.timelineCount ?? timelines.length) - paidTimelineCount)
+  };
 }
 
 class AuthRouteError extends Error {

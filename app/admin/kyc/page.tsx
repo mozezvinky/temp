@@ -43,11 +43,11 @@ export default function AdminKycPage() {
       const response = await fetch("/api/admin/verifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` },
-        body: JSON.stringify({ userId: item.userId, status, rejectionReason: reasons[item.userId] ?? "" })
+        body: JSON.stringify({ id: item.id, userId: item.userId, kind: item.kind ?? "identity", status, rejectionReason: reasons[item.userId] ?? "" })
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to review verification.");
-      toast.success(status === "approved" ? "Account verified." : "Verification rejected.");
+      toast.success(status === "approved" ? "Verification approved." : "Verification rejected.");
       await load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to review verification.");
@@ -59,18 +59,19 @@ export default function AdminKycPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><p className="copic-eyebrow">Manual review</p><h1 className="text-3xl font-black">ID Verification Requests</h1></div>
+        <div><p className="copic-eyebrow">Manual review</p><h1 className="text-3xl font-black">Verification Requests</h1></div>
         <div className="flex gap-2"><Button variant={filter === "pending" ? "primary" : "secondary"} onClick={() => setFilter("pending")}>Pending</Button><Button variant={filter === "all" ? "primary" : "secondary"} onClick={() => setFilter("all")}>All requests</Button></div>
       </div>
       {loading ? <LoadingSpinner label="Loading ID verification requests" /> : !items.length ? <EmptyState title="No verification requests" body={filter === "pending" ? "There are no ID submissions waiting for review." : "Submitted ID checks will appear here."} /> : items.map(item => (
         <Card key={item.id || item.userId} className="overflow-hidden">
           <div className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
             <div>
-              <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black">{item.fullName}</h2><p className="mt-1 text-sm text-[#959087]">@{item.username}</p></div><span className="rounded-full border border-white/15 px-3 py-1 text-xs font-black uppercase">{item.status}</span></div>
+              <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-black">{item.fullName}</h2><p className="mt-1 text-sm text-[#959087]">@{item.username}</p></div><span className="rounded-full border border-white/15 px-3 py-1 text-xs font-black uppercase">{item.kind === "driver_license" ? "Driver license" : "National ID"} · {item.status}</span></div>
               <dl className="mt-5 grid gap-3 text-sm">
                 <Info label="Email" value={item.email} />
                 <Info label="Phone" value={item.phoneNumber} />
                 <Info label="Account" value={item.role} />
+                {item.kind === "driver_license" && <Info label="License number" value={item.licenseNumber} />}
                 <Info label="Submitted" value={formatDate(item.createdAt)} />
               </dl>
               {item.status === "rejected" && item.rejectionReason && <p className="mt-4 rounded-xl bg-red-400/10 p-3 text-sm text-red-200">Reason: {item.rejectionReason}</p>}
@@ -80,9 +81,9 @@ export default function AdminKycPage() {
               </div>}
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
-              <DocumentImage label="ID front" url={item.idFrontUrl} />
-              <DocumentImage label="ID back" url={item.idBackUrl} />
-              <DocumentImage label="Selfie holding ID" url={item.selfieWithIdUrl} />
+              <DocumentImage label={item.kind === "driver_license" ? "License front" : "ID front"} url={item.idFrontUrl} />
+              <DocumentImage label={item.kind === "driver_license" ? "License back" : "ID back"} url={item.idBackUrl} />
+              <DocumentImage label={item.kind === "driver_license" ? "Selfie holding license" : "Selfie holding ID"} url={item.selfieWithIdUrl} />
             </div>
           </div>
         </Card>
