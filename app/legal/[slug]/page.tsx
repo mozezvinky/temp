@@ -1,4 +1,5 @@
 import { legalPolicies, legalPolicyMap } from "@/lib/legal-content";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 export function generateStaticParams() {
@@ -19,9 +20,12 @@ export default async function LegalPolicyPage({ params }: { params: Promise<{ sl
   return (
     <article className="copic-legal-page">
       <header>
-        <p className="copic-legal-eyebrow">COPIC Legal</p>
-        <h1>{policy.title}</h1>
-        <p>Source: {policy.source}</p>
+        <Link href="/" className="copic-legal-back">Back to Copic</Link>
+        <div>
+          <p className="copic-legal-eyebrow">COPIC Legal</p>
+          <h1>{policy.title}</h1>
+          <p>Source: {policy.source}</p>
+        </div>
       </header>
       <div className="copic-legal-body">
         {policy.paragraphs.map((paragraph, index) => isHeading(paragraph, index) ? (
