@@ -3,6 +3,7 @@ import "./globals.css";
 import "./plan-b-theme.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { Shell } from "@/components/layout/Shell";
+import { LegalFooter } from "@/components/layout/LegalFooter";
 import { Toaster } from "sonner";
 import { PwaBootstrap } from "@/components/pwa/PwaBootstrap";
 import type { ReactNode } from "react";
@@ -39,6 +40,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AuthProvider>
           <PwaBootstrap />
           <Shell>{children}</Shell>
+          <LegalFooter />
           <Toaster richColors position="top-center" />
         </AuthProvider>
       </body>

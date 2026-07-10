@@ -24,12 +24,16 @@ export async function GET(request: NextRequest) {
     ]);
     const docs = new Map([...roleSnapshot.docs, ...rolesSnapshot.docs].filter(doc => doc.id !== decoded.uid).map(doc => [doc.id, doc]));
     const users: Array<Record<string, unknown>> = await Promise.all([...docs.values()].map(async doc => {
-      const activeJobCount = await countActiveAcceptedJobs(doc.id);
+      const activeJobCount = await countActiveAcceptedJobs(doc.id).catch(error => {
+        console.error("[api/users] worker active job enrichment failed", { workerId: doc.id, error });
+        return 0;
+      });
       return { id: doc.id, ...(doc.data() as Record<string, unknown>), activeJobCount, isOccupied: activeJobCount > 0 };
     }));
     return NextResponse.json({ users: users.filter(worker => worker.isLocked !== true && Number(worker.outstandingServiceFee ?? 0) <= 0) });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load users." }, { status: 500 });
+    console.error("[api/users] load failed", error);
+    return NextResponse.json({ success: false, users: [], message: "Unable to load workers.", error: "Unable to load workers." }, { status: 500 });
   }
 }
 

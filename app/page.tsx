@@ -99,11 +99,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <footer className="landing-footer">
-        <div><strong className="text-xl text-white">Copic</strong><p className="mt-4 max-w-lg leading-6">Connecting people, earning income, and building careers through transparent local work.</p><p className="mt-7 text-sm">© {new Date().getFullYear()} Copic Marketplace.</p></div>
-        <div><strong className="text-white">Company</strong><div className="mt-4 grid gap-3"><Link href="/about">About</Link><Link href="/faq">FAQ</Link></div></div>
-        <div><strong className="text-white">Support</strong><div className="mt-4 grid gap-3"><Link href="/help">Help center</Link><Link href="/auth/login">Sign in</Link></div></div>
-      </footer>
     </div>
   );
 }

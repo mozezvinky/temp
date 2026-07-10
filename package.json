@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
-    "better-sqlite3": "^12.11.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "firebase": "^10.14.1",
@@ -33,6 +32,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "better-sqlite3": "^12.11.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.4",

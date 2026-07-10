@@ -1,8 +1,8 @@
 let loggedMode: string | null = null;
 
 export function shouldUseFirebase() {
-  if (process.env.DATA_BACKEND === "local-sqlite" || process.env.USE_LOCAL_SQLITE_IN_DEV === "true" || process.env.USE_FIREBASE_IN_DEV === "false") return false;
   if (process.env.NODE_ENV === "production") return true;
+  if (process.env.USE_LOCAL_SQL === "true" || process.env.DATA_BACKEND === "local-sqlite" || process.env.USE_LOCAL_SQLITE_IN_DEV === "true" || process.env.USE_FIREBASE_IN_DEV === "false") return false;
   return true;
 }
 

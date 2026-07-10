@@ -729,6 +729,129 @@ textarea,
 .temp-navbar.is-landing { background-color: #000 !important; }
 .copic-landing, .copic-landing .temp-navbar, .copic-landing footer { color-scheme: dark; }
 
+.copic-legal-footer {
+  border-top: 1px solid rgba(30, 30, 30, .16);
+  border-bottom: 1px solid rgba(30, 30, 30, .16);
+  background: #fffdfa;
+  color: #403b34;
+}
+
+.copic-legal-footer-inner {
+  display: grid;
+  max-width: 1440px;
+  gap: 18px;
+  margin: 0 auto;
+  padding: 28px 32px;
+}
+
+.copic-legal-footer-brand {
+  margin: 0;
+  color: #1e1e1e;
+  font-size: .9rem;
+  font-weight: 800;
+}
+
+.copic-legal-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+}
+
+.copic-legal-footer-links a,
+.copic-legal-footer-contact a {
+  color: #1e1e1e;
+  font-size: .86rem;
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.copic-legal-footer-contact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 36px;
+}
+
+.copic-legal-footer-contact p {
+  margin: 0 0 4px;
+  color: #6d665d;
+  font-size: .78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.copic-legal-page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 40px 0 64px;
+  color: #26221d;
+}
+
+.copic-legal-page header {
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(30, 30, 30, .12);
+}
+
+.copic-legal-eyebrow {
+  margin: 0 0 10px;
+  color: #6d665d;
+  font-size: .78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.copic-legal-page h1 {
+  margin: 0;
+  color: #111;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.02;
+}
+
+.copic-legal-page header p:last-child {
+  margin: 14px 0 0;
+  color: #6d665d;
+  font-size: .9rem;
+}
+
+.copic-legal-body {
+  display: grid;
+  gap: 14px;
+  padding-top: 28px;
+}
+
+.copic-legal-body h2 {
+  margin: 22px 0 0;
+  color: #111;
+  font-size: 1.18rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.copic-legal-body p {
+  margin: 0;
+  color: #332f2a;
+  font-size: .98rem;
+  line-height: 1.72;
+}
+
+@media (max-width: 720px) {
+  .copic-legal-footer-inner {
+    padding: 24px 16px;
+  }
+
+  .copic-legal-footer-links,
+  .copic-legal-footer-contact {
+    display: grid;
+    gap: 10px;
+  }
+
+  .copic-legal-page {
+    padding: 28px 0 48px;
+  }
+}
+
 /* Compact worker, profile, and alert density refinements. */
 .worker-directory-row { grid-template-columns: minmax(260px, 1fr) minmax(360px, 1.1fr) auto !important; }
 .marketplace-worker-name-button {

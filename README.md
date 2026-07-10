@@ -30,12 +30,13 @@ Fill the required environment values before using live account, payment, notific
 For local development you can keep Firebase Auth for sign-in while storing app data in SQLite instead of Firestore:
 
 ```env
-NEXT_PUBLIC_DATA_BACKEND=sql
-DATA_BACKEND=sql
+USE_LOCAL_SQL=true
+NEXT_PUBLIC_DATA_BACKEND=local-sqlite
+DATA_BACKEND=local-sqlite
 LOCAL_SQLITE_PATH=./data/temp-local.sqlite
 ```
 
-Restart `npm run dev` after changing these values. SQL mode stores local users, jobs, verification requests, service-fee records, and activities in `data/temp-local.sqlite`. This is for development only; remove or change those variables when you are ready to move the app data back to Firebase.
+Restart `npm run dev` after changing these values. SQL mode stores local users, jobs, verification requests, service-fee records, and activities in `data/temp-local.sqlite`. This is for development only. Production always uses Firestore and will not open a local SQLite database even if a local SQL flag is accidentally set.
 
 ## Email Verification
 

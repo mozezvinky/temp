@@ -44,10 +44,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ notifications: filterArchived(mergeNotifications(notifications, []), archives, archivedView, deletes) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load alerts.";
+    console.error("[api/notifications] load failed", error);
     if (message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded")) {
       return NextResponse.json({ notifications: [], degraded: true, reason: "quota" });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ success: false, notifications: [], message: "Unable to load alerts.", error: "Unable to load alerts." }, { status: 500 });
   }
 }
 

@@ -100,9 +100,8 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
-    const message = error instanceof Error ? error.message : "Unable to load jobs.";
-    console.error("[api/jobs] load failed", error instanceof Error ? { name: error.name, message: error.message } : { message: "unknown error" });
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[api/jobs] load failed", error);
+    return NextResponse.json({ success: false, message: "Unable to load jobs.", error: "Unable to load jobs." }, { status: 500 });
   }
 }
 

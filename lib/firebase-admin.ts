@@ -148,6 +148,11 @@ function getAdminApp() {
   if (getApps().length) return getApp();
 
   const serviceAccount = getServiceAccount();
+  if (process.env.NODE_ENV === "production" && !serviceAccount) {
+    throw new Error(
+      "Firebase Admin credentials missing. Production database cannot start. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY."
+    );
+  }
 
   return initializeApp(
     serviceAccount

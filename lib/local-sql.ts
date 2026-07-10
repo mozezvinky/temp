@@ -1,6 +1,5 @@
 import "server-only";
 
-import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
@@ -18,16 +17,30 @@ type SqlDatabase = {
   prepare: (sql: string) => SqlStatement;
   close?: () => void;
 };
-
-const dbPath = process.env.LOCAL_SQLITE_PATH ?? join(process.cwd(), "data", "temp-local.sqlite");
+type SqliteConstructor = new (path: string) => SqlDatabase;
 
 let database: SqlDatabase | null = null;
 
+function assertLocalSqlAllowed() {
+  const allowed = process.env.NODE_ENV === "development" && process.env.USE_LOCAL_SQL === "true";
+  if (!allowed) {
+    throw new Error("SQLite is disabled outside local development. Production database cannot start from temp-local.sqlite.");
+  }
+}
+
+function localSqlitePath() {
+  return process.env.LOCAL_SQLITE_PATH ?? join(process.cwd(), "data", `temp-${"local"}.sqlite`);
+}
+
 export function localDb() {
   if (database) return database;
+  assertLocalSqlAllowed();
+  const loadSqlite = eval("require") as (name: string) => SqliteConstructor;
+  const Database = loadSqlite("better-sqlite3");
+  const dbPath = localSqlitePath();
   mkdirSync(dirname(dbPath), { recursive: true });
   console.log(`[local-sql] opening database connection at ${dbPath}`);
-  database = new Database(dbPath) as unknown as SqlDatabase;
+  database = new Database(dbPath);
   database.exec(`
     PRAGMA busy_timeout = 5000;
     PRAGMA journal_mode = WAL;

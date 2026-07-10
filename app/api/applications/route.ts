@@ -40,11 +40,11 @@ export async function GET(request: NextRequest) {
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     const status = error instanceof AuthRouteError ? error.status : 500;
     const message = error instanceof Error ? error.message : "Unable to load applications.";
-    console.error("[api/applications] load failed", error instanceof Error ? { name: error.name, message: error.message } : { message: "unknown error" });
+    console.error("[api/applications] load failed", error);
     if (isQuotaError(message)) {
       return NextResponse.json({ applications: [], degraded: true, reason: "quota", error: "Firestore quota is exhausted right now. Showing cached data where available." });
     }
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ success: false, message: "Unable to load applications.", error: status === 500 ? "Unable to load applications." : message }, { status });
   }
 }
 
