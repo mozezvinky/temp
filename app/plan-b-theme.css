@@ -737,6 +737,18 @@ textarea,
   color: var(--copic-text);
 }
 
+.temp-app-shell:has(.temp-main.is-landing) + .copic-legal-footer {
+  --copic-bg: #000000;
+  --copic-surface: #090909;
+  --copic-surface-high: #171717;
+  --copic-text: #f4f5f5;
+  --copic-muted: #b8b8b8;
+  --copic-border: #242424;
+  border-top-color: #202020;
+  background: #000000;
+  color-scheme: dark;
+}
+
 .copic-legal-footer-inner {
   display: grid;
   max-width: 1440px;
