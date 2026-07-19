@@ -35,7 +35,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" data-scroll-behavior="smooth">
+    <html lang="en" id="top" data-scroll-behavior="smooth">
       <body>
         <AuthProvider>
           <PwaBootstrap />

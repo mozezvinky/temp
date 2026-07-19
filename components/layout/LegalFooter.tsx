@@ -1,5 +1,5 @@
 import { configuredDomain } from "@/lib/production-env";
-import { Mail } from "lucide-react";
+import { ArrowUpCircle, Mail } from "lucide-react";
 import Link from "next/link";
 
 const footerColumns = [
@@ -34,6 +34,13 @@ const footerColumns = [
       ["Disclaimer", "/legal/disclaimer"]
     ]
   }
+] as const;
+
+const mobileFooterLinks = [
+  ["Support", "/help"],
+  ["Company", "/about"],
+  ["Jobs", "/jobs"],
+  ["My Account", "/profile"]
 ] as const;
 
 export function LegalFooter() {
@@ -74,7 +81,18 @@ export function LegalFooter() {
           </div>
         </div>
       </div>
+      <nav className="copic-mobile-footer-menu" aria-label="Mobile footer links">
+        {mobileFooterLinks.map(([label, href]) => <Link key={href} href={href}>{label}</Link>)}
+        <a href="#top" className="copic-mobile-footer-top">
+          Back To Top
+          <ArrowUpCircle size={18} aria-hidden="true" />
+        </a>
+      </nav>
       <div className="copic-legal-footer-bottom">
+        <div className="copic-mobile-footer-socials" aria-label="Social links">
+          <span>x</span>
+          <span>f</span>
+        </div>
         <p>&copy; 2026 COPIC by Blue Peak Technologies. All Rights reserved.</p>
         <div>
           <Link href="/legal/terms">Terms & Conditions</Link>

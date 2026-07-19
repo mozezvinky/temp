@@ -8,6 +8,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+const WORKER_VISIBLE_JOB_STATUSES = ["open", "pending", "live", "assigned", "active", "in_progress"] as const;
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
@@ -67,7 +69,7 @@ export async function GET(request: NextRequest) {
       ? db.collection("jobs").where("clientId", "==", currentUser.uid).limit(80).get()
       : scope === "worker-active"
         ? getFirestoreWorkerActiveJobSnapshot(db, currentUser.uid)
-        : db.collection("jobs").where("status", "==", "open").limit(80).get()
+        : db.collection("jobs").where("status", "in", [...WORKER_VISIBLE_JOB_STATUSES]).limit(80).get()
     );
     const snapshotDocs = Array.isArray(snapshot) ? snapshot : snapshot.docs;
     const jobs = snapshotDocs

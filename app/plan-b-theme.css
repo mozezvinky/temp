@@ -619,6 +619,58 @@ tr:last-child td { border-bottom: 0; }
 .copic-quick-actions > button:first-of-type { border-color: #000 !important; background: #000 !important; color: #fff !important; }
 .copic-quick-actions > button span { display: grid; min-width: 28px; height: 28px; place-items: center; border-radius: 999px; background: var(--copic-surface-low); color: var(--copic-muted); font-size: .72rem; }
 .copic-install-button { border-radius: 999px !important; background: var(--copic-lime) !important; color: #142400 !important; box-shadow: 0 14px 34px rgba(93, 139, 20, .24) !important; }
+.copic-install-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: end center;
+  padding: 18px;
+  background: rgba(0, 0, 0, .42);
+}
+.copic-install-guide-card {
+  position: relative;
+  width: min(420px, 100%);
+  border: 1px solid var(--copic-border);
+  border-radius: 18px;
+  background: var(--copic-surface);
+  color: var(--copic-text);
+  padding: 22px;
+  box-shadow: var(--copic-raised-shadow);
+}
+.copic-install-guide-card h2 {
+  margin: 0 0 14px;
+  font-size: 1.2rem;
+  font-weight: 900;
+}
+.copic-install-guide-card ol {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.copic-install-guide-card li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--copic-muted);
+  font-weight: 750;
+}
+.copic-install-guide-card li svg { color: var(--copic-lime-ink); }
+.copic-install-guide-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--copic-border);
+  border-radius: 50%;
+  background: var(--copic-surface-low);
+  color: var(--copic-text);
+}
 
 @media (max-width: 900px) {
   .landing-grid { grid-template-columns: 1fr; }
@@ -845,6 +897,14 @@ textarea,
   font-weight: 900;
 }
 
+.copic-mobile-footer-menu {
+  display: none;
+}
+
+.copic-mobile-footer-socials {
+  display: none;
+}
+
 .copic-legal-footer-bottom {
   display: flex;
   max-width: 1440px;
@@ -952,15 +1012,90 @@ textarea,
 }
 
 @media (max-width: 720px) {
+  .copic-legal-footer {
+    border-top: 0;
+    background: #202020;
+    color: #f3f3f3;
+  }
+
   .copic-legal-footer-inner {
-    grid-template-columns: 1fr;
-    gap: 24px;
-    padding: 30px 16px 24px;
+    display: none;
+  }
+
+  .copic-mobile-footer-menu {
+    display: grid;
+    border-top: 1px solid #393939;
+    background: #202020;
+  }
+
+  .copic-mobile-footer-menu a {
+    display: inline-flex;
+    min-height: 116px;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border-bottom: 1px solid #393939;
+    color: #aaa;
+    font: 850 .92rem "JetBrains Mono", monospace;
+    letter-spacing: .28em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
+  .copic-mobile-footer-top svg {
+    color: #a58a2a;
   }
 
   .copic-legal-footer-bottom {
     display: grid;
-    padding: 12px 16px 18px;
+    justify-items: center;
+    gap: 22px;
+    border-top: 0;
+    padding: 72px 18px 56px;
+    background: #202020;
+    color: #989898;
+    text-align: center;
+  }
+
+  .copic-mobile-footer-socials {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 42px;
+    margin-bottom: 18px;
+  }
+
+  .copic-mobile-footer-socials span {
+    display: grid;
+    width: 58px;
+    height: 58px;
+    place-items: center;
+    border-radius: 50%;
+    background: #9f9f9f;
+    color: #202020;
+    font-size: 1.45rem;
+    font-weight: 950;
+    line-height: 1;
+    text-transform: lowercase;
+  }
+
+  .copic-legal-footer-bottom p {
+    color: #939393;
+    font: 600 .78rem "JetBrains Mono", monospace;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
+
+  .copic-legal-footer-bottom div {
+    justify-content: center;
+    gap: 14px;
+  }
+
+  .copic-legal-footer-bottom a {
+    color: #9c9c9c;
+    font: 650 .76rem "JetBrains Mono", monospace;
+    letter-spacing: .11em;
+    text-transform: uppercase;
   }
 
   .copic-legal-page {
