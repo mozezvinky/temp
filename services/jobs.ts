@@ -9,9 +9,12 @@ import {
 } from "firebase/firestore";
 
 function timestampMillis(value: unknown) {
-  return typeof value === "object" && value && "toMillis" in value && typeof (value as { toMillis?: unknown }).toMillis === "function"
-    ? (value as { toMillis: () => number }).toMillis()
-    : 0;
+  if (typeof value === "string") return Date.parse(value) || 0;
+  if (typeof value !== "object" || !value) return 0;
+  if ("toMillis" in value && typeof (value as { toMillis?: unknown }).toMillis === "function") return (value as { toMillis: () => number }).toMillis();
+  if ("seconds" in value && typeof (value as { seconds?: unknown }).seconds === "number") return Number((value as { seconds: number }).seconds) * 1000;
+  if ("_seconds" in value && typeof (value as { _seconds?: unknown })._seconds === "number") return Number((value as { _seconds: number })._seconds) * 1000;
+  return 0;
 }
 
 function sortJobs(items: Job[]) {

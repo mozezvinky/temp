@@ -88,5 +88,6 @@ function timestampDate(value: Job["createdAt"]) {
   }
   if (typeof value === "object" && "toDate" in value && typeof value.toDate === "function") return value.toDate();
   if (typeof value === "object" && "seconds" in value && typeof value.seconds === "number") return new Date(value.seconds * 1000);
+  if (typeof value === "object" && "_seconds" in value && typeof value._seconds === "number") return new Date(value._seconds * 1000);
   return null;
 }

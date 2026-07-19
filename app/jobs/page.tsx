@@ -17,6 +17,7 @@ function jobCreatedAtMillis(job: Job) {
   if (typeof value === "string") return Date.parse(value) || 0;
   if (value && typeof value === "object" && "toMillis" in value && typeof value.toMillis === "function") return value.toMillis();
   if (value && typeof value === "object" && "seconds" in value && typeof value.seconds === "number") return value.seconds * 1000;
+  if (value && typeof value === "object" && "_seconds" in value && typeof value._seconds === "number") return value._seconds * 1000;
   return 0;
 }
 
