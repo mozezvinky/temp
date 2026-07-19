@@ -1441,10 +1441,10 @@ textarea,
 .temp-top-alert-more { color: #9df12d; font-weight: 800; white-space: nowrap; }
 .temp-top-alert-dismiss { min-height: 28px; flex: 0 0 auto; border: 0; border-left: 1px solid rgba(255,255,255,.2); border-radius: 0; padding: 0 0 0 20px; background: transparent !important; color: #9df12d; font-size: .82rem; font-weight: 800; }
 
-@media (display-mode: standalone) and (max-width: 767px) {
+@media (max-width: 767px) {
   .temp-navbar {
     top: 0 !important;
-    padding-top: max(18px, env(safe-area-inset-top)) !important;
+    padding-top: env(safe-area-inset-top, 0px) !important;
   }
 
   .temp-navbar-inner {
@@ -1452,7 +1452,17 @@ textarea,
   }
 
   .temp-mobile-drawer {
-    padding-top: max(22px, calc(env(safe-area-inset-top) + 14px)) !important;
+    padding-top: max(18px, calc(env(safe-area-inset-top, 0px) + 14px)) !important;
+  }
+}
+
+@media (display-mode: standalone) and (max-width: 767px) {
+  .temp-navbar {
+    padding-top: max(18px, env(safe-area-inset-top, 0px)) !important;
+  }
+
+  .temp-mobile-drawer {
+    padding-top: max(22px, calc(env(safe-area-inset-top, 0px) + 14px)) !important;
   }
 }
 
