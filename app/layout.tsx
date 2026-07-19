@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   applicationName: "Copic",
   title: "Copic - Connecting people, earning income, and building careers.",
   description: "Connect with opportunities, hire skilled workers, and take your career to the next level.",
-  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Copic" },
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "Copic" },
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [

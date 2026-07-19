@@ -1441,6 +1441,21 @@ textarea,
 .temp-top-alert-more { color: #9df12d; font-weight: 800; white-space: nowrap; }
 .temp-top-alert-dismiss { min-height: 28px; flex: 0 0 auto; border: 0; border-left: 1px solid rgba(255,255,255,.2); border-radius: 0; padding: 0 0 0 20px; background: transparent !important; color: #9df12d; font-size: .82rem; font-weight: 800; }
 
+@media (display-mode: standalone) and (max-width: 767px) {
+  .temp-navbar {
+    top: 0 !important;
+    padding-top: max(18px, env(safe-area-inset-top)) !important;
+  }
+
+  .temp-navbar-inner {
+    min-height: 74px !important;
+  }
+
+  .temp-mobile-drawer {
+    padding-top: max(22px, calc(env(safe-area-inset-top) + 14px)) !important;
+  }
+}
+
 @media (min-width: 768px) {
   .temp-navbar.is-app-nav .temp-navbar-inner { display: grid !important; min-height: 76px; grid-template-columns: minmax(210px, 1fr) auto minmax(210px, 1fr); align-items: center; gap: 20px; padding-top: 8px; padding-bottom: 10px; }
   .temp-navbar.is-app-nav .temp-navbar-inner > div:first-child { justify-self: start; padding: 0; background: transparent; box-shadow: none; }

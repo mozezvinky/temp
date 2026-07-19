@@ -75,7 +75,7 @@ async function fetchSqlJobs(scope?: "client" | "worker-active") {
   const user = requireAuth().currentUser;
   if (!user) throw new Error("Please sign in to load jobs.");
   const token = await user.getIdToken();
-  const preferredRole = scope === "client" ? "client" : scope === "worker-active" ? "worker" : undefined;
+  const preferredRole = scope === "client" ? "client" : "worker";
   const response = await fetch(`/api/jobs${scope ? `?scope=${scope}` : ""}`, {
     headers: { Authorization: `Bearer ${token}`, "Cache-Control": "no-cache", ...activeRoleHeaders(user.uid, preferredRole) },
     cache: "no-store",

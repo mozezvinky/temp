@@ -50,8 +50,9 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
   const snapshot = await adminDb().collection("users").doc(decoded.uid).get();
   const data = snapshot.exists ? snapshot.data() as Partial<UserProfile> : null;
   const role = activeRoleFor(data, fallbackRole ?? roleFromRequest(request));
+  const activeRoles = rolesFor(data, role);
   const profile = snapshot.exists && data
-    ? ({ id: snapshot.id, uid: snapshot.id, ...data, role, roles: rolesFor(data) } as UserProfile)
+    ? ({ id: snapshot.id, uid: snapshot.id, ...data, role, roles: activeRoles } as UserProfile)
     : null;
   return {
     id: decoded.uid,
@@ -129,14 +130,16 @@ function roleFromRequest(request: NextRequest): Role | null {
   return value === "client" || value === "worker" || value === "admin" ? value : null;
 }
 
-function rolesFor(data: Partial<UserProfile> | null): Role[] {
+function rolesFor(data: Partial<UserProfile> | null, activeRole?: Role): Role[] {
   const role = data?.role;
   const roles = Array.isArray(data?.roles) ? data.roles : [];
-  return Array.from(new Set([...roles, role].filter((item): item is Role => item === "client" || item === "worker" || item === "admin")));
+  return Array.from(new Set([...roles, role, activeRole].filter((item): item is Role => item === "client" || item === "worker" || item === "admin")));
 }
 
 function activeRoleFor(data: Partial<UserProfile> | null, roleHint?: Role | null): Role | undefined {
   const roles = rolesFor(data);
+  if (roles.includes("admin")) return "admin";
+  if (roleHint === "worker" || roleHint === "client") return roleHint;
   if (roleHint && roles.includes(roleHint)) return roleHint;
   return roles[0];
 }
