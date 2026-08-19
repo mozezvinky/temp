@@ -10,8 +10,11 @@ import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
   applicationName: "Copic",
-  title: "Copic - Connecting people, earning income, and building careers.",
-  description: "Connect with opportunities, hire skilled workers, and take your career to the next level.",
+  title: "COPIC Kenya | Find Reliable Workers & Local Services",
+  description: "Find reliable workers for cleaning, moving, gardening, babysitting, shopping and other local services in Kenya. Post a job, choose your price and find the help you need with COPIC.",
+  verification: {
+    google: "YyrzGzQYzZd2Y69803lpMxgZ2SDlyUfOzeg3cVmyFCo"
+  },
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Copic" },
   manifest: "/manifest.webmanifest",
   icons: {
