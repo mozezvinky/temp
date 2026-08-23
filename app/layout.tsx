@@ -7,13 +7,29 @@ import { LegalFooter } from "@/components/layout/LegalFooter";
 import { Toaster } from "sonner";
 import { PwaBootstrap } from "@/components/pwa/PwaBootstrap";
 import type { ReactNode } from "react";
+import { homeSeo, siteUrl } from "@/lib/seo";
 
 export const metadata: Metadata = {
   applicationName: "Copic",
-  title: "COPIC Kenya | Find Reliable Workers & Local Services",
-  description: "Find reliable workers for cleaning, moving, gardening, babysitting, shopping and other local services in Kenya. Post a job, choose your price and find the help you need with COPIC.",
+  metadataBase: new URL(siteUrl),
+  title: homeSeo.title,
+  description: homeSeo.description,
   verification: {
     google: "YyrzGzQYzZd2Y69803lpMxgZ2SDlyUfOzeg3cVmyFCo"
+  },
+  openGraph: {
+    type: "website",
+    siteName: "COPIC",
+    title: homeSeo.title,
+    description: homeSeo.description,
+    url: "/",
+    images: [{ url: "/icon-512.png", width: 512, height: 512, alt: "COPIC logo" }]
+  },
+  twitter: {
+    card: "summary",
+    title: homeSeo.title,
+    description: homeSeo.description,
+    images: ["/icon-512.png"]
   },
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Copic" },
   manifest: "/manifest.webmanifest",

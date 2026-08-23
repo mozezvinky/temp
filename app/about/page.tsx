@@ -1,5 +1,14 @@
 import { Card } from "@/components/ui/Card";
+import type { Metadata } from "next";
 import { ClipboardCheck, BriefcaseBusiness, MessageCircle, ShieldCheck } from "lucide-react";
+
+export const metadata: Metadata = {
+  title: "About COPIC | Local Work and Services in Kenya",
+  description: "Learn how COPIC connects clients and workers in Kenya for local services, flexible jobs, secure job chat, profiles, ratings, and clear work records.",
+  alternates: {
+    canonical: "/about"
+  }
+};
 
 export default function AboutPage() {
   return (

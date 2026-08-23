@@ -1,4 +1,6 @@
 import { legalPolicies, legalPolicyMap } from "@/lib/legal-content";
+import { canonical } from "@/lib/seo";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -6,10 +8,16 @@ export function generateStaticParams() {
   return legalPolicies.map(policy => ({ slug: policy.slug }));
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const policy = legalPolicyMap.get(slug);
-  return { title: policy ? `${policy.title} | Copic` : "Legal | Copic" };
+  return {
+    title: policy ? `${policy.title} | COPIC` : "Legal | COPIC",
+    description: policy ? `Read COPIC's ${policy.title.toLowerCase()} for details about using the platform in Kenya.` : "Read COPIC legal policies for using the platform in Kenya.",
+    alternates: {
+      canonical: canonical(`/legal/${slug}`)
+    }
+  };
 }
 
 export default async function LegalPolicyPage({ params }: { params: Promise<{ slug: string }> }) {
