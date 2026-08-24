@@ -32,15 +32,19 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
 
   function detailsFromFeature(feature: Record<string, unknown>, fallbackLabel: string): Partial<LocationFields> {
     const context = Array.isArray(feature.context) ? feature.context as Array<{ id?: string; text?: string }> : [];
+    const placeTypes = Array.isArray(feature.place_type) ? feature.place_type.map(String) : [];
     const text = typeof feature.text === "string" ? feature.text : "";
     const placeName = typeof feature.place_name === "string" ? feature.place_name : fallbackLabel;
     const county = context.find(item => item.id?.startsWith("region"))?.text ?? value.county;
     const town = context.find(item => item.id?.startsWith("place"))?.text ?? context.find(item => item.id?.startsWith("locality"))?.text ?? text ?? value.town;
+    const landmark = placeTypes.some(type => ["poi", "address", "neighborhood", "locality"].includes(type))
+      ? text
+      : context.find(item => item.id?.startsWith("poi"))?.text ?? context.find(item => item.id?.startsWith("neighborhood"))?.text ?? text;
     return {
       county: String(county || "Current location"),
       town: String(town || "Current location"),
       estateOrArea: String(text || value.estateOrArea || "Current location"),
-      nearestLandmark: value.nearestLandmark || text || "Selected location",
+      nearestLandmark: landmark || value.nearestLandmark || "Selected location",
       addressText: placeName
     };
   }
@@ -48,11 +52,15 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
   async function reverseGeocode(latitude: number, longitude: number) {
     if (!token) return null;
     try {
-      const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?access_token=${token}&country=ke&limit=1`);
+      const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?access_token=${token}&country=ke&types=poi,address,neighborhood,locality,place&limit=5`);
       const payload = await response.json().catch(() => ({}));
-      const feature = Array.isArray(payload.features) ? payload.features[0] : null;
+      const features = Array.isArray(payload.features) ? payload.features as Array<Record<string, unknown>> : [];
+      const feature = features.find(item => {
+        const types = Array.isArray(item.place_type) ? item.place_type.map(String) : [];
+        return types.some(type => ["poi", "address", "neighborhood"].includes(type));
+      }) ?? features[0] ?? null;
       if (!feature) return null;
-      return detailsFromFeature(feature as Record<string, unknown>, "Current location");
+      return detailsFromFeature(feature, "Current location");
     } catch {
       return null;
     }
@@ -116,6 +124,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       estateOrArea: details?.estateOrArea || value.estateOrArea || "Current location",
       nearestLandmark: details?.nearestLandmark || value.nearestLandmark || "Pinned from current location",
       addressText: details?.addressText || value.addressText || `Current location (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`,
+      locationDescription: value.locationDescription,
       longitude,
       latitude
     };
@@ -284,8 +293,17 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       {value.addressText && (
         <p className="temp-selected-location rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-3 text-sm font-semibold text-[#FFFBF4]">
           Selected location: {value.addressText}
+          {value.nearestLandmark && <span className="mt-1 block text-xs text-[#CCC6BB]">Nearest landmark: {value.nearestLandmark}</span>}
         </p>
       )}
+      <label className="temp-label">Location description optional
+        <textarea
+          value={value.locationDescription ?? ""}
+          onChange={event => onChange({ ...value, locationDescription: event.target.value })}
+          placeholder="Add floor, gate, building color, entry instructions, or how to find you."
+          className="temp-input mt-2 min-h-24 p-3 outline-none"
+        />
+      </label>
       {locationNotice && <p className="temp-location-notice rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">{locationNotice}</p>}
       {locationError && <p className="temp-location-error rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{locationError}</p>}
       {token ? (

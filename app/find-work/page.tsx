@@ -25,6 +25,7 @@ import { TIMELINE_PLATFORM_FEE, isPayPerTimeline } from "@/utils/timeline-paymen
 import { kes } from "@/utils/money";
 import { completedJobId } from "@/utils/completed-job-id";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
+import { clientCanPost } from "@/utils/jobRules";
 
 export default function FindWorkPage() {
   const { profile, loading, isAuthorized, refreshProfile } = useProtectedRoute(["client", "admin"]);
@@ -208,6 +209,15 @@ export default function FindWorkPage() {
     setPaymentStep("progress");
   }
 
+  function openPostWork() {
+    if (!clientCanPost(profile)) {
+      toast.error("Verify your identity before posting jobs.");
+      setVerificationOpen(true);
+      return;
+    }
+    setPostWorkOpen(true);
+  }
+
   function closeProgress() {
     setProgressJob(null);
     setSelectedApplicationIds([]);
@@ -274,7 +284,7 @@ export default function FindWorkPage() {
             <h2 className="mt-2 text-2xl font-black text-[#FFFBFF]">Already posted jobs</h2>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Button type="button" className="temp-success-button" onClick={() => setPostWorkOpen(true)}><Plus size={17} /> Post work</Button>
+            <Button type="button" className="temp-success-button" onClick={openPostWork}><Plus size={17} /> Post work</Button>
             <Button type="button" variant="secondary" className={completedRequests.length ? "completed-request-alert-button" : ""} onClick={() => { setCompletedTab(completedRequests.length ? "requests" : "history"); setCompletedOpen(true); }}><CheckCircle2 size={17} /> Completed ({completedJobs.length + completedRequests.length})</Button>
           </div>
         </div>
@@ -497,6 +507,9 @@ export default function FindWorkPage() {
             {paymentStep === "review" && (
               <form onSubmit={finishJob} className="mt-6 grid gap-4">
                 <p className="text-sm text-[#CCC6BB]">Pay each worker directly outside the platform. The job will be completed only after every worker confirms they have received their payment.</p>
+                <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
+                  This payment is labor payment only. Do not include materials, transport, deposits, or COPIC service fees in the worker payment.
+                </p>
                 <div className="grid gap-3">
                   {rateableApplications.length ? rateableApplications.map(application => (
                     <div key={`rating-${application.id}`} className="rounded-xl bg-[#2A2A2B] p-4">

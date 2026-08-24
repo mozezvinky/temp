@@ -13,6 +13,7 @@ import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { perDurationUnit } from "@/utils/duration";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { kes } from "@/utils/money";
+import { workerCanWork } from "@/utils/jobRules";
 import { ArrowLeft, Mail, MessageCircle, Phone, Star } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
@@ -49,6 +50,7 @@ export default function ApplicationsPage() {
     ? nonRehireApplications.filter(application => application.status !== "completion_requested")
     : nonRehireApplications;
   const visibleApplications = selectedJobId ? roleScopedApplications.filter(application => application.jobId === selectedJobId) : roleScopedApplications;
+  const workerWorkStatus = profile.role === "worker" ? workerCanWork(profile) : { ok: true, reason: "" };
   if (!visibleApplications.length) return (
     <div className="space-y-4">
       <Link href={profile.role === "client" ? "/find-work" : "/dashboard"} className="applications-back-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold">
@@ -130,6 +132,8 @@ export default function ApplicationsPage() {
             title="Current job"
             empty="Accepted jobs will appear here as ongoing work."
             applications={visibleApplications.filter(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled")}
+            canDoJobs={workerWorkStatus.ok}
+            blockedReason={workerWorkStatus.reason}
             onCancel={application => {
               setApplications(items => items.map(item => item.id === application.id ? application : item));
             }}
@@ -138,6 +142,8 @@ export default function ApplicationsPage() {
             title="Applied jobs"
             empty="Pending and past applications will appear here."
             applications={visibleApplications.filter(application => !(["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled"))}
+            canDoJobs={workerWorkStatus.ok}
+            blockedReason={workerWorkStatus.reason}
             onCancel={application => {
               setApplications(items => items.map(item => item.id === application.id ? application : item));
             }}
@@ -172,8 +178,8 @@ export default function ApplicationsPage() {
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={() => setViewingWorker(application)}>View worker profile</Button>
                 {application.status === "pending" && (
-                  <Button type="button" disabled={acceptingId === application.id} onClick={() => void accept(application)}>
-                    {acceptingId === application.id ? "Accepting..." : "Accept application"}
+                  <Button type="button" disabled={acceptingId === application.id || application.workerVerificationStatus !== "approved"} onClick={() => void accept(application)}>
+                    {acceptingId === application.id ? "Accepting..." : application.workerVerificationStatus !== "approved" ? "Worker not verified" : "Accept application"}
                   </Button>
                 )}
               {application.status === "completion_requested" && (
@@ -226,6 +232,9 @@ export default function ApplicationsPage() {
             <p className="mt-2 text-sm text-[#4b453e] dark:text-[#CCC6BB]">
               Confirm only if {pendingCompletion.workerName ?? "the worker"} has finished the work. Pay the worker directly outside the platform, then click below. The job will not be completed until the worker confirms they received the money.
             </p>
+            <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-900 dark:text-amber-100">
+              This payment is labor payment only. Do not include materials, transport, deposits, or COPIC service fees in the worker payment.
+            </p>
             <div className="mt-4 rounded-xl border border-[#d8d8d8] bg-[#f3f4f5] p-4 text-sm text-[#4b453e] dark:border-[#4A463F] dark:bg-[#2A2A2B] dark:text-[#CCC6BB]">
               <p><strong className="text-[#111] dark:text-[#FFFBFF]">Worker:</strong> {pendingCompletion.workerName ?? "Worker"}</p>
               <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">Phone:</strong> {pendingCompletion.workerPhoneNumber ?? "No phone provided"}</p>
@@ -253,7 +262,7 @@ export default function ApplicationsPage() {
   );
 }
 
-function ApplicationSection({ title, empty, applications, onCancel }: { title: string; empty: string; applications: Application[]; onCancel?: (application: Application) => void }) {
+function ApplicationSection({ title, empty, applications, canDoJobs = true, blockedReason = "", onCancel }: { title: string; empty: string; applications: Application[]; canDoJobs?: boolean; blockedReason?: string; onCancel?: (application: Application) => void }) {
   const [cancellingId, setCancellingId] = useState("");
   const [completingId, setCompletingId] = useState("");
   const [confirmingPaymentId, setConfirmingPaymentId] = useState("");
@@ -349,7 +358,7 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
                 <Link href="/chat" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-bone px-4 py-2 text-sm font-black text-[#1E1B13]">
                   <MessageCircle size={16} /> Chat with employer
                 </Link>
-                <Button type="button" disabled={completingId === application.id} onClick={() => isPayPerTimeline(application.jobPayType) ? setPendingTimelineComplete(application) : void requestComplete(application)}>
+                <Button type="button" disabled={!canDoJobs || completingId === application.id} onClick={() => isPayPerTimeline(application.jobPayType) ? setPendingTimelineComplete(application) : void requestComplete(application)}>
                   {completingId === application.id ? "Sending..." : isPayPerTimeline(application.jobPayType) ? `Mark ${timelineUnitLabel} ${application.nextTimelineNumber ?? ""} complete` : "Mark complete"}
                 </Button>
                 <Button type="button" variant="secondary" disabled={cancellingId === application.id} onClick={() => setPendingLiveCancel(application)}>
@@ -362,7 +371,7 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
                 <Link href="/chat" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-bone px-4 py-2 text-sm font-black text-[#1E1B13]">
                   <MessageCircle size={16} /> Chat with employer
                 </Link>
-                <Button type="button" className="temp-success-button" disabled={confirmingPaymentId === application.id} onClick={() => void confirmPayment(application)}>
+                <Button type="button" className="temp-success-button" disabled={!canDoJobs || confirmingPaymentId === application.id} onClick={() => void confirmPayment(application)}>
                   {confirmingPaymentId === application.id ? "Confirming..." : "I Received Payment"}
                 </Button>
                 <Button type="button" variant="secondary" disabled={cancellingId === application.id} onClick={() => setPendingLiveCancel(application)}>
@@ -381,6 +390,9 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
               </Button>
             )}
           </div>
+          {!canDoJobs && ["accepted", "completion_requested", "payment_sent"].includes(application.status) && (
+            <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">{blockedReason}</p>
+          )}
           {application.coverNote && <p className="mt-4 text-sm text-[#959087]">{application.coverNote}</p>}
           {application.clientRating && <p className="mt-3 inline-flex items-center gap-1 text-sm font-black text-amber-200"><Star size={16} /> Client rating: {application.clientRating}/5</p>}
             </>

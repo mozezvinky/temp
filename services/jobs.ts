@@ -2,6 +2,7 @@
 
 import { requireAuth, requireDb } from "@/lib/firebase";
 import type { Application, Job, UserProfile } from "@/types";
+import { workerCanApplyToJob } from "@/utils/jobRules";
 import { jobSchema } from "@/utils/validation";
 import {
   collection,
@@ -492,12 +493,13 @@ export async function requestApplicationCompletion(application: Application, tim
 }
 
 export async function canWorkerApply(worker: UserProfile) {
-  if (worker.isLocked || Number(worker.outstandingServiceFee ?? 0) > 0) return { ok: false, reason: "Your account is locked. Open your dashboard for the next step." };
+  if (worker.isLocked || Number(worker.outstandingServiceFee ?? 0) > 0) return { ok: false, reason: worker.lockReason ?? "Your account is locked. Open your dashboard for the next step." };
+  if (worker.verificationStatus !== "approved") return { ok: false, reason: "Verify your identity before applying for or doing jobs." };
   return { ok: true };
 }
 
 export async function applyToJob(job: Job, worker: UserProfile, coverNote: string) {
-  const allowed = await canWorkerApply(worker);
+  const allowed = workerCanApplyToJob(worker, job);
   if (!allowed.ok) throw new Error(allowed.reason);
   if (job.clientId === worker.id) throw new Error("You cannot apply to a job you posted as a client.");
   if (job.status !== "open") throw new Error("This job is no longer accepting applications.");

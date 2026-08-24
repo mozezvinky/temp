@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateServiceFee } from "@/utils/money";
+import { workerCanApplyToJob } from "@/utils/jobRules";
 import { isPayPerTimeline, timelinePaymentSummary, TIMELINE_PLATFORM_FEE } from "@/utils/timeline-payments";
 
 type SqlValue = string | number | bigint | null | Uint8Array;
@@ -1017,9 +1018,13 @@ export function respondLocalDirectHireRequest(applicationId: string, workerId: s
     `).run(`notification-direct-hire-rejected-${applicationId}`, application.clientId, `${application.workerName ?? "The worker"} rejected your direct hire request for ${application.jobTitle ?? "the job"}.`, now);
   } else {
     const worker = getLocalUser(workerId);
-    if (worker?.isLocked || Number(worker?.outstandingServiceFee ?? 0) > 0) {
-      throw new Error(worker?.lockReason ?? "Service Fee Payment Required");
-    }
+    const job = getLocalJob(application.jobId);
+    const allowedWorker = workerCanApplyToJob(worker, {
+      title: job?.title ?? application.jobTitle ?? "",
+      category: job?.category ?? application.jobCategory ?? "",
+      requiredSkills: job?.requiredSkills ?? []
+    });
+    if (!allowedWorker.ok) throw new Error(allowedWorker.reason);
     localDb().exec("BEGIN IMMEDIATE");
     try {
       localDb().prepare("UPDATE applications SET status = 'accepted', updatedAt = ? WHERE id = ?").run(now, applicationId);
@@ -1060,6 +1065,9 @@ export function acceptLocalApplication(applicationId: string, clientId: string) 
   const application = rowToApplication(row);
   const job = getLocalJob(application.jobId);
   if (!job || job.clientId !== clientId) return null;
+  const worker = getLocalUser(application.workerId);
+  const allowedWorker = workerCanApplyToJob(worker, job);
+  if (!allowedWorker.ok) throw new Error(allowedWorker.reason);
   const acceptedBefore = countLocalAcceptedApplications(job.id);
   if (application.status !== "accepted" && acceptedBefore >= (job.workersNeeded ?? 1)) {
     throw new Error("This job already has enough accepted workers.");

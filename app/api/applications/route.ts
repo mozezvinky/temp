@@ -6,6 +6,7 @@ import { acceptLocalApplication, cancelLocalApplication, cancelLocalLiveApplicat
 import { serverDebug } from "@/lib/server-debug";
 import type { Role } from "@/types";
 import { calculateServiceFee } from "@/utils/money";
+import { workerCanApplyToJob, workerCanWork } from "@/utils/jobRules";
 import { TIMELINE_PLATFORM_FEE, isPayPerTimeline } from "@/utils/timeline-payments";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -60,13 +61,14 @@ export async function POST(request: NextRequest) {
       const worker = currentUser.profile;
       const job = getLocalJob(jobId);
       if (!worker || worker.role !== "worker") return NextResponse.json({ error: "Use a worker account to apply." }, { status: 403 });
-      if (worker.isLocked || Number(worker.outstandingServiceFee ?? 0) > 0) return NextResponse.json({ error: worker.lockReason ?? "Service Fee Payment Required" }, { status: 403 });
       if (job?.rehireOfJobId) return NextResponse.json({ error: "This job is no longer available." }, { status: 400 });
       if (job?.clientId === worker.id) return NextResponse.json({ error: "You cannot apply to a job you posted as a client." }, { status: 403 });
       if (countLocalActiveAcceptedApplications(worker.id) > 0) {
         return NextResponse.json({ error: "You already have an accepted active job. Complete it before applying to another job." }, { status: 403 });
       }
       if (!job || job.status !== "open") return NextResponse.json({ error: "This job is no longer accepting applications." }, { status: 400 });
+      const allowed = workerCanApplyToJob(worker, job);
+      if (!allowed.ok) return NextResponse.json({ error: allowed.reason }, { status: 403 });
       if (countLocalAcceptedApplications(job.id) >= (job.workersNeeded ?? 1)) {
         return NextResponse.json({ error: "This job already has enough accepted workers." }, { status: 400 });
       }
@@ -92,7 +94,6 @@ export async function POST(request: NextRequest) {
     const worker = workerSnap.data();
     const job = jobSnap.data();
     if (!workerSnap.exists || currentUser.profile?.role !== "worker") return NextResponse.json({ error: "Use a worker account to apply." }, { status: 403 });
-    if (worker?.isLocked === true || Number(worker?.outstandingServiceFee ?? 0) > 0) return NextResponse.json({ error: worker?.lockReason ?? "Service Fee Payment Required" }, { status: 403 });
     if (job?.rehireOfJobId) return NextResponse.json({ error: "This job is no longer available." }, { status: 400 });
     if (job?.clientId === currentUser.uid) return NextResponse.json({ error: "You cannot apply to a job you posted as a client." }, { status: 403 });
     const activeAcceptedSnapshot = await db.collection("applications").where("workerId", "==", currentUser.uid).limit(40).get();
@@ -103,6 +104,12 @@ export async function POST(request: NextRequest) {
       if (hasActiveJob) return NextResponse.json({ error: "You already have an accepted active job. Complete it before applying to another job." }, { status: 403 });
     }
     if (!jobSnap.exists || job?.status !== "open") return NextResponse.json({ error: "This job is no longer accepting applications." }, { status: 400 });
+    const allowed = workerCanApplyToJob(currentUser.profile, {
+      title: String(job?.title ?? ""),
+      category: String(job?.category ?? ""),
+      requiredSkills: Array.isArray(job?.requiredSkills) ? job.requiredSkills.filter((item: unknown): item is string => typeof item === "string") : []
+    });
+    if (!allowed.ok) return NextResponse.json({ error: allowed.reason }, { status: 403 });
     const acceptedSnapshot = await db.collection("applications").where("jobId", "==", jobId).limit(120).get();
     const acceptedCount = acceptedSnapshot.docs.filter(doc => ["accepted", "completion_requested", "payment_sent"].includes(String(doc.data().status))).length;
     if (acceptedCount >= Number(job?.workersNeeded ?? 1)) return NextResponse.json({ error: "This job already has enough accepted workers." }, { status: 400 });
@@ -206,7 +213,8 @@ export async function PATCH(request: NextRequest) {
       if (action === "worker_complete") {
         const worker = currentUser.profile;
         if (!worker || worker.role !== "worker") return NextResponse.json({ error: "Use a worker account to mark work complete." }, { status: 403 });
-        if (worker.isLocked || Number(worker.outstandingServiceFee ?? 0) > 0) return NextResponse.json({ error: worker.lockReason ?? "Service Fee Payment Required" }, { status: 403 });
+        const allowed = workerCanWork(worker);
+        if (!allowed.ok) return NextResponse.json({ error: allowed.reason }, { status: 403 });
         const application = requestLocalApplicationCompletion(applicationId, currentUser.uid, requestedTimelineCount);
         if (!application) return NextResponse.json({ error: "Application was not found." }, { status: 404 });
         return NextResponse.json({ success: true, application });
@@ -214,7 +222,8 @@ export async function PATCH(request: NextRequest) {
       if (action === "worker_confirm_payment") {
         const worker = currentUser.profile;
         if (!worker || worker.role !== "worker") return NextResponse.json({ error: "Use a worker account to confirm payment." }, { status: 403 });
-        if (worker.isLocked || Number(worker.outstandingServiceFee ?? 0) > 0) return NextResponse.json({ error: worker.lockReason ?? "Service Fee Payment Required" }, { status: 403 });
+        const allowed = workerCanWork(worker);
+        if (!allowed.ok) return NextResponse.json({ error: allowed.reason }, { status: 403 });
         const application = completeLocalApplication(applicationId, currentUser.uid);
         if (!application) return NextResponse.json({ error: "Application was not found." }, { status: 404 });
         return NextResponse.json({ success: true, application });
@@ -315,9 +324,12 @@ export async function PATCH(request: NextRequest) {
         const application = applicationSnap.data() ?? {};
         if (application.workerId !== currentUser.uid) throw new AuthRouteError("You can only mark your own work complete.", 403);
         const workerUserSnap = await transaction.get(db.collection("users").doc(currentUser.uid));
-        if (workerUserSnap.data()?.isLocked === true || Number(workerUserSnap.data()?.outstandingServiceFee ?? 0) > 0) {
-          throw new AuthRouteError(String(workerUserSnap.data()?.lockReason ?? "Service Fee Payment Required"), 403);
-        }
+        const workerStatus = workerCanWork({
+          verificationStatus: String(workerUserSnap.data()?.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
+          isLocked: workerUserSnap.data()?.isLocked === true,
+          outstandingServiceFee: Number(workerUserSnap.data()?.outstandingServiceFee ?? 0)
+        });
+        if (!workerStatus.ok) throw new AuthRouteError(workerStatus.reason, 403);
         const jobRef = db.collection("jobs").doc(String(application.jobId));
         const jobSnap = await transaction.get(jobRef);
         const job = jobSnap.data() ?? {};
@@ -417,7 +429,14 @@ export async function PATCH(request: NextRequest) {
         const clientUserRef = db.collection("users").doc(String(application.clientId));
         const workerUserRef = db.collection("users").doc(currentUser.uid);
         const jobSnap = await transaction.get(jobRef);
+        const workerUserSnap = await transaction.get(workerUserRef);
         if (!jobSnap.exists) throw new AuthRouteError("Job was not found.", 404);
+        const workerStatus = workerCanWork({
+          verificationStatus: String(workerUserSnap.data()?.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
+          isLocked: workerUserSnap.data()?.isLocked === true,
+          outstandingServiceFee: Number(workerUserSnap.data()?.outstandingServiceFee ?? 0)
+        });
+        if (!workerStatus.ok) throw new AuthRouteError(workerStatus.reason, 403);
         transaction.set(applicationRef, { status: "completed", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         transaction.set(jobRef, { status: "completed", completedPeriods: 1, recurrenceStatus: "completed", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         transaction.set(conversationRef, {
@@ -554,6 +573,19 @@ export async function PATCH(request: NextRequest) {
       const jobSnap = await transaction.get(jobRef);
       if (!jobSnap.exists) throw new AuthRouteError("Job was not found.", 404);
       const job = jobSnap.data() ?? {};
+      const workerSnap = await transaction.get(db.collection("users").doc(String(application.workerId)));
+      const worker = workerSnap.data() ?? {};
+      const allowedWorker = workerCanApplyToJob({
+        verificationStatus: String(worker.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
+        driverLicenseVerificationStatus: String(worker.driverLicenseVerificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
+        isLocked: worker.isLocked === true,
+        outstandingServiceFee: Number(worker.outstandingServiceFee ?? 0)
+      }, {
+        title: String(job.title ?? ""),
+        category: String(job.category ?? ""),
+        requiredSkills: Array.isArray(job.requiredSkills) ? job.requiredSkills.filter((item: unknown): item is string => typeof item === "string") : []
+      });
+      if (!allowedWorker.ok) throw new AuthRouteError(allowedWorker.reason, 403);
       const acceptedSnapshot = await transaction.get(db.collection("applications").where("jobId", "==", application.jobId).limit(120));
       const timelineSnap = isPayPerTimeline(String(job.payType))
         ? await transaction.get(db.collection("jobTimelines").where("jobId", "==", application.jobId).limit(120))

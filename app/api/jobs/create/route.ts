@@ -3,6 +3,7 @@ import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-us
 import { adminDb } from "@/lib/firebase-admin";
 import { createLocalJob, markLocalEmailVerified } from "@/lib/local-sql";
 import { jobSchema } from "@/utils/validation";
+import { clientCanPost } from "@/utils/jobRules";
 import { isPayPerTimeline, TIMELINE_PLATFORM_FEE, timelinePaymentSummary } from "@/utils/timeline-payments";
 import { FieldValue } from "firebase-admin/firestore";
 import { randomUUID } from "node:crypto";
@@ -35,6 +36,9 @@ export async function POST(request: NextRequest) {
       }
       if (!user || !currentUser.role) {
         return NextResponse.json({ error: "Local account profile was not found. Open your profile once, then try posting work again." }, { status: 409 });
+      }
+      if (!clientCanPost(user)) {
+        return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
       }
       if (user.emailVerified !== true && currentUser.emailVerified === true) markLocalEmailVerified(currentUser.uid);
       const data = parsed.data;
@@ -78,6 +82,9 @@ export async function POST(request: NextRequest) {
     const user = userSnap.data();
     if (!userSnap.exists || !["client", "admin"].includes(String(user?.role))) {
       return NextResponse.json({ error: "You do not have permission to post work. Please use a client account." }, { status: 403 });
+    }
+    if (!clientCanPost(user as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) {
+      return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
     }
     const userData = user as Record<string, unknown>;
 

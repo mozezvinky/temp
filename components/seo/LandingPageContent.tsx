@@ -43,7 +43,7 @@ export function LandingPageContent() {
           <motion.div {...reveal} transition={{ duration: .55, ease: "easeOut" }}>
             <span className="landing-eyebrow"><Sparkles size={14} /> Kenya&apos;s flexible work marketplace</span>
             <h1 className="landing-title">Find Reliable Workers &amp; Local Services in Kenya</h1>
-            <p className="landing-copy">COPIC helps people in Kenya find reliable workers for cleaning, moving, gardening, babysitting, shopping, and other local services - from posting a job to choosing the help they need.</p>
+            <p className="landing-copy">COPIC helps people in Kenya find reliable workers for cleaning, moving, gardening, babysitting, shopping, and other local services from posting a job to choosing the help they need.</p>
             <div className="landing-actions">
               <Link href="/auth/register" className="landing-cta primary">Start using Copic <ArrowRight size={18} /></Link>
               <Link href="/auth/login" className="landing-cta secondary">Sign in</Link>
@@ -101,4 +101,3 @@ export function LandingPageContent() {
     </div>
   );
 }
-

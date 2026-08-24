@@ -11,6 +11,7 @@ import {
   signInWithCustomToken,
   signOut,
   linkWithPhoneNumber,
+  sendPasswordResetEmail,
   type ConfirmationResult,
   type User,
   updateProfile
@@ -135,6 +136,10 @@ export async function loadSignedInRole() {
 export async function loginWithEmail(email: string, password: string) {
   const credential = await signInWithEmailAndPassword(requireAuth(), email, password);
   return credential;
+}
+
+export async function sendPasswordReset(email: string) {
+  await sendPasswordResetEmail(requireAuth(), email);
 }
 
 export async function loginAsAdmin(username: string, password: string, twoFactorCode = "") {

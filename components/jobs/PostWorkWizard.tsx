@@ -6,6 +6,7 @@ import { defaultKenyaLocation } from "@/lib/location";
 import { jobCategoryOptions } from "@/lib/jobCategories";
 import { createJob } from "@/services/jobs";
 import type { LocationFields, UserProfile } from "@/types";
+import { clientCanPost } from "@/utils/jobRules";
 import { matchJobCategory } from "@/utils/jobCategoryMatcher";
 import { durationLabel, durationToHours, durationUnits, perDurationUnit, type DurationUnit } from "@/utils/duration";
 import { displayJobQuantity, unitsForCategory } from "@/utils/jobUnits";
@@ -53,6 +54,10 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
   }
 
   async function post() {
+    if (!clientCanPost(profile)) {
+      toast.error("Verify your identity before posting jobs.");
+      return;
+    }
     setPosting(true);
     try {
       const durationValue = Number(draft.timeline);
@@ -128,6 +133,9 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
                 Worker will receive KES {Number(draft.budget).toLocaleString()} per {perDurationUnit(draft.timelineUnit)} · Total KES {(Number(draft.budget) * Math.max(1, Math.trunc(Number(draft.timeline)))).toLocaleString()}
               </p>
             )}
+            <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
+              Payment is for labor only. Do not include materials, transport, deposits, or COPIC service fees in the worker labor payment.
+            </p>
             {displayJobQuantity(Number(draft.quantity), draft.unit, draft.customUnit) && <p className="rounded-xl bg-emerald-400/10 p-3 text-sm font-black text-emerald-100">Quantity: {displayJobQuantity(Number(draft.quantity), draft.unit, draft.customUnit)}</p>}
             <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(1)} className="flex-1">Back</Button><Button type="submit" className="flex-1">Next</Button></div>
           </form>
@@ -136,6 +144,9 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
         {step === 3 && (
           <div className="mt-6 grid gap-4">
             <MapPicker value={location} onChange={setLocation} />
+            <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
+              Payment is for labor only. Keep any materials or extra costs separate from the worker labor payment.
+            </p>
             <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(2)} className="flex-1">Back</Button><Button type="button" disabled={posting} onClick={() => void post()} className="temp-success-button flex-1">{posting ? "Posting..." : "Post work"}</Button></div>
           </div>
         )}

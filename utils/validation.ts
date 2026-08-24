@@ -26,6 +26,7 @@ export const jobSchema = z.object({
     estateOrArea: z.string().trim().min(1, "Please enter an estate or area."),
     nearestLandmark: z.string().trim().min(1, "Please enter a nearby landmark."),
     addressText: z.string().trim().min(1, "Please enter an address."),
+    locationDescription: z.string().trim().max(500, "Location description is too long.").optional(),
     latitude: z.number().finite(),
     longitude: z.number().finite()
   }),

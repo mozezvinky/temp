@@ -1,0 +1,47 @@
+import type { Job, UserProfile, VerificationStatus } from "@/types";
+
+const driverJobTerms = [
+  "driver",
+  "rider",
+  "courier",
+  "delivery",
+  "boda",
+  "tuk tuk",
+  "tuktuk",
+  "matatu",
+  "truck",
+  "chauffeur"
+];
+
+export function isApprovedVerification(status?: VerificationStatus | null) {
+  return status === "approved";
+}
+
+export function requiresDriverLicenseForJob(job: Pick<Job, "title" | "category" | "requiredSkills">) {
+  const text = [job.title, job.category, ...(job.requiredSkills ?? [])].join(" ").toLowerCase();
+  return driverJobTerms.some(term => text.includes(term));
+}
+
+export function clientCanPost(profile: { verificationStatus?: VerificationStatus | null } | null | undefined) {
+  return isApprovedVerification(profile?.verificationStatus);
+}
+
+export function workerCanWork(profile: Pick<UserProfile, "verificationStatus" | "isLocked" | "outstandingServiceFee"> | null | undefined) {
+  if (!profile) return { ok: false, reason: "Use a worker account to do jobs." };
+  if (!isApprovedVerification(profile.verificationStatus)) {
+    return { ok: false, reason: "Verify your identity before applying for or doing jobs." };
+  }
+  if (profile.isLocked || Number(profile.outstandingServiceFee ?? 0) > 0) {
+    return { ok: false, reason: "Your account is locked. Open your dashboard for the next step." };
+  }
+  return { ok: true, reason: "" };
+}
+
+export function workerCanApplyToJob(worker: Pick<UserProfile, "verificationStatus" | "driverLicenseVerificationStatus" | "isLocked" | "outstandingServiceFee"> | null | undefined, job: Pick<Job, "title" | "category" | "requiredSkills">) {
+  const base = workerCanWork(worker);
+  if (!base.ok) return base;
+  if (requiresDriverLicenseForJob(job) && !isApprovedVerification(worker?.driverLicenseVerificationStatus)) {
+    return { ok: false, reason: "An approved driver's license is required before applying for driver, rider, courier, or delivery jobs." };
+  }
+  return { ok: true, reason: "" };
+}

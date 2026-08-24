@@ -144,6 +144,9 @@ export default function CompletedRequestsPage() {
             <p className="mt-2 text-sm text-[#4b453e] dark:text-[#CCC6BB]">
               Confirm only if {pendingCompletion.workerName ?? "the worker"} has finished the work. Pay the worker directly outside the platform, then click below. The job will not be completed until the worker confirms they received the money.
             </p>
+            <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-900 dark:text-amber-100">
+              This payment is labor payment only. Do not include materials, transport, deposits, or COPIC service fees in the worker payment.
+            </p>
             <div className="mt-4 rounded-xl border border-[#d8d8d8] bg-[#f3f4f5] p-4 text-sm text-[#4b453e] dark:border-[#4A463F] dark:bg-[#2A2A2B] dark:text-[#CCC6BB]">
               <p><strong className="text-[#111] dark:text-[#FFFBFF]">Worker:</strong> {pendingCompletion.workerName ?? "Worker"}</p>
               <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">Phone:</strong> {pendingCompletion.workerPhoneNumber ?? "No phone provided"}</p>

@@ -1,6 +1,7 @@
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { createLocalDirectHireRequest, getLocalUser, respondLocalDirectHireRequest } from "@/lib/local-sql";
+import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -19,6 +20,10 @@ export async function POST(request: NextRequest) {
     if (isSqlBackend()) {
       const client = getLocalUser(decoded.uid);
       if (!client || client.role !== "client") return NextResponse.json({ error: "Use a client account to send hire requests." }, { status: 403 });
+      if (!clientCanPost(client)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
+      const worker = getLocalUser(input.workerId);
+      const allowedWorker = workerCanApplyToJob(worker, { title: input.title, category: input.category, requiredSkills: [] });
+      if (!allowedWorker.ok) return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
       const application = createLocalDirectHireRequest({
         id: crypto.randomUUID(),
         jobId: crypto.randomUUID(),
@@ -37,8 +42,15 @@ export async function POST(request: NextRequest) {
     const client = clientSnap.data();
     const worker = workerSnap.data();
     if (!clientSnap.exists || client?.role !== "client") return NextResponse.json({ error: "Use a client account to send hire requests." }, { status: 403 });
+    if (!clientCanPost(client as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
     if (!workerSnap.exists || worker?.role !== "worker") return NextResponse.json({ error: "Choose a valid worker." }, { status: 404 });
-    if (worker?.isLocked === true || Number(worker?.outstandingServiceFee ?? 0) > 0) return NextResponse.json({ error: "This worker is not available for new jobs." }, { status: 400 });
+    const allowedWorker = workerCanApplyToJob({
+      verificationStatus: String(worker?.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
+      driverLicenseVerificationStatus: String(worker?.driverLicenseVerificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
+      isLocked: worker?.isLocked === true,
+      outstandingServiceFee: Number(worker?.outstandingServiceFee ?? 0)
+    }, { title: input.title, category: input.category, requiredSkills: [] });
+    if (!allowedWorker.ok) return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
     const activeSnap = await db.collection("applications").where("workerId", "==", input.workerId).limit(40).get();
     const activeApps = activeSnap.docs.filter(doc => ["accepted", "completion_requested", "payment_sent"].includes(String(doc.data().status)));
     if (activeApps.length) return NextResponse.json({ error: "This worker is occupied on another job right now." }, { status: 400 });
@@ -134,9 +146,17 @@ export async function PATCH(request: NextRequest) {
       if (response === "accept") {
         const workerSnap = await transaction.get(db.collection("users").doc(decoded.uid));
         const worker = workerSnap.data() ?? {};
-        if (worker.isLocked === true || Number(worker.outstandingServiceFee ?? 0) > 0) {
-          throw new AuthRouteError(String(worker.lockReason ?? "Service Fee Payment Required"), 403);
-        }
+        const allowedWorker = workerCanApplyToJob({
+          verificationStatus: String(worker.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
+          driverLicenseVerificationStatus: String(worker.driverLicenseVerificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
+          isLocked: worker.isLocked === true,
+          outstandingServiceFee: Number(worker.outstandingServiceFee ?? 0)
+        }, {
+          title: String(application.jobTitle ?? ""),
+          category: String(application.jobCategory ?? ""),
+          requiredSkills: []
+        });
+        if (!allowedWorker.ok) throw new AuthRouteError(allowedWorker.reason, 403);
       }
       const jobRef = db.collection("jobs").doc(String(application.jobId));
       const jobSnap = await transaction.get(jobRef);

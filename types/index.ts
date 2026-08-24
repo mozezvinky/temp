@@ -58,6 +58,7 @@ export interface LocationFields {
   estateOrArea: string;
   nearestLandmark: string;
   addressText: string;
+  locationDescription?: string;
   latitude: number;
   longitude: number;
 }

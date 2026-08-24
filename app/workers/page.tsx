@@ -11,6 +11,7 @@ import { subscribeWorkers } from "@/services/users";
 import type { Conversation, Message, UserProfile, WorkerSkillProfile } from "@/types";
 import { addPlatformFee, kes } from "@/utils/money";
 import { displayJobQuantity } from "@/utils/jobUnits";
+import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
 import { ChevronDown, MapPin, MessageCircle, Search, Send } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -119,6 +120,15 @@ export default function WorkersPage() {
 
   function requestSkill(worker: UserProfile, skill: WorkerSkillProfile) {
     if (profile?.role !== "client") return;
+    if (!clientCanPost(profile)) {
+      toast.error("Verify your identity before posting jobs.");
+      return;
+    }
+    const allowedWorker = workerCanApplyToJob(worker, { title: skill.name, category: skill.chargeCategory ?? skill.category, requiredSkills: [skill.name] });
+    if (!allowedWorker.ok) {
+      toast.error(allowedWorker.reason);
+      return;
+    }
     if (worker.isOccupied) {
       toast.error(`${worker.displayName} is occupied on another job right now.`);
       return;
@@ -130,6 +140,15 @@ export default function WorkersPage() {
   async function submitHireRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedWorker || !hireSkill) return;
+    if (!clientCanPost(profile)) {
+      toast.error("Verify your identity before posting jobs.");
+      return;
+    }
+    const allowedWorker = workerCanApplyToJob(selectedWorker, { title: hireSkill.name, category: hireSkill.chargeCategory ?? hireSkill.category, requiredSkills: [hireSkill.name] });
+    if (!allowedWorker.ok) {
+      toast.error(allowedWorker.reason);
+      return;
+    }
     const form = new FormData(event.currentTarget);
     setSendingHire(true);
     try {

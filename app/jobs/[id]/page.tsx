@@ -12,6 +12,7 @@ import { workerVisiblePay } from "@/utils/pricing";
 import { displayJobQuantity } from "@/utils/jobUnits";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { perDurationUnit } from "@/utils/duration";
+import { workerCanApplyToJob } from "@/utils/jobRules";
 import { Clock, MapPin } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
@@ -71,6 +72,7 @@ export default function JobDetailsPage() {
   const timelineCount = Number(job.timelineCount ?? 1);
   const timelineUnitLabel = perDurationUnit(job.durationUnit);
   const timelineUnitTitle = timelineUnitLabel.charAt(0).toUpperCase() + timelineUnitLabel.slice(1);
+  const applyStatus = profile?.role === "worker" ? workerCanApplyToJob(profile, job) : { ok: false, reason: "Use a worker account to apply." };
 
   return (
     <div className="mx-auto grid max-w-4xl gap-4 lg:grid-cols-[1.15fr_.85fr]">
@@ -96,7 +98,7 @@ export default function JobDetailsPage() {
         </div>
         <p className="mt-5 text-sm text-[#959087]">Posted by {job.clientName}</p>
       </Card>
-      {profile?.role === "worker" && job.status === "open" && !alreadyApplied ? (
+      {profile?.role === "worker" && job.status === "open" && !alreadyApplied && applyStatus.ok ? (
         <Card>
           <h2 className="text-xl font-black text-[#FFFBFF]">Apply for this job</h2>
           <form onSubmit={submitApplication} className="mt-4 grid gap-3">
@@ -104,6 +106,8 @@ export default function JobDetailsPage() {
             <Button type="submit" disabled={applying} className="temp-success-button">{applying ? "Submitting..." : "Submit application"}</Button>
           </form>
         </Card>
+      ) : profile?.role === "worker" && job.status === "open" && !alreadyApplied ? (
+        <EmptyState title="Verification required" body={applyStatus.reason} />
       ) : alreadyApplied ? (
         <EmptyState title="Applied" body="You have already applied for this job. Track its status from your dashboard." />
       ) : (

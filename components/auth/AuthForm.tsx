@@ -3,9 +3,9 @@
 import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { usePublicOnlyRoute } from "@/hooks/useProtectedRoute";
-import { activateProfileRole, authErrorMessage, loginWithEmail, registerWithEmail } from "@/services/auth";
+import { activateProfileRole, authErrorMessage, loginWithEmail, registerWithEmail, sendPasswordReset } from "@/services/auth";
 import type { Role } from "@/types";
-import { BriefcaseBusiness, LockKeyhole, Mail, Search, UserRound } from "lucide-react";
+import { BriefcaseBusiness, Eye, EyeOff, LockKeyhole, Mail, Search, UserRound } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -13,6 +13,9 @@ import type { User } from "firebase/auth";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [loading, setLoading] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [emailValue, setEmailValue] = useState("");
   const [signedInUser, setSignedInUser] = useState<User | null>(null);
   const [signedInEmail, setSignedInEmail] = useState("");
   const { shouldRender } = usePublicOnlyRoute({ disabled: loading || !!signedInUser });
@@ -66,6 +69,23 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     }
   }
 
+  async function forgotPassword() {
+    const email = emailValue.trim();
+    if (!email) {
+      toast.error("Enter your email first, then tap forgot password.");
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      await sendPasswordReset(email);
+      toast.success("Password reset email sent. Check your inbox.");
+    } catch (error) {
+      toast.error(authErrorMessage(error));
+    } finally {
+      setResettingPassword(false);
+    }
+  }
+
   if (!signedInUser && (!shouldRender || loading)) return <LoadingSpinner label={loading ? "Signing you in" : "Checking session"} />;
 
   return (
@@ -110,12 +130,20 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       )}
           <label className="copic-auth-field mt-4">
             <Mail size={18} />
-            <input name="email" type="email" required placeholder="Email" className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-smoky/45" />
+            <input name="email" type="email" required value={emailValue} onChange={event => setEmailValue(event.target.value)} placeholder="Email" className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-smoky/45" />
           </label>
           <label className="copic-auth-field mt-4">
             <LockKeyhole size={18} />
-            <input name="password" type="password" required minLength={8} placeholder="Password" className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-smoky/45" />
+            <input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="Password" className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-smoky/45" />
+            <button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(value => !value)} className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-smoky/70 hover:bg-smoky/10">
+              {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
           </label>
+          {mode === "login" && (
+            <button type="button" disabled={resettingPassword} onClick={() => void forgotPassword()} className="mt-3 text-left text-sm font-black text-black disabled:opacity-60">
+              {resettingPassword ? "Sending reset email..." : "Forgot password?"}
+            </button>
+          )}
           <Button disabled={loading} className="mt-5 w-full rounded-2xl py-4 text-base"><Mail size={18} /> {mode === "login" ? "Sign In" : "Create Account"}</Button>
           <div id="recaptcha-container" className="mt-3" />
           <p className="mt-6 text-center text-sm text-[#7e7576]">
