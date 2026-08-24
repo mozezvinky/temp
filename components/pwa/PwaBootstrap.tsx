@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Plus, Share2, X } from "lucide-react";
+import { CheckCircle2, Home, Menu, Share2, Smartphone, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
 
@@ -16,21 +16,27 @@ export function PwaBootstrap() {
   const [showGuide, setShowGuide] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isIos, setIsIos] = useState(false);
+  const [isSamsungInternet, setIsSamsungInternet] = useState(false);
 
   useEffect(() => {
     const isInstalled = window.matchMedia("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
     const mobileQuery = window.matchMedia("(max-width: 767px)");
-    const userAgent = navigator.userAgent.toLowerCase();
+    const userAgent = navigator.userAgent;
+    const normalizedUserAgent = userAgent.toLowerCase();
     let lostConnection = !navigator.onLine;
     setInstalled(isInstalled);
     setIsMobile(mobileQuery.matches);
-    setIsIos(/iphone|ipad|ipod/.test(userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+    setIsIos(/iphone|ipad|ipod/.test(normalizedUserAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+    setIsSamsungInternet(userAgent.includes("SamsungBrowser"));
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
     const syncMobile = () => setIsMobile(mobileQuery.matches);
     mobileQuery.addEventListener("change", syncMobile);
     const handler = (event: Event) => {
       event.preventDefault();
-      setPrompt(event as BeforeInstallPromptEvent);
+      const installEvent = event as Partial<BeforeInstallPromptEvent>;
+      if (typeof installEvent.prompt === "function" && installEvent.userChoice && typeof installEvent.userChoice.then === "function") {
+        setPrompt(event as BeforeInstallPromptEvent);
+      }
     };
     window.addEventListener("beforeinstallprompt", handler);
     const onInstalled = () => {
@@ -59,7 +65,25 @@ export function PwaBootstrap() {
 
   if (installed || profile?.role === "admin" || (!prompt && !isMobile)) return null;
 
-  const label = prompt ? "Add to Home Screen" : "Install Copic";
+  const label = "Install Copic";
+  const steps = isSamsungInternet
+    ? [
+        { icon: Menu, text: "Tap the Samsung Internet menu button." },
+        { icon: Home, text: "Choose Add page to." },
+        { icon: Smartphone, text: "Select Home screen." },
+        { icon: CheckCircle2, text: "Confirm Add." }
+      ]
+    : isIos
+      ? [
+          { icon: Share2, text: "Tap Share." },
+          { icon: Home, text: "Choose Add to Home Screen." },
+          { icon: CheckCircle2, text: "Confirm Add." }
+        ]
+      : [
+          { icon: Menu, text: "Tap the browser menu." },
+          { icon: Home, text: "Choose Add to Home screen or Install app." },
+          { icon: CheckCircle2, text: "Confirm Add." }
+        ];
 
   return (
     <>
@@ -76,7 +100,7 @@ export function PwaBootstrap() {
         }}
         className="copic-install-button fixed bottom-5 right-4 z-50 inline-flex items-center gap-2 rounded-xl bg-bone px-4 py-3 text-sm font-black text-smoky shadow-soft md:bottom-6 md:right-6"
       >
-        <Download size={18} /> {label}
+        <Smartphone size={18} /> {label}
       </button>
       {showGuide && (
         <div className="copic-install-guide" role="dialog" aria-modal="true" aria-label="Install Copic">
@@ -86,9 +110,9 @@ export function PwaBootstrap() {
             </button>
             <h2>Install Copic</h2>
             <ol>
-              <li><Share2 size={16} aria-hidden="true" /> Tap {isIos ? "Share" : "the browser menu"}.</li>
-              <li><Plus size={16} aria-hidden="true" /> Choose Add to Home Screen.</li>
-              <li><Download size={16} aria-hidden="true" /> Confirm Copic.</li>
+              {steps.map(({ icon: Icon, text }) => (
+                <li key={text}><Icon size={16} aria-hidden="true" /> {text}</li>
+              ))}
             </ol>
           </div>
         </div>

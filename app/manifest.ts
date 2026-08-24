@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Copic",
     short_name: "Copic",
     description: "Connecting people, earning income, and building careers.",
-    start_url: "/dashboard",
+    start_url: "/",
     scope: "/",
     display: "standalone",
     background_color: "#ffffff",
