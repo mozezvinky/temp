@@ -35,14 +35,22 @@ export async function POST(request: NextRequest) {
     }
 
     const db = adminDb();
-    const [clientSnap, workerSnap] = await Promise.all([
+    const [clientSnap, workerSnap, clientVerificationSnap] = await Promise.all([
       db.collection("users").doc(decoded.uid).get(),
-      db.collection("users").doc(input.workerId).get()
+      db.collection("users").doc(input.workerId).get(),
+      db.collection("verifications").doc(decoded.uid).get()
     ]);
     const client = clientSnap.data();
     const worker = workerSnap.data();
     if (!clientSnap.exists || client?.role !== "client") return NextResponse.json({ error: "Use a client account to send hire requests." }, { status: 403 });
-    if (!clientCanPost(client as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
+    const clientVerificationStatus = clientVerificationSnap.data()?.status;
+    const effectiveClient: Record<string, unknown> = {
+      ...client,
+      verificationStatus: clientVerificationStatus === "approved" || clientVerificationStatus === "pending" || clientVerificationStatus === "rejected"
+        ? clientVerificationStatus
+        : client?.verificationStatus
+    };
+    if (!clientCanPost(effectiveClient as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
     if (!workerSnap.exists || worker?.role !== "worker") return NextResponse.json({ error: "Choose a valid worker." }, { status: 404 });
     const allowedWorker = workerCanApplyToJob({
       verificationStatus: String(worker?.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
@@ -79,7 +87,7 @@ export async function POST(request: NextRequest) {
     batch.set(jobRef, {
       id: jobRef.id,
       clientId: decoded.uid,
-      clientName: String(client?.displayName ?? "Client"),
+      clientName: String(effectiveClient.displayName ?? "Client"),
       createdBy: decoded.uid,
       title: input.title,
       description: input.description,
@@ -104,7 +112,7 @@ export async function POST(request: NextRequest) {
       id: notificationRef.id,
       userId: input.workerId,
       title: "Direct hire request",
-      body: `${String(client?.displayName ?? "A client")} sent you a direct hire request for ${input.title}.`,
+      body: `${String(effectiveClient.displayName ?? "A client")} sent you a direct hire request for ${input.title}.`,
       read: false,
       href: "/dashboard",
       createdAt: FieldValue.serverTimestamp()

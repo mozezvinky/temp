@@ -10,6 +10,7 @@ import { PostWorkWizard } from "@/components/jobs/PostWorkWizard";
 import { IdentityVerificationModal } from "@/components/verification/IdentityVerificationModal";
 import { VerificationBadge } from "@/components/verification/VerificationBadge";
 import { VerificationReminder } from "@/components/verification/VerificationReminder";
+import { useLiveVerificationStatus } from "@/hooks/useLiveVerificationStatus";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { jobCategoryOptions } from "@/lib/jobCategories";
 import { completeApplication, deleteJob, subscribeApplications, subscribeClientJobs, updateJob } from "@/services/jobs";
@@ -46,6 +47,7 @@ export default function FindWorkPage() {
   const [postWorkOpen, setPostWorkOpen] = useState(false);
   const [verificationOpen, setVerificationOpen] = useState(false);
   const [reportingJobId, setReportingJobId] = useState("");
+  const { status: liveVerificationStatus, checking: checkingVerification } = useLiveVerificationStatus(profile?.verificationStatus);
 
   useEffect(() => {
     if (!profile || profile.role !== "client") return;
@@ -210,7 +212,11 @@ export default function FindWorkPage() {
   }
 
   function openPostWork() {
-    if (!clientCanPost(profile)) {
+    if (checkingVerification) {
+      toast.message("Checking your verification status. Try again in a moment.");
+      return;
+    }
+    if (!clientCanPost({ verificationStatus: liveVerificationStatus })) {
       toast.error("Verify your identity before posting jobs.");
       setVerificationOpen(true);
       return;
@@ -284,7 +290,7 @@ export default function FindWorkPage() {
             <h2 className="mt-2 text-2xl font-black text-[#FFFBFF]">Already posted jobs</h2>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Button type="button" className="temp-success-button" onClick={openPostWork}><Plus size={17} /> Post work</Button>
+            <Button type="button" className="temp-success-button" disabled={checkingVerification} onClick={openPostWork}><Plus size={17} /> {checkingVerification ? "Checking..." : "Post work"}</Button>
             <Button type="button" variant="secondary" className={completedRequests.length ? "completed-request-alert-button" : ""} onClick={() => { setCompletedTab(completedRequests.length ? "requests" : "history"); setCompletedOpen(true); }}><CheckCircle2 size={17} /> Completed ({completedJobs.length + completedRequests.length})</Button>
           </div>
         </div>
@@ -315,7 +321,7 @@ export default function FindWorkPage() {
           </div>
         ) : <EmptyState title="No active posted work" body="Post new work from this page." />}
       </section>
-      {postWorkOpen && profile?.role === "client" && <PostWorkWizard profile={profile} onClose={() => setPostWorkOpen(false)} />}
+      {postWorkOpen && profile?.role === "client" && <PostWorkWizard profile={{ ...profile, verificationStatus: liveVerificationStatus }} onClose={() => setPostWorkOpen(false)} />}
       {verificationOpen && profile?.role === "client" && <IdentityVerificationModal profile={profile} onClose={() => setVerificationOpen(false)} onSubmitted={refreshProfile} />}
       {menuJob && (
         <div className="fixed inset-0 z-[60] grid place-items-center bg-black/70 p-4" onMouseDown={event => {

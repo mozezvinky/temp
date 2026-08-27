@@ -78,15 +78,25 @@ export async function POST(request: NextRequest) {
 
     const db = adminDb();
     const userRef = db.collection("users").doc(currentUser.uid);
-    const userSnap = await userRef.get();
+    const [userSnap, verificationSnap] = await Promise.all([
+      userRef.get(),
+      db.collection("verifications").doc(currentUser.uid).get()
+    ]);
     const user = userSnap.data();
     if (!userSnap.exists || !["client", "admin"].includes(String(user?.role))) {
       return NextResponse.json({ error: "You do not have permission to post work. Please use a client account." }, { status: 403 });
     }
-    if (!clientCanPost(user as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) {
+    const verificationStatus = verificationSnap.data()?.status;
+    const effectiveUser = {
+      ...user,
+      verificationStatus: verificationStatus === "approved" || verificationStatus === "pending" || verificationStatus === "rejected"
+        ? verificationStatus
+        : user?.verificationStatus
+    };
+    if (!clientCanPost(effectiveUser as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) {
       return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
     }
-    const userData = user as Record<string, unknown>;
+    const userData = effectiveUser as Record<string, unknown>;
 
     const jobRef = db.collection("jobs").doc();
     const activityRef = db.collection("activities").doc();

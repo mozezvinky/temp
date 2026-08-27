@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { AppModal } from "@/components/ui/AppModal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { useLiveVerificationStatus } from "@/hooks/useLiveVerificationStatus";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { sendMessage, subscribeMessages, subscribeUserConversations } from "@/services/chat";
 import { sendDirectHireRequest } from "@/services/jobs";
@@ -30,6 +31,7 @@ export default function WorkersPage() {
   const [messageConversation, setMessageConversation] = useState<Conversation | null>(null);
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
   const [messageLoading, setMessageLoading] = useState(false);
+  const { status: liveVerificationStatus, checking: checkingVerification } = useLiveVerificationStatus(profile?.verificationStatus);
   const sortOptions = [
     { value: "price", label: "Price" },
     { value: "rating", label: "Ratings" },
@@ -120,7 +122,11 @@ export default function WorkersPage() {
 
   function requestSkill(worker: UserProfile, skill: WorkerSkillProfile) {
     if (profile?.role !== "client") return;
-    if (!clientCanPost(profile)) {
+    if (checkingVerification) {
+      toast.message("Checking your verification status. Try again in a moment.");
+      return;
+    }
+    if (!clientCanPost({ verificationStatus: liveVerificationStatus })) {
       toast.error("Verify your identity before posting jobs.");
       return;
     }
@@ -140,7 +146,11 @@ export default function WorkersPage() {
   async function submitHireRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedWorker || !hireSkill) return;
-    if (!clientCanPost(profile)) {
+    if (checkingVerification) {
+      toast.message("Checking your verification status. Try again in a moment.");
+      return;
+    }
+    if (!clientCanPost({ verificationStatus: liveVerificationStatus })) {
       toast.error("Verify your identity before posting jobs.");
       return;
     }
@@ -368,7 +378,7 @@ export default function WorkersPage() {
                           <span className="design-chip worker-profile-skill-price px-2.5 py-1 text-xs font-black">{clientVisibleRate(skillProfile.chargeAmount)}</span>
                           {selectedWorker.isOccupied
                             ? <span className="worker-skill-occupied-chip">Occupied</span>
-                            : <Button type="button" onClick={() => requestSkill(selectedWorker, skillProfile)} className="min-h-9 px-3 py-1.5 text-xs">Hire</Button>}
+                            : <Button type="button" disabled={checkingVerification} onClick={() => requestSkill(selectedWorker, skillProfile)} className="min-h-9 px-3 py-1.5 text-xs">{checkingVerification ? "Checking..." : "Hire"}</Button>}
                         </div>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-[#CCC6BB]">

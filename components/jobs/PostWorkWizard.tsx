@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { useLiveVerificationStatus } from "@/hooks/useLiveVerificationStatus";
 import { defaultKenyaLocation } from "@/lib/location";
 import { jobCategoryOptions } from "@/lib/jobCategories";
 import { createJob } from "@/services/jobs";
@@ -37,6 +38,7 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [location, setLocation] = useState<LocationFields>(defaultKenyaLocation);
   const [posting, setPosting] = useState(false);
+  const { status: liveVerificationStatus, checking: checkingVerification } = useLiveVerificationStatus(profile.verificationStatus);
   const unitOptions = useMemo(() => unitsForCategory(draft.category), [draft.category]);
 
   function setValue<K extends keyof Draft>(key: K, value: Draft[K]) {
@@ -54,7 +56,11 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
   }
 
   async function post() {
-    if (!clientCanPost(profile)) {
+    if (checkingVerification) {
+      toast.message("Checking your verification status. Try again in a moment.");
+      return;
+    }
+    if (!clientCanPost({ verificationStatus: liveVerificationStatus })) {
       toast.error("Verify your identity before posting jobs.");
       return;
     }
@@ -147,7 +153,7 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
             <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
               Payment is for labor only. Keep any materials or extra costs separate from the worker labor payment.
             </p>
-            <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(2)} className="flex-1">Back</Button><Button type="button" disabled={posting} onClick={() => void post()} className="temp-success-button flex-1">{posting ? "Posting..." : "Post work"}</Button></div>
+            <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(2)} className="flex-1">Back</Button><Button type="button" disabled={posting || checkingVerification} onClick={() => void post()} className="temp-success-button flex-1">{posting ? "Posting..." : checkingVerification ? "Checking..." : "Post work"}</Button></div>
           </div>
         )}
       </Card>

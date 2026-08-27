@@ -1,25 +1,12 @@
 "use client";
 
-import { loadMyVerification } from "@/services/kyc";
+import { useLiveVerificationStatus } from "@/hooks/useLiveVerificationStatus";
 import type { VerificationStatus } from "@/types";
-import { normalizeVerificationStatus } from "@/utils/verification";
 import { CheckCircle2, Clock3, ShieldCheck, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
 
 export function VerificationBadge({ status, compact = false }: { status?: VerificationStatus; compact?: boolean }) {
-  const [liveStatus, setLiveStatus] = useState<VerificationStatus | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void loadMyVerification()
-      .then(record => {
-        if (!cancelled && record?.status) setLiveStatus(normalizeVerificationStatus(record.status));
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  const effectiveStatus = liveStatus ?? normalizeVerificationStatus(status);
+  const { status: effectiveStatus, checking } = useLiveVerificationStatus(status);
+  if (checking) return null;
   if (effectiveStatus === "approved") {
     return <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-400/15 px-3 py-1.5 text-sm font-black text-emerald-100"><CheckCircle2 size={16} /> Verified Identity</span>;
   }
