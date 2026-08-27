@@ -51,8 +51,9 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
   const data = snapshot.exists ? snapshot.data() as Partial<UserProfile> : null;
   const role = activeRoleFor(data, fallbackRole ?? roleFromRequest(request));
   const activeRoles = rolesFor(data, role);
+  const emailVerified = data?.emailVerified === true || decoded.email_verified === true;
   const profile = snapshot.exists && data
-    ? ({ id: snapshot.id, uid: snapshot.id, ...data, role, roles: activeRoles } as UserProfile)
+    ? ({ id: snapshot.id, uid: snapshot.id, ...data, role, roles: activeRoles, emailVerified } as UserProfile)
     : null;
   return {
     id: decoded.uid,
@@ -61,7 +62,7 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
     username: usernameFor(data?.displayName ?? displayName, data?.email ?? email, decoded.uid),
     role,
     displayName: typeof data?.displayName === "string" ? data.displayName : displayName,
-    emailVerified: data?.emailVerified ?? decoded.email_verified === true,
+    emailVerified,
     localProfileFound: false,
     profile,
     decoded

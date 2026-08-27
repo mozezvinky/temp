@@ -12,6 +12,7 @@ import {
   signOut,
   linkWithPhoneNumber,
   sendPasswordResetEmail,
+  deleteUser,
   type ConfirmationResult,
   type User,
   updateProfile
@@ -107,6 +108,20 @@ export async function registerWithEmail(email: string, password: string, display
   const auth = requireAuth();
   const credential = await createUserWithEmailAndPassword(auth, email, password);
   await updateProfile(credential.user, { displayName });
+  try {
+    const response = await fetch("/api/auth/send-email-otp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await credential.user.getIdToken()}` },
+      body: JSON.stringify({ uid: credential.user.uid, email: credential.user.email })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(typeof payload.error === "string" ? payload.error : "Email does not exist or cannot receive verification codes.");
+    }
+  } catch (error) {
+    await deleteUser(credential.user).catch(() => signOut(auth));
+    throw new Error(error instanceof Error ? error.message : "Email does not exist or cannot receive verification codes.");
+  }
   return credential.user;
 }
 

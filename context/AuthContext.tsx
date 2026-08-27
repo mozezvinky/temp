@@ -72,6 +72,14 @@ function storedPhoto(userId: string) {
   }
 }
 
+function strongestVerificationStatus(...values: unknown[]) {
+  const statuses = values.map(normalizeVerificationStatus);
+  if (statuses.includes("approved")) return "approved";
+  if (statuses.includes("pending")) return "pending";
+  if (statuses.includes("rejected")) return "rejected";
+  return "not_submitted";
+}
+
 function recoveredProfile(user: User, role: Role): UserProfile {
   const photo = storedPhoto(user.uid);
   return {
@@ -146,7 +154,7 @@ function profileFromDocument(user: User, data: Record<string, unknown>): UserPro
     ratingAverage: Number(data.ratingAverage ?? 0),
     ratingCount: Number(data.ratingCount ?? 0),
     completedJobs: Number(data.completedJobs ?? 0),
-    verificationStatus: normalizeVerificationStatus(data.verificationStatus ?? data.identityVerificationStatus ?? data.kycStatus),
+    verificationStatus: strongestVerificationStatus(data.verificationStatus, data.identityVerificationStatus, data.kycStatus),
     verificationRejectionReason: typeof data.verificationRejectionReason === "string" ? data.verificationRejectionReason : null,
     driverLicenseVerificationStatus: normalizeVerificationStatus(data.driverLicenseVerificationStatus),
     driverLicenseRejectionReason: typeof data.driverLicenseRejectionReason === "string" ? data.driverLicenseRejectionReason : null,

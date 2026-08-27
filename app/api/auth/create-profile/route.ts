@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
 
     const db = adminDb();
     const userRef = db.collection("users").doc(decoded.uid);
+    const isEmailVerified = authUser.emailVerified === true || decoded.email_verified === true;
 
     const savedProfile = await db.runTransaction(async transaction => {
       const userSnap = await transaction.get(userRef);
@@ -60,8 +61,8 @@ export async function POST(request: NextRequest) {
           displayName: existingData?.displayName ?? (displayName || "Copic user"),
           email: existingData?.email ?? authUser.email ?? decoded.email ?? null,
           phoneNumber: existingData?.phoneNumber ?? phoneNumber,
-          emailVerified: existingData?.emailVerified === true,
-          emailVerifiedAt: existingData?.emailVerifiedAt ?? null,
+          emailVerified: existingData?.emailVerified === true || isEmailVerified,
+          emailVerifiedAt: existingData?.emailVerifiedAt ?? (isEmailVerified ? FieldValue.serverTimestamp() : null),
           verificationStatus: existingData?.verificationStatus ?? "not_submitted",
           driverLicenseVerificationStatus: existingData?.driverLicenseVerificationStatus ?? "not_submitted",
           driverLicenseRejectionReason: existingData?.driverLicenseRejectionReason ?? null,

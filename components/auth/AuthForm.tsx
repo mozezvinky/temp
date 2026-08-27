@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { usePublicOnlyRoute } from "@/hooks/useProtectedRoute";
 import { activateProfileRole, authErrorMessage, loginWithEmail, registerWithEmail, sendPasswordReset } from "@/services/auth";
+import { verifyEmailCode } from "@/services/emailVerification";
 import type { Role } from "@/types";
-import { BriefcaseBusiness, Eye, EyeOff, LockKeyhole, Mail, Search, UserRound } from "lucide-react";
+import { BriefcaseBusiness, Eye, EyeOff, LockKeyhole, Mail, MailCheck, Search, UserRound } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -18,7 +19,9 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [emailValue, setEmailValue] = useState("");
   const [signedInUser, setSignedInUser] = useState<User | null>(null);
   const [signedInEmail, setSignedInEmail] = useState("");
-  const { shouldRender } = usePublicOnlyRoute({ disabled: loading || !!signedInUser });
+  const [registeredUser, setRegisteredUser] = useState<User | null>(null);
+  const [emailCode, setEmailCode] = useState("");
+  const { shouldRender } = usePublicOnlyRoute({ disabled: loading || !!signedInUser || !!registeredUser });
 
   useEffect(() => {
     document.body.classList.toggle("continue-as-active", mode === "login" && !!signedInUser);
@@ -52,9 +55,9 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     try {
       if (mode === "register") {
         const user = await registerWithEmail(String(form.get("email")), String(form.get("password")), String(form.get("displayName")));
-        window.sessionStorage.setItem("temp.profile.uid", user.uid);
-        window.sessionStorage.removeItem("temp.profile.role");
-        window.location.assign("/complete-profile");
+        setRegisteredUser(user);
+        toast.success("Verification code sent. Check your email to finish sign up.");
+        setLoading(false);
       } else {
         const credential = await loginWithEmail(String(form.get("email")), String(form.get("password")));
         window.sessionStorage.removeItem("temp.profile.uid");
@@ -65,6 +68,21 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       }
     } catch (error) {
       toast.error(authErrorMessage(error));
+      setLoading(false);
+    }
+  }
+
+  async function verifyRegisteredEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!registeredUser) return;
+    setLoading(true);
+    try {
+      toast.success(await verifyEmailCode(emailCode.trim()));
+      window.sessionStorage.setItem("temp.profile.uid", registeredUser.uid);
+      window.sessionStorage.removeItem("temp.profile.role");
+      window.location.assign("/complete-profile");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to verify this code.");
       setLoading(false);
     }
   }
@@ -86,7 +104,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     }
   }
 
-  if (!signedInUser && (!shouldRender || loading)) return <LoadingSpinner label={loading ? "Signing you in" : "Checking session"} />;
+  if (!signedInUser && !registeredUser && (!shouldRender || loading)) return <LoadingSpinner label={loading ? "Signing you in" : "Checking session"} />;
 
   return (
     <div className="copic-auth-layout">
@@ -99,7 +117,42 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           {mode === "login" ? "Built for flexible work." : "Find temporary jobs, hire trusted workers, and manage work opportunities easily in one place."}
         </p>
       </div>
-      {mode === "login" && signedInUser ? (
+      {mode === "register" && registeredUser ? (
+        <form onSubmit={verifyRegisteredEmail} className="copic-auth-card">
+          <p className="copic-eyebrow">Email verification</p>
+          <h1>Check Your Email</h1>
+          <p className="copic-auth-copy">Enter the 6-digit code sent to {registeredUser.email ?? emailValue}. Your account details are saved after this step.</p>
+          <label className="copic-auth-field mt-6">
+            <MailCheck size={18} />
+            <input
+              name="otp"
+              required
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              value={emailCode}
+              onChange={event => setEmailCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000"
+              className="min-w-0 flex-1 bg-transparent text-center text-xl font-black tracking-[.35em] outline-none placeholder:text-smoky/45"
+            />
+          </label>
+          <Button disabled={loading || emailCode.length !== 6} className="mt-5 w-full rounded-2xl py-4 text-base">
+            <MailCheck size={18} /> {loading ? "Verifying..." : "Verify & Continue"}
+          </Button>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => {
+              setRegisteredUser(null);
+              setEmailCode("");
+            }}
+            className="mt-4 text-sm font-black text-black disabled:opacity-60"
+          >
+            Back to sign up
+          </button>
+        </form>
+      ) : mode === "login" && signedInUser ? (
         <div className="copic-auth-card">
             <p className="copic-eyebrow">Account mode</p>
             <h1>Continue as</h1>
