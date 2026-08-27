@@ -28,6 +28,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [mapReady, setMapReady] = useState(false);
   const [viewState, setViewState] = useState({ longitude: value.longitude, latitude: value.latitude, zoom: 11 });
+  const requiresLocationDescription = value.locationSource === "current" && value.landmarkResolved === false;
 
   useEffect(() => {
     setViewState(current => ({ ...current, longitude: value.longitude, latitude: value.latitude }));
@@ -116,7 +117,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
     setSearchResults([]);
     setLocationError("");
     setLocationNotice("");
-    onChange(locationFromCoords(result.latitude, result.longitude, result.details));
+    onChange(locationFromCoords(result.latitude, result.longitude, { ...result.details, locationSource: "manual", landmarkResolved: true }));
     setViewState(current => ({ ...current, longitude: result.longitude, latitude: result.latitude, zoom: 14 }));
   }
 
@@ -132,6 +133,8 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       area: details?.area || value.area,
       city: details?.city || value.city,
       displayLocation: details?.displayLocation || details?.addressText || value.displayLocation || "Current location selected",
+      locationSource: details?.locationSource || value.locationSource,
+      landmarkResolved: details?.landmarkResolved ?? value.landmarkResolved,
       locationDescription: value.locationDescription,
       longitude,
       latitude
@@ -172,7 +175,9 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
         landmark: landmark?.name && landmark.placeId && Number.isFinite(landmark.distanceMeters) ? landmark : undefined,
         area: area || undefined,
         city: city || undefined,
-        displayLocation
+        displayLocation,
+        locationSource: "current",
+        landmarkResolved: !!landmark?.name
       });
     } catch {
       return null;
@@ -200,7 +205,9 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
           estateOrArea: value.estateOrArea || town,
           nearestLandmark: value.nearestLandmark || "Approximate network location",
           addressText: addressText || "Approximate location selected",
-          displayLocation: addressText || "Approximate location selected"
+          displayLocation: addressText || "Approximate location selected",
+          locationSource: "network",
+          landmarkResolved: false
         });
       } catch {
         // Try the next lookup provider.
@@ -284,7 +291,11 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       setLocatingLabel("Finding nearby landmark...");
       const resolvedLocation = await resolveCurrentLocation(latitude, longitude);
       const details = resolvedLocation ? null : await reverseGeocode(latitude, longitude);
-      const nextLocation = resolvedLocation ?? locationFromCoords(latitude, longitude, details ?? undefined);
+      const nextLocation = resolvedLocation ?? locationFromCoords(latitude, longitude, {
+        ...(details ?? {}),
+        locationSource: "current",
+        landmarkResolved: false
+      });
       onChange(nextLocation);
       setSearchQuery(nextLocation.displayLocation || nextLocation.addressText);
       setViewState(current => ({ ...current, longitude, latitude, zoom: 14 }));
@@ -350,14 +361,16 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
           {value.nearestLandmark && <span className="mt-1 block text-xs text-[#CCC6BB]">Nearest landmark: {value.nearestLandmark}</span>}
         </p>
       )}
-      <label className="temp-label">Location description optional
+      <label className="temp-label">Location description {requiresLocationDescription ? "required" : "optional"}
         <textarea
           value={value.locationDescription ?? ""}
           onChange={event => onChange({ ...value, locationDescription: event.target.value })}
-          placeholder="Add floor, gate, building color, entry instructions, or how to find you."
+          required={requiresLocationDescription}
+          placeholder={requiresLocationDescription ? "No nearby landmark was found. Add a clear description workers can use." : "Add floor, gate, building color, entry instructions, or how to find you."}
           className="temp-input mt-2 min-h-24 p-3 outline-none"
         />
       </label>
+      {requiresLocationDescription && <p className="text-xs font-bold text-amber-100">No nearby landmark was found, so workers will see this description instead.</p>}
       {locationNotice && <p className="temp-location-notice rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">{locationNotice}</p>}
       {locationError && <p className="temp-location-error rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{locationError}</p>}
       {token ? (
@@ -372,7 +385,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
             onMove={event => setViewState(event.viewState)}
             onClick={event => {
               setMode("custom");
-              onChange({ ...value, longitude: event.lngLat.lng, latitude: event.lngLat.lat });
+              onChange({ ...value, longitude: event.lngLat.lng, latitude: event.lngLat.lat, locationSource: "manual", landmarkResolved: true });
             }}
           >
             {mapReady && (
@@ -387,7 +400,11 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
                     setLocatingLabel("Finding nearby landmark...");
                     const resolvedLocation = await resolveCurrentLocation(event.coords.latitude, event.coords.longitude);
                     const details = resolvedLocation ? null : await reverseGeocode(event.coords.latitude, event.coords.longitude);
-                    const nextLocation = resolvedLocation ?? locationFromCoords(event.coords.latitude, event.coords.longitude, details ?? undefined);
+                    const nextLocation = resolvedLocation ?? locationFromCoords(event.coords.latitude, event.coords.longitude, {
+                      ...(details ?? {}),
+                      locationSource: "current",
+                      landmarkResolved: false
+                    });
                     onChange(nextLocation);
                     setSearchQuery(nextLocation.displayLocation || nextLocation.addressText);
                     setLocating(false);

@@ -637,8 +637,6 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
                   {application.jobAmount ? (
                     <>
                       <p><strong className="text-[#FFFBFF]">You should receive:</strong> {kes(fixedPay.workerEarnings)}</p>
-                      <p><strong className="text-[#FFFBFF]">Job price:</strong> {kes(fixedPay.total)}</p>
-                      <p><strong className="text-[#FFFBFF]">COPIC service fee:</strong> {kes(fixedPay.serviceFee)}</p>
                     </>
                   ) : null}
                   {application.requestDescription ? <p className="mt-2">{application.requestDescription}</p> : null}
@@ -655,8 +653,6 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
               {!isPayPerTimeline(application.jobPayType) && Number(application.jobAmount ?? 0) > 0 && ["accepted", "completion_requested", "payment_sent", "completed"].includes(application.status) && (
                 <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
                   <p className="text-base font-black text-[#FFFBFF]">You should receive: {kes(fixedPay.workerEarnings)}</p>
-                  <p className="mt-1">Job price: {kes(fixedPay.total)}</p>
-                  <p className="mt-1">COPIC service fee: {kes(fixedPay.serviceFee)}</p>
                 </div>
               )}
               <div className="mt-4 flex flex-wrap gap-2">
@@ -743,8 +739,6 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
             return (
               <div className="mt-4 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
                 <p className="text-base font-black text-[#FFFBFF]">You should receive: {kes(breakdown.workerEarnings)}</p>
-                <p className="mt-1">Job price: {kes(breakdown.total)}</p>
-                <p className="mt-1">COPIC service fee: {kes(breakdown.serviceFee)}</p>
               </div>
             );
           })()}

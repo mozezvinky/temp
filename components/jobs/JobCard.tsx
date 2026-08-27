@@ -1,7 +1,7 @@
 "use client";
 
 import type { Job } from "@/types";
-import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
+import { kes } from "@/utils/money";
 import { workerVisiblePay } from "@/utils/pricing";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 import { displayJobQuantity } from "@/utils/jobUnits";
@@ -16,7 +16,6 @@ export function JobCard({ job, workerView = false, menuSlot, infoActionSlot }: {
   const timelineCount = Math.max(1, Math.trunc(Number(job.timelineCount ?? job.durationValue ?? 1) || 1));
   const clientPayPerTimeline = Number(job.clientPayPerTimeline ?? job.payAmount ?? job.rateAmount ?? 0);
   const timelineBreakdown = timelinePaymentSummary(clientPayPerTimeline, timelineCount);
-  const fixedBreakdown = calculateJobPaymentBreakdown(job.payAmount ?? job.rateAmount ?? 0);
   const workerPayPerTimeline = Number(job.workerPayPerTimeline ?? timelineBreakdown.workerPayPerTimeline);
   const timelineUnitPay = workerView ? workerPayPerTimeline : clientPayPerTimeline;
   const timelineTotalPay = workerView
@@ -52,10 +51,19 @@ export function JobCard({ job, workerView = false, menuSlot, infoActionSlot }: {
       <p className="reference-job-location"><MapPin size={16} /> {locationLabel}</p>
       <div className="reference-job-divider" />
       <div className="reference-job-facts">
-        <div><small>{workerView ? timelinePay ? "You earn total" : "You earn" : timelinePay ? "Total job price" : "Job price"}</small><strong>{kes(visiblePay)}</strong></div>
-        {workerView && !timelinePay && <div><small>COPIC fee</small><strong>{kes(fixedBreakdown.serviceFee)}</strong></div>}
-        {timelinePay && <div><small>{workerView ? `You earn per ${timelineUnitLabel}` : `Price per ${timelineUnitLabel}`}</small><strong>{kes(timelineUnitPay)}</strong></div>}
-        <div><small>Est. duration</small><strong><Clock size={15} /> {job.duration ?? `${job.durationHours}h`}</strong></div>
+        {workerView && timelinePay ? (
+          <>
+            <div><small>{`You earn per ${timelineUnitLabel}`}</small><strong>{kes(timelineUnitPay)}</strong></div>
+            <div><small>Duration</small><strong><Clock size={15} /> {job.duration ?? `${timelineCount} ${timelineUnitLabel}${timelineCount === 1 ? "" : "s"}`}</strong></div>
+            <div><small>Total earnings</small><strong>{kes(visiblePay)}</strong></div>
+          </>
+        ) : (
+          <>
+            <div><small>{workerView ? "You earn" : timelinePay ? "Total job price" : "Job price"}</small><strong>{kes(visiblePay)}</strong></div>
+            {timelinePay && <div><small>{`Price per ${timelineUnitLabel}`}</small><strong>{kes(timelineUnitPay)}</strong></div>}
+            <div><small>Est. duration</small><strong><Clock size={15} /> {job.duration ?? `${job.durationHours}h`}</strong></div>
+          </>
+        )}
       </div>
       <div className="reference-job-footer">
         <span><UsersRound size={16} /> {remainingWorkers} left · {job.acceptedCount ?? 0}/{job.workersNeeded ?? 1} hired</span>

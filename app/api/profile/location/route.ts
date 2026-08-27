@@ -49,9 +49,16 @@ function normalizeLocation(value: unknown): LocationFields | null {
     area: String(input.area ?? "").trim() || undefined,
     city: String(input.city ?? "").trim() || undefined,
     displayLocation: String(input.displayLocation ?? "").trim() || undefined,
+    locationSource: normalizeLocationSource(input.locationSource),
+    landmarkResolved: typeof input.landmarkResolved === "boolean" ? input.landmarkResolved : undefined,
+    locationDescription: String(input.locationDescription ?? "").trim() || undefined,
     latitude,
     longitude
   };
+}
+
+function normalizeLocationSource(value: unknown) {
+  return value === "current" || value === "manual" || value === "network" ? value : undefined;
 }
 
 function normalizeLandmark(value: unknown) {

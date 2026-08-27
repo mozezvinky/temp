@@ -164,10 +164,6 @@ export default function FindWorkPage() {
     return applicationTimelinePay(application).submittedWorkerAmount;
   }
 
-  function fixedPaymentBreakdown(application: Application) {
-    return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0));
-  }
-
   async function finishJob(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!progressJob || !selectedApplicationIds.length) return;
@@ -519,27 +515,17 @@ export default function FindWorkPage() {
               <form onSubmit={finishJob} className="mt-6 grid gap-4">
                 <p className="text-sm text-[#CCC6BB]">Pay each worker directly outside the platform. The job will be completed only after every worker confirms they have received their payment.</p>
                 <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
-                  Pay the worker earnings shown below. Keep materials, transport, deposits, and reimbursements separate from this job payment.
+                  Payment is for labor only. Does not include materials and transport
                 </p>
                 <div className="grid gap-3">
-                  {rateableApplications.length ? rateableApplications.map(application => {
-                    const breakdown = fixedPaymentBreakdown(application);
-                    return (
+                  {rateableApplications.length ? rateableApplications.map(application => (
                       <div key={`rating-${application.id}`} className="rounded-xl bg-[#2A2A2B] p-4">
                         <p className="text-sm font-black text-[#FFFBFF]">{application.workerName ?? "Worker"}</p>
                         <p className="mt-1 text-sm font-bold text-[#CCC6BB]">{pendingPaymentLabel(application)} · Worker payment: {kes(pendingPaymentAmount(application))}</p>
-                        {!isPayPerTimeline(application.jobPayType) && (
-                          <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-xs font-bold text-[#CCC6BB]">
-                            <p>Job price: {kes(breakdown.total)}</p>
-                            <p className="mt-1 text-sm font-black text-[#FFFBFF]">Worker payment: {kes(breakdown.workerEarnings)}</p>
-                            <p className="mt-1">COPIC service fee: {kes(breakdown.serviceFee)}</p>
-                          </div>
-                        )}
                         <StarRatingInput name={`stars-${application.id}`} label="Rate worker optional" />
                         <label className="temp-label mt-3">Review optional<textarea name={`review-${application.id}`} placeholder="Optional public review" className="temp-input min-h-20 p-3 outline-none" /></label>
                       </div>
-                    );
-                  }) : <p className="rounded-xl bg-[#2A2A2B] p-3 text-sm text-[#CCC6BB]">{ratingApplications.length ? "Ratings appear when a submitted day/hour is ready to pay." : "Select a worker first to add a rating."}</p>}
+                  )) : <p className="rounded-xl bg-[#2A2A2B] p-3 text-sm text-[#CCC6BB]">{ratingApplications.length ? "Ratings appear when a submitted day/hour is ready to pay." : "Select a worker first to add a rating."}</p>}
                 </div>
                 <label className="temp-label">Remarks optional<textarea name="remarks" placeholder="Optional note" className="temp-input min-h-24 p-3 outline-none" /></label>
                 <Button type="submit" className="temp-success-button" disabled={finishingJob}>{finishingJob ? "Saving..." : "I Have Paid The Worker"}</Button>

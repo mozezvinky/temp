@@ -6,6 +6,11 @@ export function buildLocationDisplayLabel(location: Partial<ResolvedLocation & L
   const landmarkName = cleanText(location.landmark?.name || location.nearestLandmark);
   const area = cleanText(location.area || location.estateOrArea || location.town);
   const city = cleanText(location.city || location.county);
+  const description = cleanText(location.locationDescription);
+
+  if (location.locationSource === "current" && location.landmarkResolved === false && description) {
+    return description;
+  }
 
   if (landmarkName && !isGenericCurrentLocation(landmarkName)) {
     return `Near ${landmarkName}${area ? `, ${area}` : ""}`;

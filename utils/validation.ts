@@ -34,12 +34,21 @@ export const jobSchema = z.object({
     area: z.string().trim().optional(),
     city: z.string().trim().optional(),
     displayLocation: z.string().trim().optional(),
+    locationSource: z.enum(["current", "manual", "network"]).optional(),
+    landmarkResolved: z.boolean().optional(),
     locationDescription: z.string().trim().max(500, "Location description is too long.").optional(),
     latitude: z.number().finite(),
     longitude: z.number().finite()
   }),
   requiredSkills: z.array(z.string()).max(12, "Please add no more than 12 skills.").default([])
 }).superRefine((value, context) => {
+  if (value.locationDetails.locationSource === "current" && value.locationDetails.landmarkResolved === false && !value.locationDetails.locationDescription?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["locationDetails", "locationDescription"],
+      message: "Add a location description when no nearby landmark is found."
+    });
+  }
   if (!isPayPerTimeline(value.payType)) return;
   const clientPay = Number(value.clientPayPerTimeline ?? value.payAmount);
   const timelineCount = Number(value.timelineCount ?? value.durationValue);

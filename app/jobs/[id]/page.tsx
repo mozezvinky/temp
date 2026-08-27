@@ -15,6 +15,7 @@ import { perDurationUnit } from "@/utils/duration";
 import { workerCanApplyToJob } from "@/utils/jobRules";
 import { jobLocationLabel } from "@/utils/location-display";
 import { Clock, MapPin } from "lucide-react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -74,6 +75,7 @@ export default function JobDetailsPage() {
   const timelineCount = Number(job.timelineCount ?? 1);
   const timelineUnitLabel = perDurationUnit(job.durationUnit);
   const timelineUnitTitle = timelineUnitLabel.charAt(0).toUpperCase() + timelineUnitLabel.slice(1);
+  const timelineTotalEarnings = Number(job.totalWorkerAmount ?? workerPay * timelineCount);
   const applyStatus = profile?.role === "worker" ? workerCanApplyToJob(profile, job) : { ok: false, reason: "Use a worker account to apply." };
 
   return (
@@ -83,21 +85,20 @@ export default function JobDetailsPage() {
         <h1 className="mt-2 text-3xl font-black text-[#FFFBFF]">{job.title}</h1>
         <p className="mt-3 text-sm leading-6 text-[#CCC6BB]">{job.description}</p>
         <div className="mt-5 flex flex-wrap gap-4 text-sm font-semibold text-[#D3C4B3]">
-          <span>{kes(workerPay)} / {timelinePay ? timelineUnitLabel : "job"}</span>
+          <span>You earn {kes(workerPay)}{timelinePay ? ` per ${timelineUnitLabel}` : ""}</span>
           <span className="inline-flex items-center gap-1"><Clock size={16} /> {job.duration ?? `${job.durationHours}h`}</span>
           <span className="inline-flex items-center gap-1"><MapPin size={16} /> {jobLocationLabel(job)}</span>
         </div>
         {!timelinePay && (
           <div className="mt-4 rounded-xl border border-bone/15 bg-bone/[.05] p-4 text-sm font-bold text-[#D3C4B3]">
             <p className="text-base font-black text-[#FFFBFF]">You earn: {kes(fixedBreakdown.workerEarnings)}</p>
-            <p className="mt-1">Job price: {kes(fixedBreakdown.total)}</p>
-            <p className="mt-1">COPIC service fee: {kes(fixedBreakdown.serviceFee)}</p>
           </div>
         )}
         {timelinePay && (
           <div className="mt-4 rounded-xl border border-bone/15 bg-bone/[.05] p-4 text-sm font-bold text-[#D3C4B3]">
-            <p>{timelineCount} {timelineUnitLabel}{timelineCount === 1 ? "" : "s"}</p>
-            <p className="mt-1">Total possible earning: {kes(Number(job.totalWorkerAmount ?? workerPay * timelineCount))}</p>
+            <p className="text-base font-black text-[#FFFBFF]">You earn: {kes(workerPay)} per {timelineUnitLabel}</p>
+            <p className="mt-1">Duration: {timelineCount} {timelineUnitLabel}{timelineCount === 1 ? "" : "s"}</p>
+            <p className="mt-1">Total earnings: {kes(timelineTotalEarnings)}</p>
             <p className="mt-1">{timelineUnitTitle} payments: {job.paidTimelineCount ?? 0}/{timelineCount} paid</p>
           </div>
         )}
@@ -116,7 +117,14 @@ export default function JobDetailsPage() {
           </form>
         </Card>
       ) : profile?.role === "worker" && job.status === "open" && !alreadyApplied ? (
-        <EmptyState title="Verification required" body={applyStatus.reason} />
+        <Card>
+          <h2 className="text-xl font-black text-[#FFFBFF]">Verification required</h2>
+          <p className="mt-2 text-sm text-[#CCC6BB]">{applyStatus.reason}</p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Link href="/profile" className="temp-success-button inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2 text-sm font-black text-[#1E1B13]">Verify now</Link>
+            <Link href="/jobs" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#4A463F] px-4 py-2 text-sm font-black text-[#FFFBFF]">Back to jobs</Link>
+          </div>
+        </Card>
       ) : alreadyApplied ? (
         <EmptyState title="Applied" body="You have already applied for this job. Track its status from your dashboard." />
       ) : (

@@ -77,6 +77,8 @@ export interface LocationFields {
   area?: string;
   city?: string;
   displayLocation?: string;
+  locationSource?: "current" | "manual" | "network";
+  landmarkResolved?: boolean;
   locationDescription?: string;
   latitude: number;
   longitude: number;
