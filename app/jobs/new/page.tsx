@@ -14,7 +14,6 @@ import type { LocationFields } from "@/types";
 import { defaultKenyaLocation } from "@/lib/location";
 import { durationLabel, durationToHours, durationUnits, perDurationUnit, type DurationUnit } from "@/utils/duration";
 import { unitsForCategory } from "@/utils/jobUnits";
-import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 
 const MapPicker = dynamic(() => import("@/components/location/MapPicker"), { ssr: false });
 
@@ -29,8 +28,6 @@ export default function NewJobPage() {
   const [unit, setUnit] = useState("");
   const [payType, setPayType] = useState<"fixed" | "pay_per_timeline">("fixed");
   const unitOptions = useMemo(() => unitsForCategory(category), [category]);
-  const paymentBreakdown = calculateJobPaymentBreakdown(Number(payAmountInput));
-  const timelineCountPreview = Math.max(1, Math.trunc(Number(durationValueInput) || 1));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,17 +93,9 @@ export default function NewJobPage() {
           <label className="temp-label">Unit optional<select value={unit} onChange={event => setUnit(event.target.value)} className="temp-input p-3 outline-none"><option value="">No unit</option>{unitOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
           {unit === "Other" && <label className="temp-label sm:col-span-2">Custom unit<input name="customUnit" placeholder="e.g. Flower Beds" className="temp-input p-3 outline-none" /></label>}
         </div>
-        {paymentBreakdown.total > 0 && (
-          <div className="rounded-xl bg-emerald-400/10 p-3 text-sm font-bold text-emerald-100">
-            <p className="font-black">{payType === "pay_per_timeline" ? `Per ${perDurationUnit(durationUnit)}` : "Payment split"}</p>
-            <p className="mt-1">Job price: {kes(paymentBreakdown.total)}</p>
-            <p className="mt-1 text-base font-black">Worker receives: {kes(paymentBreakdown.workerEarnings)}</p>
-            <p className="mt-1">COPIC service fee: {kes(paymentBreakdown.serviceFee)}</p>
-            {payType === "pay_per_timeline" && Number(durationValueInput) > 0 && (
-              <p className="mt-1">Total job price: {kes(paymentBreakdown.total * timelineCountPreview)} · Total worker payment: {kes(paymentBreakdown.workerEarnings * timelineCountPreview)}</p>
-            )}
-          </div>
-        )}
+        <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
+          Payment is for labor only. Do not include materials, transport,
+        </p>
         <MapPicker value={location} onChange={setLocation} />
         <Button type="submit" disabled={posting} className="mt-2">{posting ? "Publishing..." : "Publish job"}</Button>
       </form>

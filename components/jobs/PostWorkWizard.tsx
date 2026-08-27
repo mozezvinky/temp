@@ -11,7 +11,6 @@ import { clientCanPost } from "@/utils/jobRules";
 import { matchJobCategory } from "@/utils/jobCategoryMatcher";
 import { durationLabel, durationToHours, durationUnits, perDurationUnit, type DurationUnit } from "@/utils/duration";
 import { displayJobQuantity, unitsForCategory } from "@/utils/jobUnits";
-import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 import dynamic from "next/dynamic";
 import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -41,8 +40,6 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
   const [posting, setPosting] = useState(false);
   const { status: liveVerificationStatus, checking: checkingVerification } = useLiveVerificationStatus(profile.verificationStatus);
   const unitOptions = useMemo(() => unitsForCategory(draft.category), [draft.category]);
-  const paymentBreakdown = calculateJobPaymentBreakdown(Number(draft.budget));
-  const timelineCountPreview = Math.max(1, Math.trunc(Number(draft.timeline) || 1));
 
   function setValue<K extends keyof Draft>(key: K, value: Draft[K]) {
     setDraft(current => ({ ...current, [key]: value }));
@@ -137,19 +134,8 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
               {draft.unit === "Other" && <label className="temp-label sm:col-span-2">Custom unit<input value={draft.customUnit} onChange={event => setValue("customUnit", event.target.value)} placeholder="e.g. Flower Beds" className="temp-input p-3 outline-none" /></label>}
               <label className="temp-label sm:col-span-2">Pay type<select value={draft.payType} onChange={event => setValue("payType", event.target.value as Draft["payType"])} className="temp-input p-3 outline-none"><option value="fixed">Fixed pay</option><option value="pay_per_timeline">Pay per {perDurationUnit(draft.timelineUnit)}</option></select></label>
             </div>
-            {paymentBreakdown.total > 0 && (
-              <div className="rounded-xl bg-emerald-400/10 p-3 text-sm font-bold text-emerald-100">
-                <p className="font-black">{draft.payType === "pay_per_timeline" ? `Per ${perDurationUnit(draft.timelineUnit)}` : "Payment split"}</p>
-                <p className="mt-1">Job price: {kes(paymentBreakdown.total)}</p>
-                <p className="mt-1 text-base font-black">Worker receives: {kes(paymentBreakdown.workerEarnings)}</p>
-                <p className="mt-1">COPIC service fee: {kes(paymentBreakdown.serviceFee)}</p>
-                {draft.payType === "pay_per_timeline" && Number(draft.timeline) > 0 && (
-                  <p className="mt-1">Total job price: {kes(paymentBreakdown.total * timelineCountPreview)} · Total worker payment: {kes(paymentBreakdown.workerEarnings * timelineCountPreview)}</p>
-                )}
-              </div>
-            )}
             <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
-              Keep materials, transport, deposits, and other reimbursements separate from this job price.
+              Payment is for labor only. Do not include materials, transport,
             </p>
             {displayJobQuantity(Number(draft.quantity), draft.unit, draft.customUnit) && <p className="rounded-xl bg-emerald-400/10 p-3 text-sm font-black text-emerald-100">Quantity: {displayJobQuantity(Number(draft.quantity), draft.unit, draft.customUnit)}</p>}
             <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(1)} className="flex-1">Back</Button><Button type="submit" className="flex-1">Next</Button></div>
@@ -160,7 +146,7 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
           <div className="mt-6 grid gap-4">
             <MapPicker value={location} onChange={setLocation} />
             <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
-              Keep materials, transport, deposits, and other reimbursements separate from this job price.
+              Payment is for labor only. Do not include materials, transport,
             </p>
             <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(2)} className="flex-1">Back</Button><Button type="button" disabled={posting || checkingVerification} onClick={() => void post()} className="temp-success-button flex-1">{posting ? "Posting..." : checkingVerification ? "Checking..." : "Post work"}</Button></div>
           </div>
