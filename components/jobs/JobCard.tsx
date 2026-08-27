@@ -16,10 +16,10 @@ export function JobCard({ job, workerView = false, menuSlot, infoActionSlot }: {
   const timelineCount = Math.max(1, Math.trunc(Number(job.timelineCount ?? job.durationValue ?? 1) || 1));
   const clientPayPerTimeline = Number(job.clientPayPerTimeline ?? job.payAmount ?? job.rateAmount ?? 0);
   const timelineBreakdown = timelinePaymentSummary(clientPayPerTimeline, timelineCount);
-  const workerPayPerTimeline = Number(job.workerPayPerTimeline ?? timelineBreakdown.workerPayPerTimeline);
+  const workerPayPerTimeline = timelineBreakdown.workerPayPerTimeline;
   const timelineUnitPay = workerView ? workerPayPerTimeline : clientPayPerTimeline;
   const timelineTotalPay = workerView
-    ? Number(job.totalWorkerAmount && job.totalWorkerAmount > 0 ? job.totalWorkerAmount : timelineUnitPay * timelineCount)
+    ? timelineBreakdown.totalWorkerAmount
     : Number(job.totalClientAmount && job.totalClientAmount > 0 ? job.totalClientAmount : timelineUnitPay * timelineCount);
   const visiblePay = timelinePay
     ? timelineTotalPay

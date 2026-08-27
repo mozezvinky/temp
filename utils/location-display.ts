@@ -25,6 +25,19 @@ export function buildLocationDisplayLabel(location: Partial<ResolvedLocation & L
 
 export function jobLocationLabel(job: Pick<Job, "location" | "county" | "locationDetails">) {
   const details = job.locationDetails;
+  const description = cleanText(details?.locationDescription);
+  const landmarkText = cleanText(details?.landmark?.name || details?.nearestLandmark);
+  const hasSpecificLandmark = Boolean(landmarkText) && !isGenericCurrentLocation(landmarkText);
+  const hasGenericCurrentText = [
+    details?.displayLocation,
+    details?.addressText,
+    details?.nearestLandmark,
+    job.location
+  ].some(value => {
+    const text = cleanText(value);
+    return text && isGenericCurrentLocation(text);
+  });
+  if (description && (details?.landmarkResolved === false || (!hasSpecificLandmark && hasGenericCurrentText))) return description;
   if (details?.displayLocation && isPublicSafeLocationText(details.displayLocation)) return details.displayLocation;
   if (details?.landmark || details?.area || details?.city) return buildLocationDisplayLabel(details);
   if (isPublicSafeLocationText(details?.addressText)) return details!.addressText;
@@ -44,7 +57,7 @@ export function isPublicSafeLocationText(value: unknown): value is string {
 }
 
 function isGenericCurrentLocation(value: string) {
-  return /^(current location|selected location|pinned from current location|approximate network location)$/i.test(value.trim());
+  return /^(current location|current location selected|selected location|pinned from current location|approximate network location)$/i.test(value.trim());
 }
 
 function cleanText(value: unknown) {

@@ -7,9 +7,7 @@ export function applicationTimelinePay(application: Application) {
   const submittedTimelineCount = Math.min(timelineCount, Math.max(0, Math.trunc(Number(application.submittedTimelineCount ?? 0) || 0)));
   const clientPayPerTimeline = Number(application.clientPayPerTimeline ?? application.jobAmount ?? 0);
   const fallbackSummary = timelinePaymentSummary(clientPayPerTimeline, timelineCount);
-  const workerPayPerTimeline = Number(application.workerPayPerTimeline && application.workerPayPerTimeline > 0
-    ? application.workerPayPerTimeline
-    : fallbackSummary.workerPayPerTimeline);
+  const workerPayPerTimeline = fallbackSummary.workerPayPerTimeline;
   const paidWorkerAmount = workerPayPerTimeline * paidTimelineCount;
   const submittedWorkerAmount = workerPayPerTimeline * submittedTimelineCount;
   const remainingWorkerAmount = workerPayPerTimeline * Math.max(0, timelineCount - paidTimelineCount);

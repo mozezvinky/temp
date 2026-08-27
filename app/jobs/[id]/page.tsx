@@ -8,9 +8,8 @@ import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { applyToJob, subscribeApplications, subscribeJob } from "@/services/jobs";
 import type { Application, Job } from "@/types";
 import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
-import { workerVisiblePay } from "@/utils/pricing";
 import { displayJobQuantity } from "@/utils/jobUnits";
-import { isPayPerTimeline } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 import { perDurationUnit } from "@/utils/duration";
 import { workerCanApplyToJob } from "@/utils/jobRules";
 import { jobLocationLabel } from "@/utils/location-display";
@@ -71,11 +70,12 @@ export default function JobDetailsPage() {
   const quantityLabel = displayJobQuantity(job.quantity, job.unit, job.customUnit);
   const timelinePay = isPayPerTimeline(job.payType);
   const fixedBreakdown = calculateJobPaymentBreakdown(job.payAmount ?? job.rateAmount ?? 0);
-  const workerPay = timelinePay ? Number(job.workerPayPerTimeline ?? workerVisiblePay(job.payAmount ?? job.rateAmount ?? 0)) : fixedBreakdown.workerEarnings;
   const timelineCount = Number(job.timelineCount ?? 1);
+  const timelineSummary = timelinePaymentSummary(Number(job.clientPayPerTimeline ?? job.payAmount ?? job.rateAmount ?? 0), timelineCount);
+  const workerPay = timelinePay ? timelineSummary.workerPayPerTimeline : fixedBreakdown.workerEarnings;
   const timelineUnitLabel = perDurationUnit(job.durationUnit);
   const timelineUnitTitle = timelineUnitLabel.charAt(0).toUpperCase() + timelineUnitLabel.slice(1);
-  const timelineTotalEarnings = Number(job.totalWorkerAmount ?? workerPay * timelineCount);
+  const timelineTotalEarnings = timelineSummary.totalWorkerAmount;
   const applyStatus = profile?.role === "worker" ? workerCanApplyToJob(profile, job) : { ok: false, reason: "Use a worker account to apply." };
 
   return (

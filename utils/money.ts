@@ -1,4 +1,4 @@
-export const PLATFORM_FEE_RATE = Number(process.env.NEXT_PUBLIC_PLATFORM_FEE_RATE ?? 0.1);
+export const PLATFORM_FEE_RATE = 0.1;
 
 export type JobPaymentBreakdown = {
   total: number;

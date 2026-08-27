@@ -262,7 +262,7 @@ export default function FindWorkPage() {
   const progressPaidTimelineCount = Math.min(progressTimelineCount, Math.max(0, Math.trunc(Number(progressJob?.paidTimelineCount ?? 0) || 0)));
   const progressClientPayPerTimeline = Number(progressJob?.clientPayPerTimeline ?? progressJob?.payAmount ?? progressJob?.rateAmount ?? 0);
   const progressTimelineSummary = timelinePaymentSummary(progressClientPayPerTimeline, progressTimelineCount);
-  const progressWorkerPayPerTimeline = Number(progressJob?.workerPayPerTimeline && progressJob.workerPayPerTimeline > 0 ? progressJob.workerPayPerTimeline : progressTimelineSummary.workerPayPerTimeline);
+  const progressWorkerPayPerTimeline = progressTimelineSummary.workerPayPerTimeline;
   const progressRemainingWorkerAmount = progressWorkerPayPerTimeline * Math.max(0, progressTimelineCount - progressPaidTimelineCount);
   const progressPaymentUnitLabel = perDurationUnit(progressJob?.durationUnit);
   const progressPaymentUnitTitle = progressPaymentUnitLabel.charAt(0).toUpperCase() + progressPaymentUnitLabel.slice(1);

@@ -837,9 +837,7 @@ function rowToApplication(row: Record<string, unknown>) {
   const timelineCount = row.timelineCount == null ? undefined : Math.max(1, Math.trunc(Number(row.timelineCount) || 1));
   const clientPayPerTimeline = row.clientPayPerTimeline != null ? Number(row.clientPayPerTimeline) : row.jobAmount != null ? Number(row.jobAmount) : undefined;
   const fallbackSummary = clientPayPerTimeline == null ? null : timelinePaymentSummary(clientPayPerTimeline, timelineCount ?? 1);
-  const workerPayPerTimeline = row.workerPayPerTimeline != null && Number(row.workerPayPerTimeline) > 0
-    ? Number(row.workerPayPerTimeline)
-    : fallbackSummary?.workerPayPerTimeline;
+  const workerPayPerTimeline = fallbackSummary?.workerPayPerTimeline;
   return {
     id: String(row.id),
     jobId: String(row.jobId),
@@ -855,8 +853,8 @@ function rowToApplication(row: Record<string, unknown>) {
     clientPayPerTimeline,
     workerPayPerTimeline,
     totalClientAmount: row.totalClientAmount != null && Number(row.totalClientAmount) > 0 ? Number(row.totalClientAmount) : timelineCount && clientPayPerTimeline != null ? clientPayPerTimeline * timelineCount : undefined,
-    totalWorkerAmount: row.totalWorkerAmount != null && Number(row.totalWorkerAmount) > 0 ? Number(row.totalWorkerAmount) : timelineCount && workerPayPerTimeline != null ? workerPayPerTimeline * timelineCount : undefined,
-    totalPlatformFee: row.totalPlatformFee == null ? undefined : Number(row.totalPlatformFee),
+    totalWorkerAmount: timelineCount && workerPayPerTimeline != null ? workerPayPerTimeline * timelineCount : undefined,
+    totalPlatformFee: fallbackSummary?.totalPlatformFee ?? (row.totalPlatformFee == null ? undefined : Number(row.totalPlatformFee)),
     paidTimelineCount: Number(row.paidTimelineCount ?? 0),
     submittedTimelineCount: Number(row.submittedTimelineCount ?? 0),
     unpaidTimelineCount: timelineCount == null ? undefined : Math.max(0, timelineCount - Number(row.paidTimelineCount ?? 0)),
@@ -1277,7 +1275,7 @@ export function confirmLocalWorkerPaid(applicationId: string, clientId: string, 
         .run(now, now, now, applicationId, ...selected);
       const remaining = localDb().prepare("SELECT COUNT(*) as count FROM job_timelines WHERE jobId = ? AND status != 'paid'").get(application.jobId);
       allPaid = Number(remaining?.count ?? 0) === 0;
-      serviceFee = payableRows.reduce((sum, row) => sum + Number(row.platformFee ?? calculateServiceFee(Number(row.clientAmount ?? 0))), 0);
+      serviceFee = payableRows.reduce((sum, row) => sum + calculateServiceFee(Number(row.clientAmount ?? 0)), 0);
       localDb().prepare("UPDATE applications SET status = ?, updatedAt = ? WHERE id = ?").run(allPaid ? "completed" : "accepted", now, applicationId);
       localDb().prepare("UPDATE jobs SET status = ?, updatedAt = ? WHERE id = ?").run(allPaid ? "completed" : "live", now, application.jobId);
       if (serviceFee > 0) {
