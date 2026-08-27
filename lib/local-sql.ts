@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import type { Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateServiceFee } from "@/utils/money";
 import { workerCanApplyToJob } from "@/utils/jobRules";
-import { isPayPerTimeline, timelinePaymentSummary, TIMELINE_PLATFORM_FEE } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 
 type SqlValue = string | number | bigint | null | Uint8Array;
 type SqlStatement = {
@@ -710,7 +710,7 @@ export function createLocalJob(input: {
         timelineNumber,
         timelineSummary.workerPayPerTimeline,
         timelineSummary.clientPayPerTimeline,
-        TIMELINE_PLATFORM_FEE,
+        timelineSummary.clientPayPerTimeline - timelineSummary.workerPayPerTimeline,
         createdAt,
         createdAt
       );
@@ -836,9 +836,10 @@ export function deleteLocalJob(id: string, clientId: string) {
 function rowToApplication(row: Record<string, unknown>) {
   const timelineCount = row.timelineCount == null ? undefined : Math.max(1, Math.trunc(Number(row.timelineCount) || 1));
   const clientPayPerTimeline = row.clientPayPerTimeline != null ? Number(row.clientPayPerTimeline) : row.jobAmount != null ? Number(row.jobAmount) : undefined;
+  const fallbackSummary = clientPayPerTimeline == null ? null : timelinePaymentSummary(clientPayPerTimeline, timelineCount ?? 1);
   const workerPayPerTimeline = row.workerPayPerTimeline != null && Number(row.workerPayPerTimeline) > 0
     ? Number(row.workerPayPerTimeline)
-    : clientPayPerTimeline == null ? undefined : Math.max(0, clientPayPerTimeline - TIMELINE_PLATFORM_FEE);
+    : fallbackSummary?.workerPayPerTimeline;
   return {
     id: String(row.id),
     jobId: String(row.jobId),
@@ -1199,7 +1200,7 @@ export function requestLocalApplicationCompletion(applicationId: string, workerI
           timelineNumber,
           timelineSummary.workerPayPerTimeline,
           timelineSummary.clientPayPerTimeline,
-          TIMELINE_PLATFORM_FEE,
+          timelineSummary.clientPayPerTimeline - timelineSummary.workerPayPerTimeline,
           now,
           now
         );
@@ -1276,7 +1277,7 @@ export function confirmLocalWorkerPaid(applicationId: string, clientId: string, 
         .run(now, now, now, applicationId, ...selected);
       const remaining = localDb().prepare("SELECT COUNT(*) as count FROM job_timelines WHERE jobId = ? AND status != 'paid'").get(application.jobId);
       allPaid = Number(remaining?.count ?? 0) === 0;
-      serviceFee = payableRows.reduce((sum, row) => sum + Number(row.platformFee ?? TIMELINE_PLATFORM_FEE), 0);
+      serviceFee = payableRows.reduce((sum, row) => sum + Number(row.platformFee ?? calculateServiceFee(Number(row.clientAmount ?? 0))), 0);
       localDb().prepare("UPDATE applications SET status = ?, updatedAt = ? WHERE id = ?").run(allPaid ? "completed" : "accepted", now, applicationId);
       localDb().prepare("UPDATE jobs SET status = ?, updatedAt = ? WHERE id = ?").run(allPaid ? "completed" : "live", now, application.jobId);
       if (serviceFee > 0) {

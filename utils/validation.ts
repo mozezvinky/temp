@@ -26,6 +26,14 @@ export const jobSchema = z.object({
     estateOrArea: z.string().trim().min(1, "Please enter an estate or area."),
     nearestLandmark: z.string().trim().min(1, "Please enter a nearby landmark."),
     addressText: z.string().trim().min(1, "Please enter an address."),
+    landmark: z.object({
+      name: z.string().trim().min(1),
+      placeId: z.string().trim().min(1),
+      distanceMeters: z.number().finite().nonnegative()
+    }).optional(),
+    area: z.string().trim().optional(),
+    city: z.string().trim().optional(),
+    displayLocation: z.string().trim().optional(),
     locationDescription: z.string().trim().max(500, "Location description is too long.").optional(),
     latitude: z.number().finite(),
     longitude: z.number().finite()
@@ -38,8 +46,8 @@ export const jobSchema = z.object({
   if (!Number.isFinite(timelineCount) || timelineCount < 1) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["timelineCount"], message: "Timeline count must be at least 1." });
   }
-  if (!Number.isFinite(clientPay) || clientPay <= 100) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ["clientPayPerTimeline"], message: "Pay per timeline must be greater than KES 100." });
+  if (!Number.isFinite(clientPay) || clientPay < 50) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["clientPayPerTimeline"], message: "Pay per timeline must be at least KES 50." });
   }
   if (timelinePaymentSummary(clientPay, timelineCount).workerPayPerTimeline < 0) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["clientPayPerTimeline"], message: "Worker pay per timeline cannot be negative." });

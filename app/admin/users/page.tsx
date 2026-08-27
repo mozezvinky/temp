@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useAuth } from "@/context/AuthContext";
 import type { Application, Job, UserProfile } from "@/types";
+import { jobLocationLabel } from "@/utils/location-display";
 import { normalizeVerificationStatus, verificationLabel } from "@/utils/verification";
 import { Search } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
@@ -183,7 +184,7 @@ export default function AdminUsersPage() {
             <section>
               <h3 className="text-xl font-black text-[#FFFBFF]">Posted jobs</h3>
               <div className="mt-3 grid gap-2">
-                {details.jobs.length ? details.jobs.map(job => <div key={job.id} className="rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-3 text-sm text-[#CCC6BB]"><strong className="text-[#FFFBFF]">{job.title}</strong> - {job.status} - {job.location}</div>) : <p className="text-sm text-[#959087]">No posted jobs.</p>}
+                {details.jobs.length ? details.jobs.map(job => <div key={job.id} className="rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-3 text-sm text-[#CCC6BB]"><strong className="text-[#FFFBFF]">{job.title}</strong> - {job.status} - {jobLocationLabel(job)}</div>) : <p className="text-sm text-[#959087]">No posted jobs.</p>}
               </div>
             </section>
             <section>

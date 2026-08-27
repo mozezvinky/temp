@@ -11,7 +11,7 @@ import { rateUser } from "@/services/ratings";
 import type { Application } from "@/types";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { perDurationUnit } from "@/utils/duration";
-import { kes } from "@/utils/money";
+import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { ArrowLeft, Mail, Phone, Star } from "lucide-react";
 import Link from "next/link";
@@ -82,8 +82,12 @@ export default function CompletedRequestsPage() {
   }
 
   function pendingPaymentAmount(application: Application) {
-    if (!isPayPerTimeline(application.jobPayType)) return Number(application.jobAmount ?? 0);
+    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).workerEarnings;
     return applicationTimelinePay(application).submittedWorkerAmount;
+  }
+
+  function fixedPaymentBreakdown(application: Application) {
+    return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0));
   }
 
   if (authLoading || !isAuthorized || loading || !profile) return <LoadingSpinner label="Opening completed requests" />;
@@ -110,7 +114,11 @@ export default function CompletedRequestsPage() {
                 <div>
                   <h2 className="text-xl font-black text-[#111] dark:text-[#FFFBFF]">{application.jobTitle ?? "Completed job request"}</h2>
                   <span className="mt-3 inline-flex rounded-full border border-sky-500/40 bg-sky-100 px-3 py-1 text-sm font-black !text-sky-950 dark:bg-sky-400/20 dark:!text-sky-100">Completion requested</span>
-                  <p className="mt-3 text-sm font-black text-[#111] dark:text-[#FFFBFF]">{pendingPaymentLabel(application)} · Amount to pay: {kes(pendingPaymentAmount(application))}</p>
+                  <p className="mt-3 text-sm font-black text-[#111] dark:text-[#FFFBFF]">{pendingPaymentLabel(application)} · Worker payment: {kes(pendingPaymentAmount(application))}</p>
+                  {!isPayPerTimeline(application.jobPayType) && (() => {
+                    const breakdown = fixedPaymentBreakdown(application);
+                    return <p className="mt-1 text-sm font-bold text-[#4b453e] dark:text-[#CCC6BB]">Job price: {kes(breakdown.total)} · COPIC service fee: {kes(breakdown.serviceFee)}</p>;
+                  })()}
                 </div>
                 <Button type="button" className="temp-success-button" disabled={completingId === application.id} onClick={() => setPendingCompletion(application)}>
                   {completingId === application.id ? "Saving..." : "Confirm complete and pay"}
@@ -145,13 +153,22 @@ export default function CompletedRequestsPage() {
               Confirm only if {pendingCompletion.workerName ?? "the worker"} has finished the work. Pay the worker directly outside the platform, then click below. The job will not be completed until the worker confirms they received the money.
             </p>
             <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-900 dark:text-amber-100">
-              This payment is labor payment only. Do not include materials, transport, deposits, or COPIC service fees in the worker payment.
+              Pay the worker earnings shown below. Keep materials, transport, deposits, and reimbursements separate from this job payment.
             </p>
             <div className="mt-4 rounded-xl border border-[#d8d8d8] bg-[#f3f4f5] p-4 text-sm text-[#4b453e] dark:border-[#4A463F] dark:bg-[#2A2A2B] dark:text-[#CCC6BB]">
               <p><strong className="text-[#111] dark:text-[#FFFBFF]">Worker:</strong> {pendingCompletion.workerName ?? "Worker"}</p>
               <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">Phone:</strong> {pendingCompletion.workerPhoneNumber ?? "No phone provided"}</p>
               <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">{pendingPaymentLabel(pendingCompletion)}</strong></p>
-              <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">Amount to pay:</strong> {kes(pendingPaymentAmount(pendingCompletion))}</p>
+              <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">Worker payment:</strong> {kes(pendingPaymentAmount(pendingCompletion))}</p>
+              {!isPayPerTimeline(pendingCompletion.jobPayType) && (() => {
+                const breakdown = fixedPaymentBreakdown(pendingCompletion);
+                return (
+                  <>
+                    <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">Job price:</strong> {kes(breakdown.total)}</p>
+                    <p className="mt-2"><strong className="text-[#111] dark:text-[#FFFBFF]">COPIC service fee:</strong> {kes(breakdown.serviceFee)}</p>
+                  </>
+                );
+              })()}
             </div>
             <form onSubmit={submitCompletion} className="mt-5 grid gap-4">
               {canRateAfterThisPayment(pendingCompletion) ? (

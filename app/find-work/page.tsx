@@ -22,8 +22,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { Application, Job } from "@/types";
 import { durationLabel, durationToHours, durationUnits, perDurationUnit, type DurationUnit } from "@/utils/duration";
-import { TIMELINE_PLATFORM_FEE, isPayPerTimeline } from "@/utils/timeline-payments";
-import { kes } from "@/utils/money";
+import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
+import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 import { completedJobId } from "@/utils/completed-job-id";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { clientCanPost } from "@/utils/jobRules";
@@ -160,8 +160,12 @@ export default function FindWorkPage() {
   }
 
   function pendingPaymentAmount(application: Application) {
-    if (!isPayPerTimeline(application.jobPayType)) return Number(application.jobAmount ?? 0);
+    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).workerEarnings;
     return applicationTimelinePay(application).submittedWorkerAmount;
+  }
+
+  function fixedPaymentBreakdown(application: Application) {
+    return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0));
   }
 
   async function finishJob(event: FormEvent<HTMLFormElement>) {
@@ -261,7 +265,8 @@ export default function FindWorkPage() {
   const progressTimelineCount = Math.max(1, Math.trunc(Number(progressJob?.timelineCount ?? 1) || 1));
   const progressPaidTimelineCount = Math.min(progressTimelineCount, Math.max(0, Math.trunc(Number(progressJob?.paidTimelineCount ?? 0) || 0)));
   const progressClientPayPerTimeline = Number(progressJob?.clientPayPerTimeline ?? progressJob?.payAmount ?? progressJob?.rateAmount ?? 0);
-  const progressWorkerPayPerTimeline = Number(progressJob?.workerPayPerTimeline && progressJob.workerPayPerTimeline > 0 ? progressJob.workerPayPerTimeline : Math.max(0, progressClientPayPerTimeline - TIMELINE_PLATFORM_FEE));
+  const progressTimelineSummary = timelinePaymentSummary(progressClientPayPerTimeline, progressTimelineCount);
+  const progressWorkerPayPerTimeline = Number(progressJob?.workerPayPerTimeline && progressJob.workerPayPerTimeline > 0 ? progressJob.workerPayPerTimeline : progressTimelineSummary.workerPayPerTimeline);
   const progressRemainingWorkerAmount = progressWorkerPayPerTimeline * Math.max(0, progressTimelineCount - progressPaidTimelineCount);
   const progressPaymentUnitLabel = perDurationUnit(progressJob?.durationUnit);
   const progressPaymentUnitTitle = progressPaymentUnitLabel.charAt(0).toUpperCase() + progressPaymentUnitLabel.slice(1);
@@ -374,7 +379,7 @@ export default function FindWorkPage() {
                             {application.workerEmail && <p><strong className="text-[#111] dark:text-[#FFFBFF]">Email:</strong> {application.workerEmail}</p>}
                             {application.workerPhoneNumber && <p><strong className="text-[#111] dark:text-[#FFFBFF]">Phone:</strong> {application.workerPhoneNumber}</p>}
                             <p><strong className="text-[#111] dark:text-[#FFFBFF]">{pendingPaymentLabel(application)}</strong></p>
-                            {pendingAmount > 0 ? <p><strong className="text-[#111] dark:text-[#FFFBFF]">Amount to pay:</strong> {kes(pendingAmount)}</p> : null}
+                            {pendingAmount > 0 ? <p><strong className="text-[#111] dark:text-[#FFFBFF]">Worker payment:</strong> {kes(pendingAmount)}</p> : null}
                           </div>
                           <div className="mt-4 flex flex-wrap gap-2">
                             <Link href={`/completed-requests?application=${application.id}`} onClick={() => setCompletedOpen(false)} className="temp-success-button inline-flex min-h-11 items-center rounded-xl px-4 py-2 text-sm font-black">
@@ -428,7 +433,7 @@ export default function FindWorkPage() {
               <label className="temp-label">Job title<input name="title" required defaultValue={editingJob.title} className="temp-input p-3 outline-none" /></label>
               <label className="temp-label">Description<textarea name="description" required defaultValue={editingJob.description} className="temp-input min-h-28 p-3 outline-none" /></label>
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="temp-label">Budget<input name="budget" required type="number" min={50} defaultValue={editingJob.payAmount} className="temp-input p-3 outline-none" /></label>
+                <label className="temp-label">Job price<input name="budget" required type="number" min={50} defaultValue={editingJob.payAmount} className="temp-input p-3 outline-none" /></label>
                 <label className="temp-label">Work timeline<div className="grid grid-cols-[1fr_auto] gap-2"><input name="timeline" required type="number" min={1} defaultValue={editingJob.durationValue ?? editingJob.durationHours ?? 1} className="temp-input min-w-0 p-3 outline-none" /><select name="timelineUnit" defaultValue={editingJob.durationUnit ?? "hours"} className="temp-input p-3 outline-none">{durationUnits.map(unit => <option key={unit}>{unit}</option>)}</select></div></label>
                 <label className="temp-label">Workers needed<input name="workersNeeded" required type="number" min={1} max={100} defaultValue={editingJob.workersNeeded ?? 1} className="temp-input p-3 outline-none" /></label>
                 <label className="temp-label">Category<select name="category" required defaultValue={editingJob.category} className="temp-input p-3 outline-none">
@@ -490,7 +495,7 @@ export default function FindWorkPage() {
                         <p className="text-xs font-bold uppercase tracking-[.16em] text-[#959087]">{application.jobCategory ?? progressJob.category}</p>
                         <p className="font-black text-[#FFFBFF]">{application.workerName ?? "Worker applicant"}</p>
                         {isPayPerTimeline(application.jobPayType) && <p className="mt-1 text-xs font-bold text-[#CCC6BB]">Pending payment: {timelinePay.submittedTimelineCount} {progressPaymentUnitLabel}{timelinePay.submittedTimelineCount === 1 ? "" : "s"} · {application.paidTimelineCount ?? 0}/{application.timelineCount ?? 1} paid</p>}
-                        {canPay && submittedAmount > 0 && <p className="mt-1 text-xs font-black text-[#FFFBFF]">Amount to pay: {kes(submittedAmount)}</p>}
+                        {canPay && submittedAmount > 0 && <p className="mt-1 text-xs font-black text-[#FFFBFF]">Worker payment: {kes(submittedAmount)}</p>}
                         </span>
                       </label>
                         {canPay ? (
@@ -514,17 +519,27 @@ export default function FindWorkPage() {
               <form onSubmit={finishJob} className="mt-6 grid gap-4">
                 <p className="text-sm text-[#CCC6BB]">Pay each worker directly outside the platform. The job will be completed only after every worker confirms they have received their payment.</p>
                 <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
-                  This payment is labor payment only. Do not include materials, transport, deposits, or COPIC service fees in the worker payment.
+                  Pay the worker earnings shown below. Keep materials, transport, deposits, and reimbursements separate from this job payment.
                 </p>
                 <div className="grid gap-3">
-                  {rateableApplications.length ? rateableApplications.map(application => (
-                    <div key={`rating-${application.id}`} className="rounded-xl bg-[#2A2A2B] p-4">
-                      <p className="text-sm font-black text-[#FFFBFF]">{application.workerName ?? "Worker"}</p>
-                      <p className="mt-1 text-sm font-bold text-[#CCC6BB]">{pendingPaymentLabel(application)} · Amount to pay: {kes(pendingPaymentAmount(application))}</p>
-                      <StarRatingInput name={`stars-${application.id}`} label="Rate worker optional" />
-                      <label className="temp-label mt-3">Review optional<textarea name={`review-${application.id}`} placeholder="Optional public review" className="temp-input min-h-20 p-3 outline-none" /></label>
-                    </div>
-                  )) : <p className="rounded-xl bg-[#2A2A2B] p-3 text-sm text-[#CCC6BB]">{ratingApplications.length ? "Ratings appear when a submitted day/hour is ready to pay." : "Select a worker first to add a rating."}</p>}
+                  {rateableApplications.length ? rateableApplications.map(application => {
+                    const breakdown = fixedPaymentBreakdown(application);
+                    return (
+                      <div key={`rating-${application.id}`} className="rounded-xl bg-[#2A2A2B] p-4">
+                        <p className="text-sm font-black text-[#FFFBFF]">{application.workerName ?? "Worker"}</p>
+                        <p className="mt-1 text-sm font-bold text-[#CCC6BB]">{pendingPaymentLabel(application)} · Worker payment: {kes(pendingPaymentAmount(application))}</p>
+                        {!isPayPerTimeline(application.jobPayType) && (
+                          <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-xs font-bold text-[#CCC6BB]">
+                            <p>Job price: {kes(breakdown.total)}</p>
+                            <p className="mt-1 text-sm font-black text-[#FFFBFF]">Worker payment: {kes(breakdown.workerEarnings)}</p>
+                            <p className="mt-1">COPIC service fee: {kes(breakdown.serviceFee)}</p>
+                          </div>
+                        )}
+                        <StarRatingInput name={`stars-${application.id}`} label="Rate worker optional" />
+                        <label className="temp-label mt-3">Review optional<textarea name={`review-${application.id}`} placeholder="Optional public review" className="temp-input min-h-20 p-3 outline-none" /></label>
+                      </div>
+                    );
+                  }) : <p className="rounded-xl bg-[#2A2A2B] p-3 text-sm text-[#CCC6BB]">{ratingApplications.length ? "Ratings appear when a submitted day/hour is ready to pay." : "Select a worker first to add a rating."}</p>}
                 </div>
                 <label className="temp-label">Remarks optional<textarea name="remarks" placeholder="Optional note" className="temp-input min-h-24 p-3 outline-none" /></label>
                 <Button type="submit" className="temp-success-button" disabled={finishingJob}>{finishingJob ? "Saving..." : "I Have Paid The Worker"}</Button>

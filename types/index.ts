@@ -52,12 +52,31 @@ export interface WorkerSkillProfile {
   createdAt?: Timestamp | null;
 }
 
+export type Landmark = {
+  name: string;
+  placeId: string;
+  distanceMeters: number;
+};
+
+export type ResolvedLocation = {
+  latitude: number;
+  longitude: number;
+  landmark?: Landmark;
+  area?: string;
+  city?: string;
+  displayLocation: string;
+};
+
 export interface LocationFields {
   county: string;
   town: string;
   estateOrArea: string;
   nearestLandmark: string;
   addressText: string;
+  landmark?: Landmark;
+  area?: string;
+  city?: string;
+  displayLocation?: string;
   locationDescription?: string;
   latitude: number;
   longitude: number;

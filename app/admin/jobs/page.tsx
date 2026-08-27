@@ -8,6 +8,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useAuth } from "@/context/AuthContext";
 import type { Application, Job } from "@/types";
 import { perDurationUnit } from "@/utils/duration";
+import { jobLocationLabel } from "@/utils/location-display";
 import { kes } from "@/utils/money";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { BriefcaseBusiness, Search } from "lucide-react";
@@ -61,7 +62,7 @@ export default function AdminJobsPage() {
   const filteredJobs = useMemo(() => {
     const value = search.trim().toLowerCase();
     if (!value) return jobs;
-    return jobs.filter(job => [job.title, job.category, job.location, job.county, job.clientName, job.clientId, job.status].join(" ").toLowerCase().includes(value));
+    return jobs.filter(job => [job.title, job.category, jobLocationLabel(job), job.county, job.clientName, job.clientId, job.status].join(" ").toLowerCase().includes(value));
   }, [jobs, search]);
 
   function jobApplications(jobId: string) {
@@ -156,7 +157,7 @@ export default function AdminJobsPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-black text-[#FFFBFF]">{job.title}</p>
-                  <p className="mt-1 text-sm text-[#959087]">{job.category} | {job.county || job.location}</p>
+                  <p className="mt-1 text-sm text-[#959087]">{job.category} | {jobLocationLabel(job)}</p>
                   <p className="mt-1 text-sm capitalize text-[#CCC6BB]">Status: {job.status} | Client: {job.clientName || job.clientId}</p>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
                     <span className="rounded-lg bg-[#2A2A2B] px-3 py-1 text-[#D8CFBC]">Applied {related.length}</span>

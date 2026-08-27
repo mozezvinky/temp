@@ -45,7 +45,21 @@ function normalizeLocation(value: unknown): LocationFields | null {
     estateOrArea: String(input.estateOrArea ?? "").trim(),
     nearestLandmark: String(input.nearestLandmark ?? "").trim(),
     addressText,
+    landmark: normalizeLandmark(input.landmark),
+    area: String(input.area ?? "").trim() || undefined,
+    city: String(input.city ?? "").trim() || undefined,
+    displayLocation: String(input.displayLocation ?? "").trim() || undefined,
     latitude,
     longitude
   };
+}
+
+function normalizeLandmark(value: unknown) {
+  if (!value || typeof value !== "object") return undefined;
+  const input = value as Record<string, unknown>;
+  const name = String(input.name ?? "").trim();
+  const placeId = String(input.placeId ?? "").trim();
+  const distanceMeters = Number(input.distanceMeters);
+  if (!name || !placeId || !Number.isFinite(distanceMeters)) return undefined;
+  return { name, placeId, distanceMeters };
 }

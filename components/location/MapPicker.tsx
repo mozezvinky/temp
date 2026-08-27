@@ -1,7 +1,9 @@
 "use client";
 
 import { Button } from "@/components/ui/Button";
+import { auth } from "@/lib/firebase";
 import type { LocationFields } from "@/types";
+import { buildLocationDisplayLabel } from "@/utils/location-display";
 import { Crosshair, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import Map, { GeolocateControl, Marker, NavigationControl } from "react-map-gl/mapbox";
@@ -18,6 +20,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   const [mode, setMode] = useState<"current" | "custom">("custom");
   const [locating, setLocating] = useState(false);
+  const [locatingLabel, setLocatingLabel] = useState("Finding location...");
   const [locationError, setLocationError] = useState("");
   const [locationNotice, setLocationNotice] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -45,7 +48,8 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       town: String(town || "Current location"),
       estateOrArea: String(text || value.estateOrArea || "Current location"),
       nearestLandmark: landmark || value.nearestLandmark || "Selected location",
-      addressText: placeName
+      addressText: placeName,
+      displayLocation: placeName
     };
   }
 
@@ -123,11 +127,56 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       town: details?.town || value.town || "Current location",
       estateOrArea: details?.estateOrArea || value.estateOrArea || "Current location",
       nearestLandmark: details?.nearestLandmark || value.nearestLandmark || "Pinned from current location",
-      addressText: details?.addressText || value.addressText || `Current location (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`,
+      addressText: details?.addressText || details?.displayLocation || value.addressText || "Current location selected",
+      landmark: details?.landmark || value.landmark,
+      area: details?.area || value.area,
+      city: details?.city || value.city,
+      displayLocation: details?.displayLocation || details?.addressText || value.displayLocation || "Current location selected",
       locationDescription: value.locationDescription,
       longitude,
       latitude
     };
+  }
+
+  async function resolveCurrentLocation(latitude: number, longitude: number) {
+    try {
+      const user = auth?.currentUser;
+      const token = user ? await user.getIdToken() : "";
+      if (!token) return null;
+      const response = await fetch("/api/location/resolve-landmark", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ latitude, longitude })
+      });
+      if (!response.ok) return null;
+      const resolved = await response.json().catch(() => ({}));
+      const displayLocation = typeof resolved.displayLocation === "string" && resolved.displayLocation.trim()
+        ? resolved.displayLocation.trim()
+        : buildLocationDisplayLabel(resolved);
+      const area = typeof resolved.area === "string" ? resolved.area.trim() : "";
+      const city = typeof resolved.city === "string" ? resolved.city.trim() : "";
+      const landmark = resolved.landmark && typeof resolved.landmark === "object"
+        ? {
+            name: String(resolved.landmark.name ?? "").trim(),
+            placeId: String(resolved.landmark.placeId ?? "").trim(),
+            distanceMeters: Number(resolved.landmark.distanceMeters)
+          }
+        : undefined;
+      if (!landmark?.name && !area && !city && displayLocation === "Current location selected") return null;
+      return locationFromCoords(latitude, longitude, {
+        county: city || value.county || "Current location",
+        town: area || city || value.town || "Current location",
+        estateOrArea: area || value.estateOrArea || city || "Current location",
+        nearestLandmark: landmark?.name || area || city || "Current location selected",
+        addressText: displayLocation,
+        landmark: landmark?.name && landmark.placeId && Number.isFinite(landmark.distanceMeters) ? landmark : undefined,
+        area: area || undefined,
+        city: city || undefined,
+        displayLocation
+      });
+    } catch {
+      return null;
+    }
   }
 
   async function approximateNetworkLocation() {
@@ -150,7 +199,8 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
           town,
           estateOrArea: value.estateOrArea || town,
           nearestLandmark: value.nearestLandmark || "Approximate network location",
-          addressText: addressText || `Approximate location (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`
+          addressText: addressText || "Approximate location selected",
+          displayLocation: addressText || "Approximate location selected"
         });
       } catch {
         // Try the next lookup provider.
@@ -217,6 +267,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       setLocationError("Current location is not available on this device.");
       return;
     }
+    setLocatingLabel("Finding your location and nearby landmark...");
     setLocating(true);
     try {
       const position = await getBrowserPosition({ enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 })
@@ -230,10 +281,12 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
         });
       const latitude = position.coords.latitude;
       const longitude = position.coords.longitude;
-      const details = await reverseGeocode(latitude, longitude);
-      const nextLocation = locationFromCoords(latitude, longitude, details ?? undefined);
+      setLocatingLabel("Finding nearby landmark...");
+      const resolvedLocation = await resolveCurrentLocation(latitude, longitude);
+      const details = resolvedLocation ? null : await reverseGeocode(latitude, longitude);
+      const nextLocation = resolvedLocation ?? locationFromCoords(latitude, longitude, details ?? undefined);
       onChange(nextLocation);
-      setSearchQuery(nextLocation.addressText);
+      setSearchQuery(nextLocation.displayLocation || nextLocation.addressText);
       setViewState(current => ({ ...current, longitude, latitude, zoom: 14 }));
     } catch (error) {
       if (isGeoError(error) && error.code !== 1) {
@@ -249,6 +302,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       setLocationError(isGeoError(error) ? geolocationMessage(error) : "Unable to access your current location. Choose custom location.");
     } finally {
       setLocating(false);
+      setLocatingLabel("Finding location...");
     }
   }
 
@@ -257,7 +311,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       <div className="rounded-2xl border border-[#4A463F] bg-[#2A2A2B] p-2">
         <div className="grid gap-2 sm:grid-cols-2">
           <Button type="button" variant={mode === "current" ? "primary" : "ghost"} onClick={snapToCurrentLocation} disabled={locating}>
-            <Crosshair size={17} /> {locating ? "Finding location..." : "Use current location"}
+            <Crosshair size={17} /> {locating ? locatingLabel : "Use current location"}
           </Button>
           <Button type="button" variant={mode === "custom" ? "primary" : "ghost"} onClick={() => { setMode("custom"); setLocationError(""); setLocationNotice(""); }}>
             <MapPin size={17} /> Choose custom location
@@ -292,7 +346,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       </div>
       {value.addressText && (
         <p className="temp-selected-location rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-3 text-sm font-semibold text-[#FFFBF4]">
-          Selected location: {value.addressText}
+          Selected location: {value.displayLocation || value.addressText}
           {value.nearestLandmark && <span className="mt-1 block text-xs text-[#CCC6BB]">Nearest landmark: {value.nearestLandmark}</span>}
         </p>
       )}
@@ -329,10 +383,15 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
                   positionOptions={{ enableHighAccuracy: true }}
                   onGeolocate={async event => {
                     setMode("current");
-                    const details = await reverseGeocode(event.coords.latitude, event.coords.longitude);
-                    const nextLocation = locationFromCoords(event.coords.latitude, event.coords.longitude, details ?? undefined);
+                    setLocating(true);
+                    setLocatingLabel("Finding nearby landmark...");
+                    const resolvedLocation = await resolveCurrentLocation(event.coords.latitude, event.coords.longitude);
+                    const details = resolvedLocation ? null : await reverseGeocode(event.coords.latitude, event.coords.longitude);
+                    const nextLocation = resolvedLocation ?? locationFromCoords(event.coords.latitude, event.coords.longitude, details ?? undefined);
                     onChange(nextLocation);
-                    setSearchQuery(nextLocation.addressText);
+                    setSearchQuery(nextLocation.displayLocation || nextLocation.addressText);
+                    setLocating(false);
+                    setLocatingLabel("Finding location...");
                   }}
                 />
                 <Marker longitude={value.longitude} latitude={value.latitude} anchor="bottom">
@@ -347,7 +406,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
           <Crosshair size={17} /> Location selection is temporarily unavailable.
         </div>
       )}
-      <p className="text-xs text-[#959087]">Pin location: {value.latitude.toFixed(5)}, {value.longitude.toFixed(5)}</p>
+      <p className="text-xs text-[#959087]">Exact pin is saved internally for matching, maps, and directions.</p>
     </div>
   );
 }

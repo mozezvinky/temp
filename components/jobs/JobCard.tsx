@@ -1,11 +1,12 @@
 "use client";
 
 import type { Job } from "@/types";
-import { kes } from "@/utils/money";
+import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 import { workerVisiblePay } from "@/utils/pricing";
-import { TIMELINE_PLATFORM_FEE, isPayPerTimeline } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 import { displayJobQuantity } from "@/utils/jobUnits";
 import { perDurationUnit } from "@/utils/duration";
+import { jobLocationLabel } from "@/utils/location-display";
 import { Clock, MapPin, UsersRound } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -14,7 +15,9 @@ export function JobCard({ job, workerView = false, menuSlot, infoActionSlot }: {
   const timelinePay = isPayPerTimeline(job.payType);
   const timelineCount = Math.max(1, Math.trunc(Number(job.timelineCount ?? job.durationValue ?? 1) || 1));
   const clientPayPerTimeline = Number(job.clientPayPerTimeline ?? job.payAmount ?? job.rateAmount ?? 0);
-  const workerPayPerTimeline = Number(job.workerPayPerTimeline ?? Math.max(0, clientPayPerTimeline - TIMELINE_PLATFORM_FEE));
+  const timelineBreakdown = timelinePaymentSummary(clientPayPerTimeline, timelineCount);
+  const fixedBreakdown = calculateJobPaymentBreakdown(job.payAmount ?? job.rateAmount ?? 0);
+  const workerPayPerTimeline = Number(job.workerPayPerTimeline ?? timelineBreakdown.workerPayPerTimeline);
   const timelineUnitPay = workerView ? workerPayPerTimeline : clientPayPerTimeline;
   const timelineTotalPay = workerView
     ? Number(job.totalWorkerAmount && job.totalWorkerAmount > 0 ? job.totalWorkerAmount : timelineUnitPay * timelineCount)
@@ -22,6 +25,7 @@ export function JobCard({ job, workerView = false, menuSlot, infoActionSlot }: {
   const visiblePay = timelinePay
     ? timelineTotalPay
     : workerView ? workerVisiblePay(job.payAmount ?? job.rateAmount ?? 0) : job.payAmount ?? job.rateAmount ?? 0;
+  const locationLabel = jobLocationLabel(job);
   const quantityLabel = displayJobQuantity(job.quantity, job.unit, job.customUnit);
   const timelineUnitLabel = perDurationUnit(job.durationUnit);
   const payTypeLabel = timelinePay ? `Pay per ${timelineUnitLabel}` : "Fixed pay";
@@ -45,11 +49,12 @@ export function JobCard({ job, workerView = false, menuSlot, infoActionSlot }: {
         </div>
       </div>
       <h3>{job.title}</h3>
-      <p className="reference-job-location"><MapPin size={16} /> {job.location}</p>
+      <p className="reference-job-location"><MapPin size={16} /> {locationLabel}</p>
       <div className="reference-job-divider" />
       <div className="reference-job-facts">
-        <div><small>{timelinePay ? "Total pay" : payTypeLabel}</small><strong>{kes(visiblePay)}</strong></div>
-        {timelinePay && <div><small>{`Pay per ${timelineUnitLabel}`}</small><strong>{kes(timelineUnitPay)}</strong></div>}
+        <div><small>{workerView ? timelinePay ? "You earn total" : "You earn" : timelinePay ? "Total job price" : "Job price"}</small><strong>{kes(visiblePay)}</strong></div>
+        {workerView && !timelinePay && <div><small>COPIC fee</small><strong>{kes(fixedBreakdown.serviceFee)}</strong></div>}
+        {timelinePay && <div><small>{workerView ? `You earn per ${timelineUnitLabel}` : `Price per ${timelineUnitLabel}`}</small><strong>{kes(timelineUnitPay)}</strong></div>}
         <div><small>Est. duration</small><strong><Clock size={15} /> {job.duration ?? `${job.durationHours}h`}</strong></div>
       </div>
       <div className="reference-job-footer">

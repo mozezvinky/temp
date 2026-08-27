@@ -4,7 +4,7 @@ import { adminDb } from "@/lib/firebase-admin";
 import { createLocalJob, markLocalEmailVerified } from "@/lib/local-sql";
 import { jobSchema } from "@/utils/validation";
 import { clientCanPost } from "@/utils/jobRules";
-import { isPayPerTimeline, TIMELINE_PLATFORM_FEE, timelinePaymentSummary } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 import { FieldValue } from "firebase-admin/firestore";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
           status: "pending",
           workerAmount: timelineSummary.workerPayPerTimeline,
           clientAmount: timelineSummary.clientPayPerTimeline,
-          platformFee: TIMELINE_PLATFORM_FEE,
+          platformFee: timelineSummary.clientPayPerTimeline - timelineSummary.workerPayPerTimeline,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         });

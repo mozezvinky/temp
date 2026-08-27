@@ -6,6 +6,7 @@ export const defaultKenyaLocation: LocationFields = {
   estateOrArea: "",
   nearestLandmark: "",
   addressText: "",
+  displayLocation: "",
   latitude: -1.286389,
   longitude: 36.817223
 };

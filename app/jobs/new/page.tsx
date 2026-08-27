@@ -14,6 +14,7 @@ import type { LocationFields } from "@/types";
 import { defaultKenyaLocation } from "@/lib/location";
 import { durationLabel, durationToHours, durationUnits, perDurationUnit, type DurationUnit } from "@/utils/duration";
 import { unitsForCategory } from "@/utils/jobUnits";
+import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 
 const MapPicker = dynamic(() => import("@/components/location/MapPicker"), { ssr: false });
 
@@ -28,6 +29,8 @@ export default function NewJobPage() {
   const [unit, setUnit] = useState("");
   const [payType, setPayType] = useState<"fixed" | "pay_per_timeline">("fixed");
   const unitOptions = useMemo(() => unitsForCategory(category), [category]);
+  const paymentBreakdown = calculateJobPaymentBreakdown(Number(payAmountInput));
+  const timelineCountPreview = Math.max(1, Math.trunc(Number(durationValueInput) || 1));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -87,16 +90,22 @@ export default function NewJobPage() {
               {jobCategoryOptions.map((option, index) => <option key={`${option}-${index}`} value={option}>{option}</option>)}
             </select></label>
           <label className="temp-label">Work timeline<div className="grid grid-cols-[1fr_auto] gap-2"><input name="durationValue" value={durationValueInput} onChange={event => setDurationValueInput(event.target.value)} required type="number" min={1} placeholder="Work timeline" className="temp-input min-w-0 p-3 outline-none" /><select value={durationUnit} onChange={event => setDurationUnit(event.target.value as DurationUnit)} className="temp-input p-3 outline-none">{durationUnits.map(unit => <option key={unit}>{unit}</option>)}</select></div></label>
-          <label className="temp-label">{payType === "pay_per_timeline" ? `Client pay per ${perDurationUnit(durationUnit)}` : "Budget"}<input name="payAmount" value={payAmountInput} onChange={event => setPayAmountInput(event.target.value)} required type="number" min={payType === "pay_per_timeline" ? 101 : 50} placeholder="KES" className="temp-input p-3 outline-none" /></label>
+          <label className="temp-label">{payType === "pay_per_timeline" ? `Job price per ${perDurationUnit(durationUnit)}` : "Job price"}<input name="payAmount" value={payAmountInput} onChange={event => setPayAmountInput(event.target.value)} required type="number" min={50} placeholder="KES" className="temp-input p-3 outline-none" /></label>
           <label className="temp-label">Pay type<select value={payType} onChange={event => setPayType(event.target.value as typeof payType)} className="temp-input p-3 outline-none"><option value="fixed">Fixed pay</option><option value="pay_per_timeline">Pay per {perDurationUnit(durationUnit)}</option></select></label>
           <label className="temp-label">Quantity optional<input name="quantity" type="number" min={1} placeholder="e.g. 12" className="temp-input p-3 outline-none" /></label>
           <label className="temp-label">Unit optional<select value={unit} onChange={event => setUnit(event.target.value)} className="temp-input p-3 outline-none"><option value="">No unit</option>{unitOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
           {unit === "Other" && <label className="temp-label sm:col-span-2">Custom unit<input name="customUnit" placeholder="e.g. Flower Beds" className="temp-input p-3 outline-none" /></label>}
         </div>
-        {payType === "pay_per_timeline" && Number(payAmountInput) > 100 && Number(durationValueInput) > 0 && (
-          <p className="rounded-xl bg-emerald-400/10 p-3 text-sm font-black text-emerald-100">
-            Worker will receive KES {Number(payAmountInput).toLocaleString()} per {perDurationUnit(durationUnit)} · Total KES {(Number(payAmountInput) * Math.max(1, Math.trunc(Number(durationValueInput)))).toLocaleString()}
-          </p>
+        {paymentBreakdown.total > 0 && (
+          <div className="rounded-xl bg-emerald-400/10 p-3 text-sm font-bold text-emerald-100">
+            <p className="font-black">{payType === "pay_per_timeline" ? `Per ${perDurationUnit(durationUnit)}` : "Payment split"}</p>
+            <p className="mt-1">Job price: {kes(paymentBreakdown.total)}</p>
+            <p className="mt-1 text-base font-black">Worker receives: {kes(paymentBreakdown.workerEarnings)}</p>
+            <p className="mt-1">COPIC service fee: {kes(paymentBreakdown.serviceFee)}</p>
+            {payType === "pay_per_timeline" && Number(durationValueInput) > 0 && (
+              <p className="mt-1">Total job price: {kes(paymentBreakdown.total * timelineCountPreview)} · Total worker payment: {kes(paymentBreakdown.workerEarnings * timelineCountPreview)}</p>
+            )}
+          </div>
         )}
         <MapPicker value={location} onChange={setLocation} />
         <Button type="submit" disabled={posting} className="mt-2">{posting ? "Publishing..." : "Publish job"}</Button>

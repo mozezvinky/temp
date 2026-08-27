@@ -25,7 +25,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { perDurationUnit } from "@/utils/duration";
-import { calculateWorkerNet, kes } from "@/utils/money";
+import { calculateJobPaymentBreakdown, calculateWorkerNet, kes } from "@/utils/money";
 import { completedJobId } from "@/utils/completed-job-id";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { toast } from "sonner";
@@ -608,6 +608,7 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
         {applications.map(application => {
           const isBusy = busyId === application.id;
           const timelinePay = applicationTimelinePay(application);
+          const fixedPay = calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0));
           const timelineUnitLabel = perDurationUnit(application.jobDurationUnit);
           const statusLabel = application.status === "completed" || application.jobStatus === "completed"
             ? "done"
@@ -633,7 +634,13 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
                   <p><strong className="text-[#FFFBFF]">Location:</strong> {application.requestLocation ?? "Not provided"}</p>
                   <p><strong className="text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
                   <p><strong className="text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
-                  {application.jobAmount ? <p><strong className="text-[#FFFBFF]">Pay:</strong> {kes(application.jobAmount)}</p> : null}
+                  {application.jobAmount ? (
+                    <>
+                      <p><strong className="text-[#FFFBFF]">You should receive:</strong> {kes(fixedPay.workerEarnings)}</p>
+                      <p><strong className="text-[#FFFBFF]">Job price:</strong> {kes(fixedPay.total)}</p>
+                      <p><strong className="text-[#FFFBFF]">COPIC service fee:</strong> {kes(fixedPay.serviceFee)}</p>
+                    </>
+                  ) : null}
                   {application.requestDescription ? <p className="mt-2">{application.requestDescription}</p> : null}
                 </div>
               )}
@@ -643,6 +650,13 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
                   <p>Pay per {timelineUnitLabel}: {kes(timelinePay.workerPayPerTimeline)}</p>
                   <p className="mt-1">Paid worker amount: {kes(timelinePay.paidWorkerAmount)}</p>
                   <p className="mt-1">Remaining worker amount: {kes(timelinePay.remainingWorkerAmount)}</p>
+                </div>
+              )}
+              {!isPayPerTimeline(application.jobPayType) && Number(application.jobAmount ?? 0) > 0 && ["accepted", "completion_requested", "payment_sent", "completed"].includes(application.status) && (
+                <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
+                  <p className="text-base font-black text-[#FFFBFF]">You should receive: {kes(fixedPay.workerEarnings)}</p>
+                  <p className="mt-1">Job price: {kes(fixedPay.total)}</p>
+                  <p className="mt-1">COPIC service fee: {kes(fixedPay.serviceFee)}</p>
                 </div>
               )}
               <div className="mt-4 flex flex-wrap gap-2">
@@ -724,6 +738,16 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
               ? `Choose how many ${perDurationUnit(pendingComplete.jobDurationUnit)}s you finished. The client will pay only the submitted ${perDurationUnit(pendingComplete.jobDurationUnit)}s.`
               : "Send completion to the client for payment confirmation. You can rate the client now or leave the rating empty."}
           </p>
+          {!isPayPerTimeline(pendingComplete.jobPayType) && Number(pendingComplete.jobAmount ?? 0) > 0 && (() => {
+            const breakdown = calculateJobPaymentBreakdown(Number(pendingComplete.jobAmount ?? 0));
+            return (
+              <div className="mt-4 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
+                <p className="text-base font-black text-[#FFFBFF]">You should receive: {kes(breakdown.workerEarnings)}</p>
+                <p className="mt-1">Job price: {kes(breakdown.total)}</p>
+                <p className="mt-1">COPIC service fee: {kes(breakdown.serviceFee)}</p>
+              </div>
+            );
+          })()}
           <form onSubmit={event => {
             event.preventDefault();
             const application = pendingComplete;

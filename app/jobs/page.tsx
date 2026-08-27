@@ -11,6 +11,7 @@ import { ChevronDown, Search } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { workerVisiblePay } from "@/utils/pricing";
+import { jobLocationLabel } from "@/utils/location-display";
 
 function jobCreatedAtMillis(job: Job) {
   const value = job.createdAt;
@@ -58,8 +59,10 @@ export default function JobsPage() {
     const normalized = search.trim().toLowerCase();
     const locationText = `${profile?.location?.county ?? ""} ${profile?.location?.town ?? ""}`.trim().toLowerCase();
     const results = jobs.filter(job => {
-      const matchesSearch = !normalized || `${job.title} ${job.description} ${job.category} ${job.location} ${job.county}`.toLowerCase().includes(normalized);
-      const matchesLocation = !sortOptions.currentLocation || (!!locationText && `${job.location} ${job.county}`.toLowerCase().includes(locationText));
+      const displayLocation = jobLocationLabel(job);
+      const searchableLocation = `${displayLocation} ${job.locationDetails?.area ?? ""} ${job.locationDetails?.city ?? ""} ${job.location} ${job.county}`;
+      const matchesSearch = !normalized || `${job.title} ${job.description} ${job.category} ${searchableLocation}`.toLowerCase().includes(normalized);
+      const matchesLocation = !sortOptions.currentLocation || (!!locationText && searchableLocation.toLowerCase().includes(locationText));
       return matchesSearch && matchesLocation;
     });
     if (sortOptions.pay) {

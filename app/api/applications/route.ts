@@ -7,7 +7,7 @@ import { serverDebug } from "@/lib/server-debug";
 import type { Role } from "@/types";
 import { calculateServiceFee } from "@/utils/money";
 import { workerCanApplyToJob, workerCanWork } from "@/utils/jobRules";
-import { TIMELINE_PLATFORM_FEE, isPayPerTimeline } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -346,9 +346,10 @@ export async function PATCH(request: NextRequest) {
             .sort((a, b) => Number(a.data().timelineNumber ?? 0) - Number(b.data().timelineNumber ?? 0));
           const timelineCount = Math.max(1, Math.trunc(Number(job.timelineCount ?? 1) || 1));
           const clientPayPerTimeline = Number(job.clientPayPerTimeline ?? job.payAmount ?? job.rateAmount ?? 0);
+          const timelineSummary = timelinePaymentSummary(clientPayPerTimeline, timelineCount);
           const workerPayPerTimeline = Number(job.workerPayPerTimeline && Number(job.workerPayPerTimeline) > 0
             ? job.workerPayPerTimeline
-            : Math.max(0, clientPayPerTimeline - TIMELINE_PLATFORM_FEE));
+            : timelineSummary.workerPayPerTimeline);
           const submitCount = Math.max(1, Math.min(requestedTimelineCount, timelineSnap.empty ? timelineCount : pendingTimelineDocs.length));
           const submittedTimelineNumbers: number[] = [];
           if (!timelineSnap.empty && pendingTimelineDocs.length === 0) throw new AuthRouteError("All timelines have already been submitted or paid.", 400);
@@ -368,7 +369,7 @@ export async function PATCH(request: NextRequest) {
                 submittedAt: shouldSubmit ? FieldValue.serverTimestamp() : null,
                 workerAmount: workerPayPerTimeline,
                 clientAmount: clientPayPerTimeline,
-                platformFee: TIMELINE_PLATFORM_FEE,
+                platformFee: timelineSummary.clientPayPerTimeline - timelineSummary.workerPayPerTimeline,
                 createdAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp()
               });
@@ -500,7 +501,7 @@ export async function PATCH(request: NextRequest) {
           const paidTimelineNumbers = payableDocs.map(doc => Number(doc.data().timelineNumber ?? 0)).filter(Number.isFinite);
           const paidTimelineRatingScopeId = `timeline:${applicationSnap.id}:${payableDocs.map(doc => doc.id).sort().join("-")}`;
           const allPaid = allTimelinesSnap.docs.every(doc => doc.data().status === "paid" || paidIds.has(doc.id));
-          const serviceFee = payableDocs.reduce((sum, doc) => sum + Number(doc.data().platformFee ?? TIMELINE_PLATFORM_FEE), 0);
+          const serviceFee = payableDocs.reduce((sum, doc) => sum + Number(doc.data().platformFee ?? calculateServiceFee(Number(doc.data().clientAmount ?? 0))), 0);
           const workerUserRef = db.collection("users").doc(String(application.workerId));
           payableDocs.forEach(doc => transaction.set(doc.ref, { status: "paid", approvedAt: FieldValue.serverTimestamp(), paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true }));
           transaction.set(applicationRef, { status: allPaid ? "completed" : "accepted", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -695,9 +696,10 @@ async function enrichApplicationsWithWorkers(applications: Array<Record<string, 
       const jobTimelines = typeof application.jobId === "string" ? timelines.get(application.jobId) ?? [] : [];
       const timelineCount = Math.max(1, Math.trunc(Number(job?.timelineCount ?? 1) || 1));
       const clientPayPerTimeline = Number(job?.clientPayPerTimeline ?? job?.payAmount ?? job?.rateAmount ?? 0);
+      const timelineSummary = timelinePaymentSummary(clientPayPerTimeline, timelineCount);
       const workerPayPerTimeline = Number(job?.workerPayPerTimeline && Number(job.workerPayPerTimeline) > 0
         ? job.workerPayPerTimeline
-        : Math.max(0, clientPayPerTimeline - TIMELINE_PLATFORM_FEE));
+        : timelineSummary.workerPayPerTimeline);
       const paidTimelineCount = jobTimelines.filter(item => item.status === "paid").length;
       const submittedTimelineCount = jobTimelines.filter(item => item.status === "submitted").length;
       const pendingTimelineNumbers = jobTimelines.filter(item => item.status === "pending").map(item => Number(item.timelineNumber)).filter(Number.isFinite);
@@ -714,7 +716,7 @@ async function enrichApplicationsWithWorkers(applications: Array<Record<string, 
         workerPayPerTimeline,
         totalClientAmount: Number(job?.totalClientAmount && Number(job.totalClientAmount) > 0 ? job.totalClientAmount : clientPayPerTimeline * timelineCount),
         totalWorkerAmount: Number(job?.totalWorkerAmount && Number(job.totalWorkerAmount) > 0 ? job.totalWorkerAmount : workerPayPerTimeline * timelineCount),
-        totalPlatformFee: Number(job?.totalPlatformFee ?? 0),
+        totalPlatformFee: Number(job?.totalPlatformFee && Number(job.totalPlatformFee) > 0 ? job.totalPlatformFee : timelineSummary.totalPlatformFee),
         paidTimelineCount,
         submittedTimelineCount,
         unpaidTimelineCount: Math.max(0, timelineCount - paidTimelineCount),

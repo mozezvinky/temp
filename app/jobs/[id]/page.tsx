@@ -7,12 +7,13 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { applyToJob, subscribeApplications, subscribeJob } from "@/services/jobs";
 import type { Application, Job } from "@/types";
-import { kes } from "@/utils/money";
+import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 import { workerVisiblePay } from "@/utils/pricing";
 import { displayJobQuantity } from "@/utils/jobUnits";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { perDurationUnit } from "@/utils/duration";
 import { workerCanApplyToJob } from "@/utils/jobRules";
+import { jobLocationLabel } from "@/utils/location-display";
 import { Clock, MapPin } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
@@ -68,7 +69,8 @@ export default function JobDetailsPage() {
   const alreadyApplied = applications.some(application => application.jobId === job.id);
   const quantityLabel = displayJobQuantity(job.quantity, job.unit, job.customUnit);
   const timelinePay = isPayPerTimeline(job.payType);
-  const workerPay = timelinePay ? Number(job.workerPayPerTimeline ?? workerVisiblePay(job.payAmount ?? job.rateAmount ?? 0)) : workerVisiblePay(job.payAmount ?? job.rateAmount ?? 0);
+  const fixedBreakdown = calculateJobPaymentBreakdown(job.payAmount ?? job.rateAmount ?? 0);
+  const workerPay = timelinePay ? Number(job.workerPayPerTimeline ?? workerVisiblePay(job.payAmount ?? job.rateAmount ?? 0)) : fixedBreakdown.workerEarnings;
   const timelineCount = Number(job.timelineCount ?? 1);
   const timelineUnitLabel = perDurationUnit(job.durationUnit);
   const timelineUnitTitle = timelineUnitLabel.charAt(0).toUpperCase() + timelineUnitLabel.slice(1);
@@ -83,8 +85,15 @@ export default function JobDetailsPage() {
         <div className="mt-5 flex flex-wrap gap-4 text-sm font-semibold text-[#D3C4B3]">
           <span>{kes(workerPay)} / {timelinePay ? timelineUnitLabel : "job"}</span>
           <span className="inline-flex items-center gap-1"><Clock size={16} /> {job.duration ?? `${job.durationHours}h`}</span>
-          <span className="inline-flex items-center gap-1"><MapPin size={16} /> {job.location}, {job.county}</span>
+          <span className="inline-flex items-center gap-1"><MapPin size={16} /> {jobLocationLabel(job)}</span>
         </div>
+        {!timelinePay && (
+          <div className="mt-4 rounded-xl border border-bone/15 bg-bone/[.05] p-4 text-sm font-bold text-[#D3C4B3]">
+            <p className="text-base font-black text-[#FFFBFF]">You earn: {kes(fixedBreakdown.workerEarnings)}</p>
+            <p className="mt-1">Job price: {kes(fixedBreakdown.total)}</p>
+            <p className="mt-1">COPIC service fee: {kes(fixedBreakdown.serviceFee)}</p>
+          </div>
+        )}
         {timelinePay && (
           <div className="mt-4 rounded-xl border border-bone/15 bg-bone/[.05] p-4 text-sm font-bold text-[#D3C4B3]">
             <p>{timelineCount} {timelineUnitLabel}{timelineCount === 1 ? "" : "s"}</p>
