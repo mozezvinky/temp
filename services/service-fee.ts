@@ -24,8 +24,11 @@ export async function loadServiceFeePayment() {
 export async function submitServiceFeePayment(input: { screenshot?: File | null } = {}) {
   const user = requireAuth().currentUser;
   if (!user) throw new Error("Please sign in.");
+  if (!input.screenshot || input.screenshot.size <= 0 || !input.screenshot.type.startsWith("image/")) {
+    throw new Error("Upload a clear M-Pesa confirmation screenshot.");
+  }
   const form = new FormData();
-  if (input.screenshot) form.set("screenshot", input.screenshot);
+  form.set("screenshot", input.screenshot);
   const response = await fetch("/api/service-fee/payments", {
     method: "POST",
     headers: { Authorization: `Bearer ${await user.getIdToken(true)}` },

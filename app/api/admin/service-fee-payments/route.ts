@@ -2,6 +2,7 @@ import { adminDb } from "@/lib/firebase-admin";
 import { adminErrorStatus, requireAdmin, writeAdminAuditLog } from "@/lib/admin-security";
 import { isSqlBackend } from "@/lib/data-backend";
 import { listLocalOutstandingServiceFeeRequests, listLocalServiceFeePayments, reviewLocalServiceFeePayment } from "@/lib/local-sql";
+import { serviceFeeScreenshotUrl } from "@/lib/service-fee-upload-storage";
 import type { ServiceFeePayment } from "@/types";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -11,14 +12,21 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   try {
     await requireAdmin(request, "finance:read");
-    if (isSqlBackend()) return NextResponse.json({ payments: [...listLocalServiceFeePayments(), ...listLocalOutstandingServiceFeeRequests()] });
+    if (isSqlBackend()) return NextResponse.json({ payments: await signScreenshotPaths([...listLocalServiceFeePayments(), ...listLocalOutstandingServiceFeeRequests()]) });
     const snapshot = await adminDb().collection("service_fee_payments").orderBy("submittedAt", "desc").limit(200).get();
     const payments = snapshot.docs.map<ServiceFeePayment>(doc => ({ id: doc.id, ...doc.data() } as ServiceFeePayment));
     const outstandingRequests = await listOutstandingFirebaseServiceFeeRequests(payments);
-    return NextResponse.json({ payments: [...payments, ...outstandingRequests] });
+    return NextResponse.json({ payments: await signScreenshotPaths([...payments, ...outstandingRequests]) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load service fee payments." }, { status: adminErrorStatus(error) });
   }
+}
+
+async function signScreenshotPaths(payments: ServiceFeePayment[]) {
+  return Promise.all(payments.map(async payment => ({
+    ...payment,
+    screenshotUrl: payment.screenshotUrl ? await serviceFeeScreenshotUrl(payment.screenshotUrl) : null
+  })));
 }
 
 export async function PATCH(request: NextRequest) {

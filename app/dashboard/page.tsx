@@ -30,7 +30,9 @@ import { completedJobId } from "@/utils/completed-job-id";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { toast } from "sonner";
 
-const SERVICE_FEE_PAYBILL_NUMBER = "482917";
+const SERVICE_FEE_PAYBILL_NUMBER = "400200";
+const SERVICE_FEE_ACCOUNT_NUMBER = "1196158";
+const SERVICE_FEE_RECIPIENT_NAME = "BLUEPEAK SOFTWARE SERVICES LIMITED";
 const PHONE_PROMPT_UNAVAILABLE_MESSAGE = "Service not available yet. This feature will be activated in a future update.";
 
 export default function DashboardPage() {
@@ -52,6 +54,7 @@ export default function DashboardPage() {
   const [serviceFeePayment, setServiceFeePayment] = useState<ServiceFeePayment | null>(null);
   const [forcedServiceFee, setForcedServiceFee] = useState(0);
   const [submittingFee, setSubmittingFee] = useState(false);
+  const [feeScreenshotSelected, setFeeScreenshotSelected] = useState(false);
   const [ratingAggregate, setRatingAggregate] = useState<{ average: number; count: number; breakdown: Record<number, number> }>({ average: 0, count: 0, breakdown: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } });
   const profileId = profile?.id;
   const profileRole = profile?.role;
@@ -202,10 +205,15 @@ export default function DashboardPage() {
   async function submitServiceFee(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const screenshot = form.get("screenshot");
+    if (!(screenshot instanceof File) || screenshot.size <= 0) {
+      toast.error("Upload the M-Pesa confirmation screenshot before submitting.");
+      return;
+    }
     setSubmittingFee(true);
     try {
       const payment = await submitServiceFeePayment({
-        screenshot: form.get("screenshot") instanceof File ? form.get("screenshot") as File : null
+        screenshot
       });
       setServiceFeePayment(payment);
       toast.success("Waiting for admin confirmation.");
@@ -237,7 +245,6 @@ export default function DashboardPage() {
   const completedJobsCount = Math.max(profile.completedJobs ?? 0, doneApplications.length);
   const displayRating = ratingAggregate.count ? ratingAggregate.average : profile.ratingAverage ?? 0;
   const dashboardSkills = profileSkills;
-  const username = (profile.displayName || profile.email || profile.id).toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || profile.id.slice(0, 12);
   const totalGrossEarnings = doneApplications.reduce((sum, application) => sum + Number(application.jobAmount ?? 0), 0);
   const totalEarnings = doneApplications.reduce((sum, application) => sum + calculateWorkerNet(Number(application.jobAmount ?? 0)), 0);
   const now = new Date();
@@ -272,14 +279,14 @@ export default function DashboardPage() {
           <p className="mt-5 text-xs font-bold uppercase tracking-[.18em] text-[#959087]">Payment details</p>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <CopyBox label="Paybill Number" value={SERVICE_FEE_PAYBILL_NUMBER} />
-            <CopyBox label="Account Number" value={username} />
+            <CopyBox label="Account Number" value={SERVICE_FEE_ACCOUNT_NUMBER} />
             <CopyBox label="Amount" value={kes(demandedServiceFee)} copyValue={String(demandedServiceFee)} />
           </div>
-          <p className="mt-4 text-sm font-semibold text-[#CCC6BB]">Your account number is automatically set to your username: <span className="font-black text-[#FFFBFF]">{username}</span>. Use this exact account number so your payment can match automatically.</p>
+          <p className="mt-4 text-sm font-semibold text-[#CCC6BB]">Use Paybill <span className="font-black text-[#FFFBFF]">{SERVICE_FEE_PAYBILL_NUMBER}</span> and Account <span className="font-black text-[#FFFBFF]">{SERVICE_FEE_ACCOUNT_NUMBER}</span>. The payment confirmation should show payment made to <span className="font-black text-[#FFFBFF]">{SERVICE_FEE_RECIPIENT_NAME}</span>. Upload the M-Pesa confirmation screenshot so admin can approve the unlock.</p>
           <form onSubmit={submitServiceFee} className="mt-6 grid gap-4">
-            <label className="temp-label">Screenshot optional<input name="screenshot" type="file" accept="image/*" className="temp-input p-3 outline-none" /></label>
+            <label className="temp-label">M-Pesa confirmation screenshot<input name="screenshot" type="file" accept="image/*" required onChange={event => setFeeScreenshotSelected(!!event.currentTarget.files?.[0])} className="temp-input p-3 outline-none" /></label>
             <div className="flex flex-wrap gap-3">
-              <Button type="submit" className="temp-success-button" disabled={submittingFee || waitingForAdminConfirmation}>{waitingForAdminConfirmation ? "Waiting for admin confirmation" : submittingFee ? "Submitting..." : "I've Made Payment"}</Button>
+              <Button type="submit" className="temp-success-button" disabled={submittingFee || waitingForAdminConfirmation || !feeScreenshotSelected}>{waitingForAdminConfirmation ? "Waiting for admin confirmation" : submittingFee ? "Submitting..." : feeScreenshotSelected ? "Submit Payment" : "Upload Screenshot First"}</Button>
               <Button type="button" variant="secondary" onClick={promptPhoneNumberDirectly}>Prompt Phone Number Directly</Button>
             </div>
           </form>

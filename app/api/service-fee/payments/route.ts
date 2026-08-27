@@ -1,6 +1,7 @@
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { getLatestLocalServiceFeePayment, getLocalUser, submitLocalServiceFeePayment } from "@/lib/local-sql";
+import { isServiceFeeScreenshot, saveServiceFeeScreenshot } from "@/lib/service-fee-upload-storage";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -23,11 +24,15 @@ export async function POST(request: NextRequest) {
     const decoded = await requireUser(request);
     const form = await request.formData();
     const screenshot = form.get("screenshot");
-    const screenshotUrl = typeof screenshot === "object" && screenshot && "name" in screenshot ? String((screenshot as File).name) : null;
+    if (!isServiceFeeScreenshot(screenshot)) {
+      return NextResponse.json({ error: "Upload a clear M-Pesa confirmation screenshot under 8 MB." }, { status: 400 });
+    }
 
     if (isSqlBackend()) {
       const worker = getLocalUser(decoded.uid);
       if (!worker || worker.role === "admin" || Number(worker.outstandingServiceFee ?? 0) <= 0) return NextResponse.json({ error: "An outstanding service fee is required." }, { status: 403 });
+      const paymentId = crypto.randomUUID();
+      const screenshotUrl = await saveServiceFeeScreenshot(decoded.uid, paymentId, screenshot);
       return NextResponse.json({ success: true, payment: submitLocalServiceFeePayment({ workerId: decoded.uid, screenshotUrl }) });
     }
 
@@ -38,6 +43,7 @@ export async function POST(request: NextRequest) {
     if (!Number.isFinite(serviceFeeAmount) || serviceFeeAmount <= 0) return NextResponse.json({ error: "No service fee is currently outstanding." }, { status: 400 });
     const username = usernameForUser(decoded.uid, userSnap.data());
     const ref = db.collection("service_fee_payments").doc();
+    const screenshotUrl = await saveServiceFeeScreenshot(decoded.uid, ref.id, screenshot);
     const status = "payment_pending_verification";
     const payload = {
       id: ref.id,

@@ -79,7 +79,14 @@ export default function AdminServiceFeesPage() {
                 <p className="mt-1 text-sm text-[#CCC6BB]">Amount: KES {payment.amount.toLocaleString()}</p>
                 {waitingForWorker && <p className="mt-2 rounded-xl border border-amber-300/30 bg-amber-400/10 p-3 text-sm font-bold text-amber-100">Worker has an outstanding service fee but has not submitted payment proof yet.</p>}
                 {payment.jobId && <p className="mt-1 text-sm text-[#959087]">Job: {payment.jobId}</p>}
-                {payment.screenshotUrl && <p className="mt-1 text-sm text-[#959087]">Screenshot: {payment.screenshotUrl}</p>}
+                {payment.screenshotUrl && (
+                  <div className="mt-3">
+                    <p className="text-sm font-bold text-[#CCC6BB]">Payment screenshot</p>
+                    <a href={payment.screenshotUrl} target="_blank" rel="noreferrer" aria-label="Open payment confirmation screenshot" className="mt-2 block h-80 w-full max-w-md overflow-hidden rounded-xl border border-[#4A463F] bg-[#2A2A2B] bg-contain bg-center bg-no-repeat" style={{ backgroundImage: `url(${payment.screenshotUrl})` }}>
+                      <span className="sr-only">Open payment confirmation screenshot</span>
+                    </a>
+                  </div>
+                )}
                 {payment.rejectionReason && <p className="mt-2 text-sm text-red-200">Rejected: {payment.rejectionReason}</p>}
               </div>
               <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black capitalize">{payment.status.replaceAll("_", " ")}</span>
