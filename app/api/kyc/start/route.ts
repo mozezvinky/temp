@@ -92,7 +92,7 @@ async function saveVerificationUpload(userId: string, slot: VerificationUploadSl
       }
     }
   }
-  throw lastError instanceof Error ? lastError : new Error("Firebase Storage bucket was not found.");
+  throw new VerificationStorageSetupError(lastError instanceof Error ? lastError.message : "Firebase Storage bucket was not found.");
 }
 
 async function assertVerificationUploadExists(path: string) {
@@ -139,6 +139,11 @@ async function assertCanSubmitVerification(userId: string, kind: "identity" | "d
 
 class SubmissionConflictError extends Error {
   status = 409;
+}
+
+class VerificationStorageSetupError extends Error {
+  status = 503;
+  code = "firebase_storage_bucket_not_found";
 }
 
 export async function POST(request: NextRequest) {
@@ -191,6 +196,9 @@ export async function POST(request: NextRequest) {
       ]);
     } catch (error) {
       console.error("[kyc-upload] firebase-storage-save-failed", error instanceof Error ? { name: error.name, message: error.message, bucketsTried: firebaseStorageBucketCandidates() } : { message: "unknown upload error", bucketsTried: firebaseStorageBucketCandidates() });
+      if (error instanceof VerificationStorageSetupError) {
+        return NextResponse.json({ error: "Verification storage is not ready. Please contact support.", code: error.code }, { status: error.status });
+      }
       return NextResponse.json({ error: "Verification image upload failed. Please try again.", code: "verification_storage_upload_failed" }, { status: 502 });
     }
     if (!fullName || !email || !phoneNumber || !nationalId || !idFrontUrl || !idBackUrl || !selfieWithIdUrl) {
