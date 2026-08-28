@@ -1,36 +1,24 @@
 import "server-only";
 
-import { access, mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { adminStorage } from "@/lib/firebase-admin";
 import { firebaseStorageBucketCandidates } from "@/lib/firebase-storage-bucket";
 
-const LOCAL_UPLOAD_ROOT = path.join(process.cwd(), "public", "uploads");
-
-export function shouldUseLocalServiceFeeStorage() {
-  return process.env.SERVICE_FEE_UPLOAD_DRIVER === "local" ||
-    (process.env.NODE_ENV !== "production" && process.env.USE_LOCAL_SERVICE_FEE_UPLOADS !== "false");
-}
-
-function safeUploadPath(uploadPath: string) {
-  if (!uploadPath.startsWith("service-fees/") || uploadPath.includes("..")) {
-    throw new Error("Invalid service fee upload path.");
-  }
-  return path.join(LOCAL_UPLOAD_ROOT, uploadPath);
-}
+const MAX_SERVICE_FEE_SCREENSHOT_BYTES = 8 * 1024 * 1024;
+const ALLOWED_SERVICE_FEE_IMAGE_TYPES: ReadonlyMap<string, string> = new Map([
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"]
+] as const);
 
 export function isServiceFeeScreenshot(value: FormDataEntryValue | null): value is File {
-  return value instanceof File && value.type.startsWith("image/") && value.size > 0 && value.size <= 8 * 1024 * 1024;
+  return value instanceof File && ALLOWED_SERVICE_FEE_IMAGE_TYPES.has(value.type) && value.size > 0 && value.size <= MAX_SERVICE_FEE_SCREENSHOT_BYTES;
 }
 
 export async function saveServiceFeeScreenshot(workerId: string, paymentId: string, file: File) {
-  const extension = safeExtension(file.name, file.type);
-  const uploadPath = `service-fees/${workerId}/${paymentId}/payment-screenshot${extension}`;
+  const extension = ALLOWED_SERVICE_FEE_IMAGE_TYPES.get(file.type);
+  if (!extension) throw new Error("Unsupported service fee screenshot type.");
+  const uploadPath = `service-fees/${workerId}/${paymentId}/payment-screenshot-${crypto.randomUUID()}.${extension}`;
   const buffer = Buffer.from(await file.arrayBuffer());
-  if (shouldUseLocalServiceFeeStorage()) {
-    await saveLocalServiceFeeUpload(uploadPath, buffer);
-    return uploadPath;
-  }
   const candidates = firebaseStorageBucketCandidates();
   if (!candidates.length) throw new Error("Firebase Storage bucket is not configured.");
   let lastError: unknown = null;
@@ -41,7 +29,7 @@ export async function saveServiceFeeScreenshot(workerId: string, paymentId: stri
         contentType: file.type,
         metadata: {
           cacheControl: "private, max-age=0, no-transform",
-          metadata: { originalName: file.name }
+          metadata: { workerId, paymentId }
         }
       });
       return uploadPath;
@@ -58,9 +46,6 @@ export async function saveServiceFeeScreenshot(workerId: string, paymentId: stri
 
 export async function serviceFeeScreenshotUrl(uploadPath: string) {
   if (!uploadPath.startsWith("service-fees/")) return uploadPath;
-  if (shouldUseLocalServiceFeeStorage() && await localServiceFeeUploadExists(uploadPath)) {
-    return `/uploads/${uploadPath}`;
-  }
   const expires = Date.now() + 15 * 60 * 1000;
   for (const bucketName of firebaseStorageBucketCandidates()) {
     try {
@@ -74,28 +59,4 @@ export async function serviceFeeScreenshotUrl(uploadPath: string) {
     }
   }
   return "";
-}
-
-async function saveLocalServiceFeeUpload(uploadPath: string, buffer: Buffer) {
-  const target = safeUploadPath(uploadPath);
-  await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(target, buffer);
-}
-
-async function localServiceFeeUploadExists(uploadPath: string) {
-  try {
-    await access(safeUploadPath(uploadPath));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function safeExtension(fileName: string, contentType: string) {
-  const fromName = path.extname(fileName).toLowerCase();
-  if (/^\.(png|jpe?g|webp|gif)$/.test(fromName)) return fromName;
-  if (contentType === "image/png") return ".png";
-  if (contentType === "image/webp") return ".webp";
-  if (contentType === "image/gif") return ".gif";
-  return ".jpg";
 }

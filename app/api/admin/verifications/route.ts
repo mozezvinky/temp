@@ -3,7 +3,6 @@ import { isSqlBackend } from "@/lib/data-backend";
 import { adminDb, adminStorage } from "@/lib/firebase-admin";
 import { firebaseStorageBucketCandidates } from "@/lib/firebase-storage-bucket";
 import { localDb } from "@/lib/local-sql";
-import { localVerificationUploadUrl, shouldUseLocalVerificationStorage } from "@/lib/verification-local-storage";
 import type { VerificationStatus } from "@/types";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -46,13 +45,9 @@ function timestampMillis(value: unknown) {
 
 async function signDocumentPaths(record: Record<string, unknown>) {
   const expires = Date.now() + 15 * 60 * 1000;
-  async function sign(field: string) {
-    const path = String(record[field] ?? "");
+  async function sign(urlField: string, storagePathField: string) {
+    const path = String(record[storagePathField] ?? record[urlField] ?? "");
     if (!path.startsWith("verification/")) return "";
-    if (shouldUseLocalVerificationStorage()) {
-      const localUrl = await localVerificationUploadUrl(path);
-      if (localUrl) return localUrl;
-    }
     for (const bucketName of firebaseStorageBucketCandidates()) {
       try {
         const [url] = await adminStorage().bucket(bucketName).file(path).getSignedUrl({ action: "read", expires });
@@ -66,7 +61,11 @@ async function signDocumentPaths(record: Record<string, unknown>) {
     }
     return "";
   }
-  const [idFrontUrl, idBackUrl, selfieWithIdUrl] = await Promise.all([sign("idFrontUrl"), sign("idBackUrl"), sign("selfieWithIdUrl")]);
+  const [idFrontUrl, idBackUrl, selfieWithIdUrl] = await Promise.all([
+    sign("idFrontUrl", "idFrontStoragePath"),
+    sign("idBackUrl", "idBackStoragePath"),
+    sign("selfieWithIdUrl", "selfieWithIdStoragePath")
+  ]);
   return { ...record, idFrontUrl, idBackUrl, selfieWithIdUrl };
 }
 

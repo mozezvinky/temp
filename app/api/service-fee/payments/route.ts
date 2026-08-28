@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const form = await request.formData();
     const screenshot = form.get("screenshot");
     if (!isServiceFeeScreenshot(screenshot)) {
-      return NextResponse.json({ error: "Upload a clear M-Pesa confirmation screenshot under 8 MB." }, { status: 400 });
+      return NextResponse.json({ error: "Upload a clear JPEG, PNG, or WebP M-Pesa confirmation screenshot under 8 MB." }, { status: 400 });
     }
 
     if (isSqlBackend()) {

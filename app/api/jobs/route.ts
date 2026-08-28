@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 const WORKER_VISIBLE_JOB_STATUSES = ["open", "pending", "live", "assigned", "active", "in_progress"] as const;
+const ACTIVE_APPLICATION_STATUSES = ["accepted", "completion_requested", "payment_sent"] as const;
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -77,21 +78,26 @@ export async function GET(request: NextRequest) {
       .filter(job => !job.rehireOfJobId)
       .filter(job => scope === "client" || scope === "worker-active" || job.clientId !== currentUser.uid)
       .sort((a, b) => timestampMillis(b.createdAt) - timestampMillis(a.createdAt));
+    const jobIds = jobs.map(job => String(job.id ?? "")).filter(Boolean);
     const clientIds = [...new Set(jobs.map(job => typeof job.clientId === "string" ? job.clientId : "").filter(Boolean))];
-    const [applicationSnaps, timelineSnaps, clientSnaps] = await Promise.all([
-      Promise.all(jobs.map(job => db.collection("applications").where("jobId", "==", job.id).limit(120).get())),
-      Promise.all(jobs.map(job => db.collection("jobTimelines").where("jobId", "==", job.id).limit(120).get())),
+    const [applications, timelines, clientSnaps] = await Promise.all([
+      getDocsByInChunks(db.collection("applications"), "jobId", jobIds, 120),
+      getDocsByInChunks(db.collection("jobTimelines"), "jobId", jobIds, 120),
       Promise.all(clientIds.map(id => db.collection("users").doc(id).get()))
     ]);
     const clients = new Map(clientSnaps.map(snap => [snap.id, snap.data() ?? {}]));
-    const responseJobs = jobs.map((job, index) => {
-      const timelines = timelineSnaps[index].docs.map(doc => doc.data());
+    const applicationsByJob = groupByField(applications, "jobId");
+    const timelinesByJob = groupByField(timelines, "jobId");
+    const responseJobs = jobs.map(job => {
+      const jobId = String(job.id ?? "");
+      const timelines = timelinesByJob.get(jobId) ?? [];
+      const applicationsForJob = applicationsByJob.get(jobId) ?? [];
       const paidTimelineCount = timelines.filter(item => item.status === "paid").length;
       const submittedTimelineCount = timelines.filter(item => item.status === "submitted").length;
       return {
       ...job,
       clientVerificationStatus: typeof clients.get(String(job.clientId))?.verificationStatus === "string" ? clients.get(String(job.clientId))?.verificationStatus : undefined,
-      acceptedCount: applicationSnaps[index].docs.filter(doc => ["accepted", "completion_requested", "payment_sent"].includes(String(doc.data().status))).length,
+      acceptedCount: applicationsForJob.filter(item => ACTIVE_APPLICATION_STATUSES.includes(String(item.status) as typeof ACTIVE_APPLICATION_STATUSES[number])).length,
       paidTimelineCount,
       submittedTimelineCount,
       unpaidTimelineCount: Math.max(0, Number(job.timelineCount ?? timelines.length) - paidTimelineCount)
@@ -131,6 +137,33 @@ async function getFirestoreWorkerActiveJobSnapshot(db: FirebaseFirestore.Firesto
     .filter(Boolean))];
   const jobSnaps = await Promise.all(jobIds.map(id => db.collection("jobs").doc(id).get()));
   return jobSnaps.filter(snap => snap.exists && !["completed", "cancelled"].includes(String(snap.data()?.status)));
+}
+
+async function getDocsByInChunks(collection: FirebaseFirestore.CollectionReference, field: string, values: string[], perChunkLimit: number) {
+  if (!values.length) return [] as Array<Record<string, unknown>>;
+  const docs = await Promise.all(chunk(values, 30).map(async valueChunk => {
+    const snap = await collection.where(field, "in", valueChunk).limit(perChunkLimit).get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Record<string, unknown>));
+  }));
+  return docs.flat();
+}
+
+function groupByField(items: Array<Record<string, unknown>>, field: string) {
+  const grouped = new Map<string, Array<Record<string, unknown>>>();
+  for (const item of items) {
+    const key = String(item[field] ?? "");
+    if (!key) continue;
+    const current = grouped.get(key) ?? [];
+    current.push(item);
+    grouped.set(key, current);
+  }
+  return grouped;
+}
+
+function chunk<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
 }
 
 async function enrichFirestoreJobClient(db: FirebaseFirestore.Firestore, job: Record<string, unknown>) {

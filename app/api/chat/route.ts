@@ -1,12 +1,18 @@
 import { isSqlBackend } from "@/lib/data-backend";
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { adminAuth, adminDb, adminStorage } from "@/lib/firebase-admin";
+import { firebaseStorageBucketCandidates } from "@/lib/firebase-storage-bucket";
 import { createLocalMessage, getLocalConversation, listLocalConversations, listLocalMessages } from "@/lib/local-sql";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 
 export const runtime = "nodejs";
+
+const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_CHAT_IMAGE_TYPES: ReadonlyMap<string, string> = new Map([
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"]
+] as const);
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,7 +24,7 @@ export async function GET(request: NextRequest) {
       if (conversationId) {
         const conversation = getLocalConversation(conversationId);
         if (!conversation || conversation.locked || !conversation.participants.includes(decoded.uid)) return NextResponse.json({ messages: [] });
-        return NextResponse.json({ messages: listLocalMessages(conversationId) });
+        return NextResponse.json({ messages: await signMessageImages(listLocalMessages(conversationId)) });
       }
       return NextResponse.json({ conversations: listLocalConversations(decoded.uid) });
     }
@@ -33,7 +39,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ messages: [] });
       }
       const snapshot = await db.collection("messages").doc(conversationId).collection("items").orderBy("createdAt", "asc").limit(120).get();
-      return NextResponse.json({ messages: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
+      return NextResponse.json({ messages: await signMessageImages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))) });
     }
     const snapshot = await db.collection("messages").where("participants", "array-contains", decoded.uid).limit(40).get();
     const availableDocs = [];
@@ -87,10 +93,15 @@ export async function POST(request: NextRequest) {
     const input = await parseMessageInput(request);
     const conversationId = input.conversationId;
     const text = input.text;
-    const imageUrl = input.imageUrl;
-    if (!conversationId || (!text && !imageUrl)) return NextResponse.json({ error: "Enter a message or choose an image." }, { status: 400 });
+    const imageFile = input.imageFile;
+    if (!conversationId || (!text && !imageFile)) return NextResponse.json({ error: "Enter a message or choose an image." }, { status: 400 });
 
     if (isSqlBackend()) {
+      const conversation = getLocalConversation(conversationId);
+      if (!conversation || conversation.locked || !conversation.participants.includes(decoded.uid)) {
+        return NextResponse.json({ error: "Chat is not available for this job." }, { status: 403 });
+      }
+      const imageUrl = imageFile ? await saveChatImage(conversationId, decoded.uid, imageFile) : undefined;
       const message = createLocalMessage(conversationId, decoded.uid, text, imageUrl);
       if (!message) return NextResponse.json({ error: "Chat is not available for this job." }, { status: 403 });
       return NextResponse.json({ success: true, message });
@@ -105,6 +116,7 @@ export async function POST(request: NextRequest) {
       if (conversationSnap.exists && conversation?.locked !== true) await conversationRef.set({ locked: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return NextResponse.json({ error: "Chat is not available for this job." }, { status: 403 });
     }
+    const imageUrl = imageFile ? await saveChatImage(conversationId, decoded.uid, imageFile) : undefined;
     const messageRef = conversationRef.collection("items").doc();
     const receiverId = participants.find(id => id !== decoded.uid);
     await db.runTransaction(async transaction => {
@@ -145,7 +157,7 @@ async function parseMessageInput(request: NextRequest) {
     return {
       conversationId: typeof body.conversationId === "string" ? body.conversationId : "",
       text: typeof body.body === "string" ? body.body.trim() : "",
-      imageUrl: undefined as string | undefined
+      imageFile: undefined as File | undefined
     };
   }
 
@@ -153,20 +165,60 @@ async function parseMessageInput(request: NextRequest) {
   const conversationId = String(form.get("conversationId") ?? "");
   const text = String(form.get("body") ?? "").trim();
   const file = form.get("image");
-  const imageUrl = file instanceof File ? await saveChatImage(conversationId, file) : undefined;
-  return { conversationId, text, imageUrl };
+  return { conversationId, text, imageFile: file instanceof File ? file : undefined };
 }
 
-async function saveChatImage(conversationId: string, file: File) {
-  if (!file.type.startsWith("image/")) throw new Error("Choose an image file.");
-  if (file.size <= 0 || file.size > 5 * 1024 * 1024) throw new Error("Chat images must be under 5 MB.");
-  const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+async function saveChatImage(conversationId: string, senderId: string, file: File) {
+  const extension = ALLOWED_CHAT_IMAGE_TYPES.get(file.type);
+  if (!extension) throw new Error("Choose a JPEG, PNG, or WebP image.");
+  if (file.size <= 0 || file.size > MAX_CHAT_IMAGE_BYTES) throw new Error("Chat images must be under 5 MB.");
   const safeConversationId = conversationId.replace(/[^a-zA-Z0-9_-]/g, "");
-  const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
-  const uploadDir = join(process.cwd(), "public", "uploads", "chat", safeConversationId || "general");
-  await mkdir(uploadDir, { recursive: true });
-  await writeFile(join(uploadDir, fileName), Buffer.from(await file.arrayBuffer()));
-  return `/uploads/chat/${safeConversationId || "general"}/${fileName}`;
+  if (!safeConversationId) throw new Error("Invalid chat upload path.");
+  const uploadPath = `messages/${safeConversationId}/${crypto.randomUUID()}.${extension}`;
+  const candidates = firebaseStorageBucketCandidates();
+  if (!candidates.length) throw new Error("Firebase Storage bucket is not configured.");
+  const buffer = Buffer.from(await file.arrayBuffer());
+  let lastError: unknown = null;
+  for (const bucketName of candidates) {
+    try {
+      await adminStorage().bucket(bucketName).file(uploadPath).save(buffer, {
+        resumable: false,
+        contentType: file.type,
+        metadata: {
+          cacheControl: "private, max-age=0, no-transform",
+          metadata: { senderId, conversationId: safeConversationId }
+        }
+      });
+      return uploadPath;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (!message.includes("bucket") && !message.includes("does not exist") && !message.includes("not found")) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Firebase Storage bucket was not found.");
+}
+
+async function signMessageImages(messages: Array<Record<string, unknown>>) {
+  return Promise.all(messages.map(async message => ({
+    ...message,
+    imageUrl: typeof message.imageUrl === "string" ? await signedStorageUrl(message.imageUrl) : message.imageUrl ?? null
+  })));
+}
+
+async function signedStorageUrl(path: string) {
+  if (!path.startsWith("messages/")) return path;
+  const expires = Date.now() + 15 * 60 * 1000;
+  for (const bucketName of firebaseStorageBucketCandidates()) {
+    try {
+      const [url] = await adminStorage().bucket(bucketName).file(path).getSignedUrl({ action: "read", expires });
+      return url;
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (!message.includes("bucket") && !message.includes("does not exist") && !message.includes("not found")) throw error;
+    }
+  }
+  return "";
 }
 
 async function isCompletedConversation(conversation: Record<string, unknown>) {

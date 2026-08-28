@@ -4,7 +4,10 @@ service firebase.storage {
     function signedIn() { return request.auth != null; }
     function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
     function isAdmin() { return signedIn() && request.auth.token.admin == true; }
-    function isSafeImage() { return request.resource.size < 8 * 1024 * 1024 && request.resource.contentType.matches('image/.*'); }
+    function isSafeImage() {
+      return request.resource.size < 8 * 1024 * 1024
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+    }
     function isSafeAttachment() { return request.resource.size < 12 * 1024 * 1024 && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf'); }
     function isMessageParticipant(conversationId) {
       return signedIn()
@@ -28,6 +31,11 @@ service firebase.storage {
       allow read: if signedIn();
       allow create, update: if isOwner(userId) && isSafeAttachment();
       allow delete: if isOwner(userId) || isAdmin();
+    }
+    match /service-fees/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId) && isSafeImage();
+      allow delete: if isAdmin();
     }
     match /messages/{conversationId}/{fileName} {
       allow read: if isMessageParticipant(conversationId) || isAdmin();

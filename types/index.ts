@@ -173,6 +173,9 @@ export interface VerificationRecord {
   idFrontUrl: string;
   idBackUrl: string;
   selfieWithIdUrl: string;
+  idFrontStoragePath?: string;
+  idBackStoragePath?: string;
+  selfieWithIdStoragePath?: string;
   proofOfAddressUrl?: string | null;
   addressVerificationStatus?: VerificationStatus;
   identityVerificationStatus?: VerificationStatus;

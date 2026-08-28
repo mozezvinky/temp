@@ -17,6 +17,10 @@ type SearchResult = {
 };
 
 export default function MapPicker({ value, onChange }: { value: LocationFields; onChange: (location: LocationFields) => void }) {
+  useEffect(() => {
+    void import("mapbox-gl/dist/mapbox-gl.css");
+  }, []);
+
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   const [mode, setMode] = useState<"current" | "custom">("custom");
   const [locating, setLocating] = useState(false);

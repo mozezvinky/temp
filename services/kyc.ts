@@ -15,9 +15,11 @@ export interface VerificationSubmission {
   selfieWithIdFile: File;
 }
 
+const ALLOWED_VERIFICATION_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
 function validateUpload(file: File) {
-  if (file.size > 8 * 1024 * 1024 || !file.type.startsWith("image/")) {
-    throw new Error("Each verification upload must be an image under 8 MB.");
+  if (file.size > 8 * 1024 * 1024 || !ALLOWED_VERIFICATION_IMAGE_TYPES.includes(file.type)) {
+    throw new Error("Each verification upload must be a JPEG, PNG, or WebP image under 8 MB.");
   }
 }
 
