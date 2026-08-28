@@ -3,7 +3,7 @@ import "server-only";
 import { shouldUseFirebase } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { getLocalUser, getLocalUserByEmail, linkLocalUserUidByEmail, upsertLocalUser } from "@/lib/local-sql";
-import type { Role, UserProfile } from "@/types";
+import type { Role, UserProfile, VerificationStatus } from "@/types";
 import type { DecodedIdToken } from "firebase-admin/auth";
 import { NextRequest } from "next/server";
 
@@ -52,9 +52,10 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
   const role = activeRoleFor(data, fallbackRole ?? roleFromRequest(request));
   const activeRoles = rolesFor(data, role);
   const emailVerified = data?.emailVerified === true || decoded.email_verified === true;
-  const profile = snapshot.exists && data
+  const baseProfile = snapshot.exists && data
     ? ({ id: snapshot.id, uid: snapshot.id, ...data, role, roles: activeRoles, emailVerified } as UserProfile)
     : null;
+  const profile = await withFirestoreVerificationStatus(decoded.uid, baseProfile);
   return {
     id: decoded.uid,
     uid: decoded.uid,
@@ -67,6 +68,44 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
     profile,
     decoded
   };
+}
+
+async function withFirestoreVerificationStatus(uid: string, profile: UserProfile | null): Promise<UserProfile | null> {
+  if (!profile) return profile;
+
+  const [identitySnap, driverLicenseSnap] = await Promise.all([
+    adminDb().collection("verifications").doc(uid).get(),
+    adminDb().collection("verifications").doc(`driver-license-${uid}`).get()
+  ]);
+
+  const nextProfile = { ...profile };
+  const identity = identitySnap.exists ? identitySnap.data() : null;
+  const identityStatus = identity?.status;
+  if (isVerificationStatus(identityStatus)) {
+    nextProfile.verificationStatus = identityStatus;
+    nextProfile.verificationRejectionReason = identityStatus === "rejected"
+      ? stringOrNull(identity?.rejectionReason)
+      : null;
+  }
+
+  const driverLicense = driverLicenseSnap.exists ? driverLicenseSnap.data() : null;
+  const driverLicenseStatus = driverLicense?.status;
+  if (isVerificationStatus(driverLicenseStatus)) {
+    nextProfile.driverLicenseVerificationStatus = driverLicenseStatus;
+    nextProfile.driverLicenseRejectionReason = driverLicenseStatus === "rejected"
+      ? stringOrNull(driverLicense?.rejectionReason)
+      : null;
+  }
+
+  return nextProfile;
+}
+
+function isVerificationStatus(value: unknown): value is VerificationStatus {
+  return value === "not_submitted" || value === "pending" || value === "approved" || value === "rejected";
+}
+
+function stringOrNull(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 export function ensureLocalUserProfile(decoded: DecodedIdToken, fallbackRole?: Role | null) {
