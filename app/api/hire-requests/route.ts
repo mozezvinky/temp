@@ -1,6 +1,8 @@
+import { mergeFirestoreVerificationRecords, withFirestoreVerificationStatus } from "@/lib/current-user-profile";
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { createLocalDirectHireRequest, getLocalUser, respondLocalDirectHireRequest } from "@/lib/local-sql";
+import type { UserProfile } from "@/types";
 import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -52,11 +54,12 @@ export async function POST(request: NextRequest) {
     };
     if (!clientCanPost(effectiveClient as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
     if (!workerSnap.exists || worker?.role !== "worker") return NextResponse.json({ error: "Choose a valid worker." }, { status: 404 });
+    const effectiveWorker = await withFirestoreVerificationStatus(input.workerId, worker as Partial<UserProfile> | null);
     const allowedWorker = workerCanApplyToJob({
-      verificationStatus: String(worker?.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
-      driverLicenseVerificationStatus: String(worker?.driverLicenseVerificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
-      isLocked: worker?.isLocked === true,
-      outstandingServiceFee: Number(worker?.outstandingServiceFee ?? 0)
+      verificationStatus: effectiveWorker?.verificationStatus ?? "not_submitted",
+      driverLicenseVerificationStatus: effectiveWorker?.driverLicenseVerificationStatus ?? "not_submitted",
+      isLocked: effectiveWorker?.isLocked === true,
+      outstandingServiceFee: Number(effectiveWorker?.outstandingServiceFee ?? 0)
     }, { title: input.title, category: input.category, requiredSkills: [] });
     if (!allowedWorker.ok) return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
     const activeSnap = await db.collection("applications").where("workerId", "==", input.workerId).limit(40).get();
@@ -152,11 +155,19 @@ export async function PATCH(request: NextRequest) {
       if (application.source !== "direct_hire") throw new AuthRouteError("This is not a direct hire request.", 400);
       if (application.status !== "pending") throw new AuthRouteError("This request has already been answered.", 400);
       if (response === "accept") {
-        const workerSnap = await transaction.get(db.collection("users").doc(decoded.uid));
-        const worker = workerSnap.data() ?? {};
+        const [workerSnap, identityVerificationSnap, driverLicenseVerificationSnap] = await Promise.all([
+          transaction.get(db.collection("users").doc(decoded.uid)),
+          transaction.get(db.collection("verifications").doc(decoded.uid)),
+          transaction.get(db.collection("verifications").doc(`driver-license-${decoded.uid}`))
+        ]);
+        const worker = mergeFirestoreVerificationRecords(
+          workerSnap.data() as Partial<UserProfile> | null,
+          identityVerificationSnap.exists ? identityVerificationSnap.data() : null,
+          driverLicenseVerificationSnap.exists ? driverLicenseVerificationSnap.data() : null
+        ) ?? {};
         const allowedWorker = workerCanApplyToJob({
-          verificationStatus: String(worker.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
-          driverLicenseVerificationStatus: String(worker.driverLicenseVerificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
+          verificationStatus: worker.verificationStatus ?? "not_submitted",
+          driverLicenseVerificationStatus: worker.driverLicenseVerificationStatus ?? "not_submitted",
           isLocked: worker.isLocked === true,
           outstandingServiceFee: Number(worker.outstandingServiceFee ?? 0)
         }, {

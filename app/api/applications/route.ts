@@ -1,10 +1,10 @@
 import { isSqlBackend, logDataMode } from "@/lib/data-backend";
-import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-user-profile";
+import { CurrentUserProfileError, getCurrentUserProfile, mergeFirestoreVerificationRecords } from "@/lib/current-user-profile";
 import { sendAppEmail } from "@/lib/app-email";
 import { adminDb } from "@/lib/firebase-admin";
 import { acceptLocalApplication, cancelLocalApplication, cancelLocalLiveApplication, completeLocalApplication, confirmLocalWorkerPaid, countLocalAcceptedApplications, countLocalActiveAcceptedApplications, createLocalApplication, getLocalJob, getLocalUser, listLocalApplications, requestLocalApplicationCompletion } from "@/lib/local-sql";
 import { serverDebug } from "@/lib/server-debug";
-import type { Role } from "@/types";
+import type { Role, UserProfile } from "@/types";
 import { calculateServiceFee } from "@/utils/money";
 import { workerCanApplyToJob, workerCanWork } from "@/utils/jobRules";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
@@ -323,11 +323,19 @@ export async function PATCH(request: NextRequest) {
         if (!applicationSnap.exists) throw new AuthRouteError("Application was not found.", 404);
         const application = applicationSnap.data() ?? {};
         if (application.workerId !== currentUser.uid) throw new AuthRouteError("You can only mark your own work complete.", 403);
-        const workerUserSnap = await transaction.get(db.collection("users").doc(currentUser.uid));
+        const [workerUserSnap, identityVerificationSnap] = await Promise.all([
+          transaction.get(db.collection("users").doc(currentUser.uid)),
+          transaction.get(db.collection("verifications").doc(currentUser.uid))
+        ]);
+        const workerProfile = mergeFirestoreVerificationRecords(
+          workerUserSnap.data() as Partial<UserProfile> | null,
+          identityVerificationSnap.exists ? identityVerificationSnap.data() : null,
+          null
+        ) ?? {};
         const workerStatus = workerCanWork({
-          verificationStatus: String(workerUserSnap.data()?.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
-          isLocked: workerUserSnap.data()?.isLocked === true,
-          outstandingServiceFee: Number(workerUserSnap.data()?.outstandingServiceFee ?? 0)
+          verificationStatus: workerProfile.verificationStatus ?? "not_submitted",
+          isLocked: workerProfile.isLocked === true,
+          outstandingServiceFee: Number(workerProfile.outstandingServiceFee ?? 0)
         });
         if (!workerStatus.ok) throw new AuthRouteError(workerStatus.reason, 403);
         const jobRef = db.collection("jobs").doc(String(application.jobId));
@@ -428,12 +436,20 @@ export async function PATCH(request: NextRequest) {
         const clientUserRef = db.collection("users").doc(String(application.clientId));
         const workerUserRef = db.collection("users").doc(currentUser.uid);
         const jobSnap = await transaction.get(jobRef);
-        const workerUserSnap = await transaction.get(workerUserRef);
+        const [workerUserSnap, identityVerificationSnap] = await Promise.all([
+          transaction.get(workerUserRef),
+          transaction.get(db.collection("verifications").doc(currentUser.uid))
+        ]);
         if (!jobSnap.exists) throw new AuthRouteError("Job was not found.", 404);
+        const workerProfile = mergeFirestoreVerificationRecords(
+          workerUserSnap.data() as Partial<UserProfile> | null,
+          identityVerificationSnap.exists ? identityVerificationSnap.data() : null,
+          null
+        ) ?? {};
         const workerStatus = workerCanWork({
-          verificationStatus: String(workerUserSnap.data()?.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
-          isLocked: workerUserSnap.data()?.isLocked === true,
-          outstandingServiceFee: Number(workerUserSnap.data()?.outstandingServiceFee ?? 0)
+          verificationStatus: workerProfile.verificationStatus ?? "not_submitted",
+          isLocked: workerProfile.isLocked === true,
+          outstandingServiceFee: Number(workerProfile.outstandingServiceFee ?? 0)
         });
         if (!workerStatus.ok) throw new AuthRouteError(workerStatus.reason, 403);
         transaction.set(applicationRef, { status: "completed", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -572,11 +588,20 @@ export async function PATCH(request: NextRequest) {
       const jobSnap = await transaction.get(jobRef);
       if (!jobSnap.exists) throw new AuthRouteError("Job was not found.", 404);
       const job = jobSnap.data() ?? {};
-      const workerSnap = await transaction.get(db.collection("users").doc(String(application.workerId)));
-      const worker = workerSnap.data() ?? {};
+      const workerId = String(application.workerId);
+      const [workerSnap, identityVerificationSnap, driverLicenseVerificationSnap] = await Promise.all([
+        transaction.get(db.collection("users").doc(workerId)),
+        transaction.get(db.collection("verifications").doc(workerId)),
+        transaction.get(db.collection("verifications").doc(`driver-license-${workerId}`))
+      ]);
+      const worker = mergeFirestoreVerificationRecords(
+        workerSnap.data() as Partial<UserProfile> | null,
+        identityVerificationSnap.exists ? identityVerificationSnap.data() : null,
+        driverLicenseVerificationSnap.exists ? driverLicenseVerificationSnap.data() : null
+      ) ?? {};
       const allowedWorker = workerCanApplyToJob({
-        verificationStatus: String(worker.verificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
-        driverLicenseVerificationStatus: String(worker.driverLicenseVerificationStatus ?? "not_submitted") as "not_submitted" | "pending" | "approved" | "rejected",
+        verificationStatus: worker.verificationStatus ?? "not_submitted",
+        driverLicenseVerificationStatus: worker.driverLicenseVerificationStatus ?? "not_submitted",
         isLocked: worker.isLocked === true,
         outstandingServiceFee: Number(worker.outstandingServiceFee ?? 0)
       }, {

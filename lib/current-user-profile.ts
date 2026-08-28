@@ -70,7 +70,7 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
   };
 }
 
-async function withFirestoreVerificationStatus(uid: string, profile: UserProfile | null): Promise<UserProfile | null> {
+export async function withFirestoreVerificationStatus<T extends Partial<UserProfile>>(uid: string, profile: T | null): Promise<T | null> {
   if (!profile) return profile;
 
   const [identitySnap, driverLicenseSnap] = await Promise.all([
@@ -78,8 +78,21 @@ async function withFirestoreVerificationStatus(uid: string, profile: UserProfile
     adminDb().collection("verifications").doc(`driver-license-${uid}`).get()
   ]);
 
+  return mergeFirestoreVerificationRecords(
+    profile,
+    identitySnap.exists ? identitySnap.data() : null,
+    driverLicenseSnap.exists ? driverLicenseSnap.data() : null
+  );
+}
+
+export function mergeFirestoreVerificationRecords<T extends Partial<UserProfile>>(
+  profile: T | null,
+  identity: Record<string, unknown> | null | undefined,
+  driverLicense: Record<string, unknown> | null | undefined
+): T | null {
+  if (!profile) return profile;
+
   const nextProfile = { ...profile };
-  const identity = identitySnap.exists ? identitySnap.data() : null;
   const identityStatus = identity?.status;
   if (isVerificationStatus(identityStatus)) {
     nextProfile.verificationStatus = identityStatus;
@@ -88,7 +101,6 @@ async function withFirestoreVerificationStatus(uid: string, profile: UserProfile
       : null;
   }
 
-  const driverLicense = driverLicenseSnap.exists ? driverLicenseSnap.data() : null;
   const driverLicenseStatus = driverLicense?.status;
   if (isVerificationStatus(driverLicenseStatus)) {
     nextProfile.driverLicenseVerificationStatus = driverLicenseStatus;

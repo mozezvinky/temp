@@ -167,6 +167,22 @@ function profileFromDocument(user: User, data: Record<string, unknown>): UserPro
   };
 }
 
+function profileDataWithVerificationRecords(data: Record<string, unknown>, identity: Record<string, unknown> | null, driverLicense: Record<string, unknown> | null) {
+  const merged = { ...data };
+  if (identity) {
+    const status = normalizeVerificationStatus(identity.status);
+    merged.verificationStatus = status;
+    merged.identityVerificationStatus = status;
+    merged.verificationRejectionReason = status === "rejected" && typeof identity.rejectionReason === "string" ? identity.rejectionReason : null;
+  }
+  if (driverLicense) {
+    const status = normalizeVerificationStatus(driverLicense.status);
+    merged.driverLicenseVerificationStatus = status;
+    merged.driverLicenseRejectionReason = status === "rejected" && typeof driverLicense.rejectionReason === "string" ? driverLicense.rejectionReason : null;
+  }
+  return merged;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -274,27 +290,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         cancelled = true;
       };
     }
-    return onSnapshot(
-      doc(db, "users", user.uid),
-      snapshot => {
-        if (snapshot.exists()) {
-          if (typeof window !== "undefined") {
-            window.sessionStorage.removeItem("temp.profile.uid");
-            window.sessionStorage.removeItem("temp.profile.role");
-          }
-          setProfile(profileFromDocument(user, snapshot.data()));
-        } else {
-          const role = storedRecoveredRole(user.uid);
-          setProfile(role ? recoveredProfile(user, role) : null);
+    const activeUser = user;
+    let userData: Record<string, unknown> | null | undefined;
+    let identityVerificationData: Record<string, unknown> | null | undefined;
+    let driverLicenseVerificationData: Record<string, unknown> | null | undefined;
+
+    function updateProfileFromSnapshots() {
+      if (userData === undefined || identityVerificationData === undefined || driverLicenseVerificationData === undefined) return;
+      if (userData) {
+        if (typeof window !== "undefined") {
+          window.sessionStorage.removeItem("temp.profile.uid");
+          window.sessionStorage.removeItem("temp.profile.role");
         }
-        setProfileLoading(false);
+        setProfile(profileFromDocument(activeUser, profileDataWithVerificationRecords(userData, identityVerificationData, driverLicenseVerificationData)));
+      } else {
+        const role = storedRecoveredRole(activeUser.uid);
+        setProfile(role ? recoveredProfile(activeUser, role) : null);
+      }
+      setProfileLoading(false);
+    }
+
+    const unsubscribeUser = onSnapshot(
+      doc(db, "users", activeUser.uid),
+      snapshot => {
+        userData = snapshot.exists() ? snapshot.data() : null;
+        updateProfileFromSnapshots();
       },
       () => {
-        const role = storedRecoveredRole(user.uid);
-        setProfile(role ? recoveredProfile(user, role) : null);
-        setProfileLoading(false);
+        userData = null;
+        updateProfileFromSnapshots();
       }
     );
+    const unsubscribeIdentityVerification = onSnapshot(
+      doc(db, "verifications", activeUser.uid),
+      snapshot => {
+        identityVerificationData = snapshot.exists() ? snapshot.data() : null;
+        updateProfileFromSnapshots();
+      },
+      () => {
+        identityVerificationData = null;
+        updateProfileFromSnapshots();
+      }
+    );
+    const unsubscribeDriverLicenseVerification = onSnapshot(
+      doc(db, "verifications", `driver-license-${activeUser.uid}`),
+      snapshot => {
+        driverLicenseVerificationData = snapshot.exists() ? snapshot.data() : null;
+        updateProfileFromSnapshots();
+      },
+      () => {
+        driverLicenseVerificationData = null;
+        updateProfileFromSnapshots();
+      }
+    );
+    return () => {
+      unsubscribeUser();
+      unsubscribeIdentityVerification();
+      unsubscribeDriverLicenseVerification();
+    };
   }, [refreshProfile, user]);
 
   const loading = authLoading || profileLoading;
