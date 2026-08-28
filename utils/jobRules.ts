@@ -41,7 +41,7 @@ export function workerCanApplyToJob(worker: Pick<UserProfile, "verificationStatu
   const base = workerCanWork(worker);
   if (!base.ok) return base;
   if (requiresDriverLicenseForJob(job) && !isApprovedVerification(worker?.driverLicenseVerificationStatus)) {
-    return { ok: false, reason: "An approved driver's license is required before applying for driver, rider, courier, or delivery jobs." };
+    return { ok: false, reason: "You do not have a current verified driving licence" };
   }
   return { ok: true, reason: "" };
 }
