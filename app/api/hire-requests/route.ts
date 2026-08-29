@@ -1,6 +1,7 @@
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { createLocalDirectHireRequest, getLocalUser, respondLocalDirectHireRequest } from "@/lib/local-sql";
+import { sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatusFromRecords } from "@/lib/worker-verification";
 import { clientCanPost } from "@/utils/jobRules";
 import { normalizeVerificationStatus } from "@/utils/verification";
@@ -59,7 +60,15 @@ export async function POST(request: NextRequest) {
 
     const jobRef = db.collection("jobs").doc();
     const applicationRef = db.collection("applications").doc();
-    const notificationRef = db.collection("notifications").doc();
+    const notification = {
+      userId: input.workerId,
+      type: "direct_hire_received",
+      title: "Direct hire request",
+      message: `${String(effectiveClient.displayName ?? "A client")} sent you a direct hire request for ${input.title}.`,
+      link: "/dashboard",
+      emailSubject: "Direct hire request on COPIC",
+      eventId: `direct-hire:${applicationRef.id}:created`
+    };
     const payload = {
       id: applicationRef.id,
       jobId: jobRef.id,
@@ -102,16 +111,9 @@ export async function POST(request: NextRequest) {
       updatedAt: FieldValue.serverTimestamp()
     });
     batch.set(applicationRef, payload);
-    batch.set(notificationRef, {
-      id: notificationRef.id,
-      userId: input.workerId,
-      title: "Direct hire request",
-      body: `${String(effectiveClient.displayName ?? "A client")} sent you a direct hire request for ${input.title}.`,
-      read: false,
-      href: "/dashboard",
-      createdAt: FieldValue.serverTimestamp()
-    });
+    setNotification(batch, db, notification);
     await batch.commit();
+    sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, request: payload });
   } catch (error) {
     const status = error instanceof AuthRouteError ? error.status : 500;
@@ -138,6 +140,15 @@ export async function PATCH(request: NextRequest) {
 
     const db = adminDb();
     const applicationRef = db.collection("applications").doc(applicationId);
+    let notification: {
+      userId: string;
+      type: string;
+      title: string;
+      message: string;
+      link: string;
+      emailSubject: string;
+      eventId: string;
+    } | null = null;
     const result = await db.runTransaction(async transaction => {
       const applicationSnap = await transaction.get(applicationRef);
       if (!applicationSnap.exists) throw new AuthRouteError("Hire request was not found.", 404);
@@ -181,20 +192,21 @@ export async function PATCH(request: NextRequest) {
           updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
       }
-      const notificationRef = db.collection("notifications").doc();
-      transaction.set(notificationRef, {
-        id: notificationRef.id,
-        userId: application.clientId,
+      notification = {
+        userId: String(application.clientId),
+        type: response === "accept" ? "direct_hire_accepted" : "direct_hire_rejected",
         title: response === "accept" ? "Direct hire accepted" : "Direct hire rejected",
-        body: response === "accept"
+        message: response === "accept"
           ? `${application.workerName ?? "The worker"} accepted your direct hire request for ${application.jobTitle ?? "the job"}.`
           : `${application.workerName ?? "The worker"} rejected your direct hire request for ${application.jobTitle ?? "the job"}.`,
-        read: false,
-        href: response === "accept" ? "/find-work" : "/workers",
-        createdAt: FieldValue.serverTimestamp()
-      });
+        link: response === "accept" ? "/find-work" : "/workers",
+        emailSubject: response === "accept" ? "Direct hire accepted on COPIC" : "Direct hire declined on COPIC",
+        eventId: `direct-hire:${applicationSnap.id}:${response}`
+      };
+      setNotification(transaction, db, notification);
       return { id: applicationSnap.id, ...application, status };
     });
+    if (notification) sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, request: result });
   } catch (error) {
     const status = error instanceof AuthRouteError ? error.status : 500;

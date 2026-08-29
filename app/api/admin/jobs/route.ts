@@ -2,6 +2,7 @@ import { adminErrorStatus, requireAdmin, writeAdminAuditLog } from "@/lib/admin-
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminDb } from "@/lib/firebase-admin";
 import { localDb } from "@/lib/local-sql";
+import { notifyUser } from "@/lib/notifications-server";
 import type { JobStatus } from "@/types";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -149,15 +150,14 @@ async function sendPaymentWall(request: NextRequest, admin: Awaited<ReturnType<t
   const jobSnap = await db.collection("jobs").doc(String(timeline.jobId)).get();
   if (!jobSnap.exists) return NextResponse.json({ error: "Job was not found." }, { status: 404 });
   const job = jobSnap.data() ?? {};
-  const notificationRef = db.collection("notifications").doc();
-  await notificationRef.set({
-    id: notificationRef.id,
+  await notifyUser(db, {
     userId: String(job.clientId),
+    type: "payment_required",
     title: "Payment required",
-    body: `Pay timeline ${timeline.timelineNumber ?? ""} for ${job.title ?? "your job"}. Worker: ${timeline.workerId ?? "worker"}.`,
-    read: false,
-    href: "/find-work",
-    createdAt: FieldValue.serverTimestamp()
+    message: `Pay timeline ${timeline.timelineNumber ?? ""} for ${job.title ?? "your job"}. Worker: ${timeline.workerId ?? "worker"}.`,
+    link: "/find-work",
+    emailSubject: "Payment required on COPIC",
+    eventId: `timeline:${timelineId}:payment-required`
   });
   await writeAdminAuditLog(request, { admin, targetUserId: String(job.clientId ?? ""), actionType: "timeline.payment_wall", oldValue: timeline, newValue: { timelineId }, reason });
   return NextResponse.json({ success: true });

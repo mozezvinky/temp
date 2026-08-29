@@ -1,6 +1,7 @@
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { getLatestLocalServiceFeePayment, getLocalUser, submitLocalServiceFeePayment } from "@/lib/local-sql";
+import { sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { isServiceFeeScreenshot, saveServiceFeeScreenshot } from "@/lib/service-fee-upload-storage";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -45,6 +46,15 @@ export async function POST(request: NextRequest) {
     const ref = db.collection("service_fee_payments").doc();
     const screenshotUrl = await saveServiceFeeScreenshot(decoded.uid, ref.id, screenshot);
     const status = "payment_pending_verification";
+    const notification = {
+      userId: decoded.uid,
+      type: "service_fee_submitted",
+      title: "Payment submitted",
+      message: "Waiting for admin confirmation.",
+      link: "/dashboard",
+      emailSubject: "COPIC service fee payment submitted",
+      eventId: `service-fee-payment:${ref.id}:submitted`
+    };
     const payload = {
       id: ref.id,
       workerId: decoded.uid,
@@ -65,17 +75,9 @@ export async function POST(request: NextRequest) {
         lockReason: "Waiting for admin confirmation",
         updatedAt: FieldValue.serverTimestamp()
       }, { merge: true });
-      const notificationRef = db.collection("notifications").doc();
-      transaction.set(notificationRef, {
-        id: notificationRef.id,
-        userId: decoded.uid,
-        title: "Payment submitted",
-        body: "Waiting for admin confirmation.",
-        read: false,
-        href: "/dashboard",
-        createdAt: FieldValue.serverTimestamp()
-      });
+      setNotification(transaction, db, notification);
     });
+    sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, payment: payload });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to submit payment." }, { status: 500 });

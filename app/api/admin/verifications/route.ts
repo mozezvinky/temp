@@ -3,6 +3,7 @@ import { isSqlBackend } from "@/lib/data-backend";
 import { adminDb, adminStorage } from "@/lib/firebase-admin";
 import { firebaseStorageBucketCandidates } from "@/lib/firebase-storage-bucket";
 import { localDb } from "@/lib/local-sql";
+import { sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import type { VerificationStatus } from "@/types";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -112,14 +113,24 @@ export async function PATCH(request: NextRequest) {
     const userRef = db.collection("users").doc(userId);
     const existing = await verificationRef.get();
     if (!existing.exists) return NextResponse.json({ error: "Verification request not found." }, { status: 404 });
-    const notificationRef = db.collection("notifications").doc();
+    const notification = {
+      userId,
+      type: kind === "driver_license" ? `driver_license_${status}` : `identity_${status}`,
+      title: status === "approved" ? (kind === "driver_license" ? "Driver's license verified" : "Account verified") : (kind === "driver_license" ? "Driver's license rejected" : "ID verification rejected"),
+      message: status === "approved" ? (kind === "driver_license" ? "Your driver's license is now verified." : "Your account is now Verified.") : reason,
+      link: "/profile",
+      emailSubject: status === "approved" ? "Verification approved on COPIC" : "Verification update on COPIC",
+      eventId: `verification:${kind}:${userId}:${status}`,
+      essential: true
+    };
     await db.runTransaction(async transaction => {
       transaction.set(verificationRef, { status, [kind === "driver_license" ? "driverLicenseVerificationStatus" : "identityVerificationStatus"]: status, rejectionReason: status === "rejected" ? reason : null, reviewedBy: admin.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       transaction.set(userRef, kind === "driver_license"
         ? { driverLicenseVerificationStatus: status, driverLicenseRejectionReason: status === "rejected" ? reason : null, updatedAt: FieldValue.serverTimestamp() }
         : { verificationStatus: status, identityVerificationStatus: status, verificationRejectionReason: status === "rejected" ? reason : null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      transaction.set(notificationRef, { id: notificationRef.id, userId, title: status === "approved" ? (kind === "driver_license" ? "Driver's license verified" : "Account verified") : (kind === "driver_license" ? "Driver's license rejected" : "ID verification rejected"), body: status === "approved" ? (kind === "driver_license" ? "Your driver's license is now verified." : "Your account is now Verified.") : reason, href: "/profile", read: false, createdAt: FieldValue.serverTimestamp() });
+      setNotification(transaction, db, notification);
     });
+    sendNotificationEmailsAfterCommit(db, [notification]);
     await writeAdminAuditLog(request, { admin, targetUserId: userId, actionType: kind === "driver_license" ? "driver_license.manual_review" : "kyc.manual_review", oldValue: { status: existing.data()?.status }, newValue: { status, rejectionReason: status === "rejected" ? reason : null }, reason });
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -3,6 +3,7 @@ import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-us
 import { sendAppEmail } from "@/lib/app-email";
 import { adminDb } from "@/lib/firebase-admin";
 import { acceptLocalApplication, cancelLocalApplication, cancelLocalLiveApplication, completeLocalApplication, confirmLocalWorkerPaid, countLocalAcceptedApplications, countLocalActiveAcceptedApplications, createLocalApplication, getLocalJob, getLocalUser, listLocalApplications, requestLocalApplicationCompletion } from "@/lib/local-sql";
+import { type CopicNotificationInput, sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { serverDebug } from "@/lib/server-debug";
 import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatus, getWorkerVerificationStatusFromRecords, getWorkerWorkEligibility, logApplyEligibilityCheck } from "@/lib/worker-verification";
 import type { Role } from "@/types";
@@ -107,7 +108,6 @@ export async function POST(request: NextRequest) {
       db.collection("users").doc(currentUser.uid).get(),
       db.collection("jobs").doc(jobId).get()
     ]);
-    const worker = workerSnap.data();
     const job = jobSnap.data();
     if (!workerSnap.exists || currentUser.profile?.role !== "worker") return NextResponse.json({ error: "Use a worker account to apply." }, { status: 403 });
     if (job?.rehireOfJobId) return NextResponse.json({ error: "This job is no longer available." }, { status: 400 });
@@ -136,7 +136,6 @@ export async function POST(request: NextRequest) {
     const applicationRef = db.collection("applications").doc();
     const activityRef = db.collection("activities").doc();
     const clientActivityRef = db.collection("activities").doc();
-    const notificationRef = db.collection("notifications").doc();
     const payload = {
       id: applicationRef.id,
       jobId,
@@ -148,6 +147,15 @@ export async function POST(request: NextRequest) {
       status: "pending",
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
+    };
+    const notification: CopicNotificationInput = {
+      userId: payload.clientId,
+      type: "application_received",
+      title: "New application",
+      message: `A worker applied for ${payload.jobTitle}.`,
+      link: `/applications?application=${applicationRef.id}`,
+      emailSubject: "New application on COPIC",
+      eventId: `application:${applicationRef.id}:created`
     };
     const batch = db.batch();
     batch.set(applicationRef, payload);
@@ -173,25 +181,9 @@ export async function POST(request: NextRequest) {
       read: false,
       createdAt: FieldValue.serverTimestamp()
     });
-    batch.set(notificationRef, {
-      id: notificationRef.id,
-      userId: payload.clientId,
-      title: "New application",
-      body: `A worker applied for ${payload.jobTitle}.`,
-      read: false,
-      href: `/applications?application=${applicationRef.id}`,
-      createdAt: FieldValue.serverTimestamp()
-    });
+    setNotification(batch, db, notification);
     await batch.commit();
-    if (payload.clientId) {
-      void db.collection("users").doc(payload.clientId).get()
-        .then(clientSnap => sendNewApplicationEmail(
-          typeof clientSnap.data()?.email === "string" ? clientSnap.data()?.email : null,
-          payload.jobTitle,
-          typeof worker?.displayName === "string" ? worker.displayName : "A worker"
-        ))
-        .catch(error => console.error("[api/applications] new application email failed", error));
-    }
+    sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, application: payload });
   } catch (error) {
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
@@ -263,6 +255,7 @@ export async function PATCH(request: NextRequest) {
     const db = adminDb();
     const applicationRef = db.collection("applications").doc(applicationId);
     if (action === "cancel") {
+      let notification: CopicNotificationInput | null = null;
       const result = await db.runTransaction(async transaction => {
         const today = new Date().toISOString().slice(0, 10);
         const cancellationRef = db.collection("workerCancellationDays").doc(`${currentUser.uid}_${today}`);
@@ -283,18 +276,19 @@ export async function PATCH(request: NextRequest) {
           count: FieldValue.increment(1),
           updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
-        const notificationRef = db.collection("notifications").doc();
-        transaction.set(notificationRef, {
-          id: notificationRef.id,
-          userId: application.clientId,
+        notification = {
+          userId: String(application.clientId),
+          type: "application_cancelled",
           title: "Application cancelled",
-          body: `A worker cancelled an application for ${application.jobTitle ?? "your job"}.`,
-          read: false,
-          href: `/completed-requests?application=${applicationRef.id}`,
-          createdAt: FieldValue.serverTimestamp()
-        });
+          message: `A worker cancelled an application for ${application.jobTitle ?? "your job"}.`,
+          link: `/applications?application=${applicationRef.id}`,
+          emailSubject: "Application cancelled on COPIC",
+          eventId: `application:${applicationSnap.id}:cancelled`
+        };
+        setNotification(transaction, db, notification);
         return { id: applicationSnap.id, ...application, status: "withdrawn" };
       });
+      if (notification) sendNotificationEmailsAfterCommit(db, [notification]);
       return NextResponse.json({ success: true, application: result });
     }
     if (action === "worker_cancel_live") {
@@ -303,7 +297,10 @@ export async function PATCH(request: NextRequest) {
         if (!applicationSnap.exists) throw new AuthRouteError("Application was not found.", 404);
         const application = applicationSnap.data() ?? {};
         if (application.workerId !== currentUser.uid) throw new AuthRouteError("You can only cancel your own live jobs.", 403);
-        if (!["accepted", "completion_requested", "payment_sent"].includes(String(application.status))) {
+        if (["completion_requested", "payment_sent", "completed"].includes(String(application.status))) {
+          throw new AuthRouteError("This job has already been marked complete and can no longer be cancelled.", 400);
+        }
+        if (application.status !== "accepted") {
           throw new AuthRouteError("Only live jobs can be cancelled with the no-pay warning.", 400);
         }
         const jobRef = db.collection("jobs").doc(String(application.jobId));
@@ -313,15 +310,14 @@ export async function PATCH(request: NextRequest) {
         transaction.set(applicationRef, { status: "cancelled", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         transaction.set(jobRef, { status: "cancelled", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         transaction.set(conversationRef, { locked: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        const clientNotificationRef = db.collection("notifications").doc();
-        transaction.set(clientNotificationRef, {
-          id: clientNotificationRef.id,
-          userId: application.clientId,
+        setNotification(transaction, db, {
+          userId: String(application.clientId),
+          type: "live_job_cancelled",
           title: "Live job cancelled",
-          body: `${application.workerName ?? "A worker"} cancelled ${application.jobTitle ?? "your live job"} with no pay due.`,
-          read: false,
-          href: `/applications?application=${applicationSnap.id}`,
-          createdAt: FieldValue.serverTimestamp()
+          message: `${application.workerName ?? "A worker"} cancelled ${application.jobTitle ?? "your live job"} with no pay due.`,
+          link: `/applications?application=${applicationSnap.id}`,
+          emailSubject: "Live job cancelled on COPIC",
+          eventId: `application:${applicationSnap.id}:live-cancelled`
         });
         const workerActivityRef = db.collection("activities").doc();
         transaction.set(workerActivityRef, {
@@ -337,6 +333,15 @@ export async function PATCH(request: NextRequest) {
         });
         return { id: applicationSnap.id, ...application, status: "cancelled", jobStatus: "cancelled" };
       });
+      sendNotificationEmailsAfterCommit(db, [{
+        userId: String((result as Record<string, unknown>).clientId ?? ""),
+        type: "live_job_cancelled",
+        title: "Live job cancelled",
+        message: `${String((result as Record<string, unknown>).workerName ?? "A worker")} cancelled ${String((result as Record<string, unknown>).jobTitle ?? "your live job")} with no pay due.`,
+        link: `/applications?application=${applicationId}`,
+        emailSubject: "Live job cancelled on COPIC",
+        eventId: `application:${applicationId}:live-cancelled`
+      }]);
       return NextResponse.json({ success: true, application: result });
     }
     if (action === "worker_complete") {
@@ -412,34 +417,41 @@ export async function PATCH(request: NextRequest) {
           }
           transaction.set(applicationRef, { status: "completion_requested", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
           transaction.set(jobRef, { status: "live", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-          const notificationRef = db.collection("notifications").doc();
           const paymentUnit = String(job.durationUnit ?? "timeline").replace(/s$/, "") || "timeline";
-          transaction.set(notificationRef, {
-            id: notificationRef.id,
-            userId: application.clientId,
+          setNotification(transaction, db, {
+            userId: String(application.clientId),
+            type: "timeline_completion_requested",
             title: "Pending payment",
-            body: `Pending payment: ${submittedTimelineNumbers.length} ${paymentUnit}${submittedTimelineNumbers.length === 1 ? "" : "s"} for ${application.jobTitle ?? "your job"}.`,
-            read: false,
-            href: "/find-work",
-            createdAt: FieldValue.serverTimestamp()
+            message: `Pending payment: ${submittedTimelineNumbers.length} ${paymentUnit}${submittedTimelineNumbers.length === 1 ? "" : "s"} for ${application.jobTitle ?? "your job"}.`,
+            link: "/find-work",
+            emailSubject: "Job completion requested on COPIC",
+            eventId: `application:${applicationSnap.id}:timeline-completion-requested:${submittedTimelineNumbers.join("-")}`
           });
           return { id: applicationSnap.id, ...application, status: "completion_requested" };
         }
         if (application.status === "completion_requested") return { id: applicationSnap.id, ...application, status: "completion_requested" };
         if (application.status !== "accepted") throw new AuthRouteError("Only accepted jobs can be marked complete.", 400);
         transaction.set(applicationRef, { status: "completion_requested", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        const notificationRef = db.collection("notifications").doc();
-        transaction.set(notificationRef, {
-          id: notificationRef.id,
-          userId: application.clientId,
+        setNotification(transaction, db, {
+          userId: String(application.clientId),
+          type: "completion_requested",
           title: "Completion requested",
-          body: `${application.workerName ?? "A worker"} marked ${application.jobTitle ?? "your job"} as complete. Confirm completion, pay the worker directly, then the worker must confirm receiving payment.`,
-          read: false,
-          href: `/completed-requests?application=${applicationRef.id}`,
-          createdAt: FieldValue.serverTimestamp()
+          message: `${application.workerName ?? "A worker"} marked ${application.jobTitle ?? "your job"} as complete. Please confirm that the job has been completed and payment has been made directly to the worker.`,
+          link: `/completed-requests?application=${applicationRef.id}`,
+          emailSubject: "Job completion requested on COPIC",
+          eventId: `application:${applicationSnap.id}:completion-requested`
         });
         return { id: applicationSnap.id, ...application, status: "completion_requested" };
       });
+      sendNotificationEmailsAfterCommit(db, [{
+        userId: String((result as Record<string, unknown>).clientId ?? ""),
+        type: "completion_requested",
+        title: "Completion requested",
+        message: `${String((result as Record<string, unknown>).workerName ?? "A worker")} marked ${String((result as Record<string, unknown>).jobTitle ?? "your job")} as complete. Please confirm that the job has been completed and payment has been made directly to the worker.`,
+        link: `/completed-requests?application=${applicationId}`,
+        emailSubject: "Job completion requested on COPIC",
+        eventId: `application:${applicationId}:completion-requested`
+      }]);
       return NextResponse.json({ success: true, application: result });
     }
     if (action === "worker_confirm_payment") {
@@ -480,29 +492,47 @@ export async function PATCH(request: NextRequest) {
         const serviceFee = calculateServiceFee(Number(jobSnap.data()?.payAmount ?? jobSnap.data()?.rateAmount ?? application.jobAmount ?? 0));
         transaction.set(workerUserRef, { completedJobs: FieldValue.increment(1), isLocked: true, outstandingServiceFee: FieldValue.increment(serviceFee), lockReason: "Service Fee Payment Required", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         transaction.set(clientUserRef, { completedJobs: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        const workerNotificationRef = db.collection("notifications").doc();
-        transaction.set(workerNotificationRef, {
-          id: workerNotificationRef.id,
-          userId: application.workerId,
+        setNotification(transaction, db, {
+          userId: String(application.workerId),
+          type: "service_fee_due",
           title: "Account action required",
-          body: "job is complete because you confirmed receiving direct payment. Open your dashboard to continue using Copic.",
-          read: false,
-          href: "/dashboard",
-          createdAt: FieldValue.serverTimestamp()
+          message: `${application.jobTitle ?? "Your job"} is complete because you confirmed receiving direct payment. COPIC service fee due: KES ${serviceFee.toLocaleString()}. Pay this service fee to unlock your worker account and continue applying for and accepting jobs.`,
+          link: "/dashboard",
+          emailSubject: "COPIC service fee due",
+          eventId: `application:${applicationSnap.id}:service-fee-due`
         });
-        const clientNotificationRef = db.collection("notifications").doc();
-        transaction.set(clientNotificationRef, {
-          id: clientNotificationRef.id,
-          userId: application.clientId,
+        setNotification(transaction, db, {
+          userId: String(application.clientId),
+          type: "worker_confirmed_payment",
           title: "Worker confirmed payment",
-          body: `${application.workerName ?? "The worker"} confirmed receiving payment for ${application.jobTitle ?? "your job"}. The job is now complete.`,
-          read: false,
-          href: `/applications?application=${applicationRef.id}`,
-          createdAt: FieldValue.serverTimestamp()
+          message: `${application.workerName ?? "The worker"} confirmed receiving payment for ${application.jobTitle ?? "your job"}. The job is now complete.`,
+          link: `/applications?application=${applicationRef.id}`,
+          emailSubject: "Worker confirmed payment on COPIC",
+          eventId: `application:${applicationSnap.id}:worker-confirmed-payment`
         });
         serverDebug("Worker confirmed direct payment received", { applicationId, workerId: currentUser.uid });
         return { id: applicationSnap.id, ...application, status: "completed", workerLocked: true, outstandingServiceFee: serviceFee };
       });
+      sendNotificationEmailsAfterCommit(db, [
+        {
+          userId: String((result as Record<string, unknown>).workerId ?? ""),
+          type: "service_fee_due",
+          title: "Account action required",
+          message: `${String((result as Record<string, unknown>).jobTitle ?? "Your job")} is complete because you confirmed receiving direct payment. COPIC service fee due: KES ${Number((result as Record<string, unknown>).outstandingServiceFee ?? 0).toLocaleString()}. Pay this service fee to unlock your worker account and continue applying for and accepting jobs.`,
+          link: "/dashboard",
+          emailSubject: "COPIC service fee due",
+          eventId: `application:${applicationId}:service-fee-due`
+        },
+        {
+          userId: String((result as Record<string, unknown>).clientId ?? ""),
+          type: "worker_confirmed_payment",
+          title: "Worker confirmed payment",
+          message: `${String((result as Record<string, unknown>).workerName ?? "The worker")} confirmed receiving payment for ${String((result as Record<string, unknown>).jobTitle ?? "your job")}. The job is now complete.`,
+          link: `/applications?application=${applicationId}`,
+          emailSubject: "Worker confirmed payment on COPIC",
+          eventId: `application:${applicationId}:worker-confirmed-payment`
+        }
+      ]);
       return NextResponse.json({ success: true, application: result });
     }
     if (action === "complete") {
@@ -546,28 +576,26 @@ export async function PATCH(request: NextRequest) {
             transaction.set(workerUserRef, { completedJobs: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
             transaction.set(db.collection("users").doc(String(application.clientId)), { completedJobs: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
           }
-          const notificationRef = db.collection("notifications").doc();
           const paymentUnit = String(job.durationUnit ?? "timeline").replace(/s$/, "") || "timeline";
           const paymentUnitTitle = paymentUnit.charAt(0).toUpperCase() + paymentUnit.slice(1);
-          transaction.set(notificationRef, {
-            id: notificationRef.id,
-            userId: application.workerId,
+          setNotification(transaction, db, {
+            userId: String(application.workerId),
+            type: "timeline_paid",
             title: `${paymentUnitTitle} paid`,
-            body: `${payableDocs.length} ${paymentUnit} payment${payableDocs.length === 1 ? "" : "s"} marked paid for ${application.jobTitle ?? "your job"}. Service fee due: KES ${serviceFee.toLocaleString()}.`,
-            read: false,
-            href: "/dashboard",
-            createdAt: FieldValue.serverTimestamp()
+            message: `${payableDocs.length} ${paymentUnit} payment${payableDocs.length === 1 ? "" : "s"} marked paid for ${application.jobTitle ?? "your job"}. Service fee due: KES ${serviceFee.toLocaleString()}.`,
+            link: "/dashboard",
+            emailSubject: "Payment confirmed on COPIC",
+            eventId: `application:${applicationSnap.id}:timeline-paid:${paidTimelineRatingScopeId}`
           });
           if (serviceFee > 0) {
-            const serviceFeeNotificationRef = db.collection("notifications").doc();
-            transaction.set(serviceFeeNotificationRef, {
-              id: serviceFeeNotificationRef.id,
-              userId: application.workerId,
+            setNotification(transaction, db, {
+              userId: String(application.workerId),
+              type: "service_fee_due",
               title: "Account action required",
-              body: `A ${paymentUnit} payment was marked paid. Pay the KES ${serviceFee.toLocaleString()} service fee to continue using Copic.`,
-              read: false,
-              href: "/dashboard",
-              createdAt: FieldValue.serverTimestamp()
+              message: `A ${paymentUnit} payment was marked paid. Pay the KES ${serviceFee.toLocaleString()} COPIC service fee to unlock your worker account and continue using COPIC.`,
+              link: "/dashboard",
+              emailSubject: "COPIC service fee due",
+              eventId: `application:${applicationSnap.id}:timeline-service-fee-due:${paidTimelineRatingScopeId}`
             });
           }
           return { id: applicationSnap.id, ...application, status: allPaid ? "completed" : "accepted", workerLocked: serviceFee > 0, outstandingServiceFee: serviceFee, paidTimelineNumbers, paidTimelineRatingScopeId };
@@ -576,19 +604,27 @@ export async function PATCH(request: NextRequest) {
         const amount = Number(jobSnap.data()?.payAmount ?? jobSnap.data()?.rateAmount ?? application.jobAmount ?? 0);
         transaction.set(applicationRef, { status: "payment_sent", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         if (jobSnap.exists) transaction.set(jobRef, { status: "live", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        const notificationRef = db.collection("notifications").doc();
-        transaction.set(notificationRef, {
-          id: notificationRef.id,
-          userId: application.workerId,
+        setNotification(transaction, db, {
+          userId: String(application.workerId),
+          type: "payment_sent",
           title: "Payment sent",
-          body: `${application.jobTitle ?? "Your job"} has been paid directly by the client. Confirm only after the money has reached you.`,
-          read: false,
-          href: `/applications?application=${applicationRef.id}`,
-          createdAt: FieldValue.serverTimestamp()
+          message: `${application.jobTitle ?? "Your job"} has been paid directly by the client. Confirm only after the money has reached you.`,
+          link: `/applications?application=${applicationRef.id}`,
+          emailSubject: "Payment confirmation needed on COPIC",
+          eventId: `application:${applicationSnap.id}:payment-sent`
         });
         serverDebug("Client marked direct worker payment sent", { applicationId, clientId: currentUser.uid, amount });
         return { id: applicationSnap.id, ...application, status: "payment_sent" };
       });
+      sendNotificationEmailsAfterCommit(db, [{
+        userId: String((result as Record<string, unknown>).workerId ?? ""),
+        type: "payment_sent",
+        title: "Payment sent",
+        message: `${String((result as Record<string, unknown>).jobTitle ?? "Your job")} has been paid directly by the client. Confirm only after the money has reached you.`,
+        link: `/applications?application=${applicationId}`,
+        emailSubject: "Payment confirmation needed on COPIC",
+        eventId: `application:${applicationId}:payment-sent`
+      }]);
       serverDebug("Application payment sent", { applicationId, clientId: currentUser.uid, status: result.status });
       return NextResponse.json({ success: true, application: result });
     }
@@ -652,39 +688,39 @@ export async function PATCH(request: NextRequest) {
           acceptedSnapshot.docs.forEach(doc => {
             if (doc.id !== applicationSnap.id && doc.data().status === "pending") {
               transaction.set(doc.ref, { status: "rejected", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-              const rejectedNotificationRef = db.collection("notifications").doc();
-              transaction.set(rejectedNotificationRef, {
-                id: rejectedNotificationRef.id,
-                userId: doc.data().workerId,
+              setNotification(transaction, db, {
+                userId: String(doc.data().workerId),
+                type: "application_rejected",
                 title: "Application rejected",
-                body: `${application.jobTitle ?? "This job"} has already been filled.`,
-                read: false,
-                href: "/applications",
-                createdAt: FieldValue.serverTimestamp()
+                message: `${application.jobTitle ?? "This job"} has already been filled.`,
+                link: "/applications",
+                emailSubject: "Application update on COPIC",
+                eventId: `application:${doc.id}:rejected`
               });
             }
           });
         }
       }
-      const notificationRef = db.collection("notifications").doc();
-      transaction.set(notificationRef, {
-        id: notificationRef.id,
-        userId: application.workerId,
+      setNotification(transaction, db, {
+        userId: String(application.workerId),
+        type: "application_accepted",
         title: "Application accepted",
-        body: `Your application for ${application.jobTitle ?? "a job"} was accepted.`,
-        read: false,
-        href: "/applications",
-        createdAt: FieldValue.serverTimestamp()
+        message: `Your application for ${application.jobTitle ?? "a job"} was accepted.`,
+        link: "/applications",
+        emailSubject: "Your COPIC application was accepted",
+        eventId: `application:${applicationSnap.id}:accepted`
       });
       return { id: applicationSnap.id, ...application, status: "accepted" };
     });
-    const acceptedApplication = result as Record<string, unknown>;
-    void db.collection("users").doc(String(acceptedApplication.workerId ?? "")).get()
-      .then(workerSnap => sendApplicationAcceptedEmail(
-        typeof workerSnap.data()?.email === "string" ? workerSnap.data()?.email : null,
-        typeof acceptedApplication.jobTitle === "string" ? acceptedApplication.jobTitle : "your job"
-      ))
-      .catch(error => console.error("[api/applications] accepted application email failed", error));
+    sendNotificationEmailsAfterCommit(db, [{
+      userId: String((result as Record<string, unknown>).workerId ?? ""),
+      type: "application_accepted",
+      title: "Application accepted",
+      message: `Your application for ${String((result as Record<string, unknown>).jobTitle ?? "a job")} was accepted.`,
+      link: "/applications",
+      emailSubject: "Your COPIC application was accepted",
+      eventId: `application:${applicationId}:accepted`
+    }]);
     return NextResponse.json({ success: true, application: result });
   } catch (error) {
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });

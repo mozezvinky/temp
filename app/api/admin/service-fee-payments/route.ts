@@ -2,6 +2,7 @@ import { adminDb } from "@/lib/firebase-admin";
 import { adminErrorStatus, requireAdmin, writeAdminAuditLog } from "@/lib/admin-security";
 import { isSqlBackend } from "@/lib/data-backend";
 import { listLocalOutstandingServiceFeeRequests, listLocalServiceFeePayments, reviewLocalServiceFeePayment } from "@/lib/local-sql";
+import { type CopicNotificationInput, sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { serviceFeeScreenshotUrl } from "@/lib/service-fee-upload-storage";
 import type { ServiceFeePayment } from "@/types";
 import { FieldValue } from "firebase-admin/firestore";
@@ -49,6 +50,7 @@ export async function PATCH(request: NextRequest) {
 
     const db = adminDb();
     const paymentRef = db.collection("service_fee_payments").doc(id);
+    let notification: CopicNotificationInput | null = null;
     const updated = await db.runTransaction(async transaction => {
       const snap = await transaction.get(paymentRef);
       if (!snap.exists) throw new Error("Payment was not found.");
@@ -65,24 +67,33 @@ export async function PATCH(request: NextRequest) {
           lockReason: remainingOutstanding > 0 ? "Service Fee Payment Required" : null,
           updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
-        const notificationRef = db.collection("notifications").doc();
-        transaction.set(notificationRef, {
-          id: notificationRef.id,
-          userId: payment.workerId,
+        notification = {
+          userId: String(payment.workerId),
+          type: remainingOutstanding > 0 ? "service_fee_partially_approved" : "worker_account_unlocked",
           title: remainingOutstanding > 0 ? "Account action required" : "Account unlocked",
-          body: remainingOutstanding > 0 ? `Your payment was approved, but KES ${remainingOutstanding.toLocaleString()} service fee is still due.` : "Your payment was approved. You can apply for jobs again.",
-          read: false,
-          href: remainingOutstanding > 0 ? "/dashboard" : "/jobs",
-          createdAt: FieldValue.serverTimestamp()
-        });
+          message: remainingOutstanding > 0 ? `Your payment was approved, but KES ${remainingOutstanding.toLocaleString()} service fee is still due.` : "Your payment was approved. You can apply for jobs again.",
+          link: remainingOutstanding > 0 ? "/dashboard" : "/jobs",
+          emailSubject: remainingOutstanding > 0 ? "COPIC service fee update" : "Your COPIC worker account is unlocked",
+          eventId: `service-fee-payment:${snap.id}:approved`
+        };
+        setNotification(transaction, db, notification);
       } else {
         transaction.set(paymentRef, { status: "rejected", rejectionReason: reason, reviewedAt: FieldValue.serverTimestamp(), reviewedBy: admin.uid }, { merge: true });
         transaction.set(workerRef, { isLocked: true, outstandingServiceFee: Number(payment.amount ?? 0), lockReason: reason, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        const notificationRef = db.collection("notifications").doc();
-        transaction.set(notificationRef, { id: notificationRef.id, userId: payment.workerId, title: "Payment rejected", body: `Your payment was rejected. Please retry.${reason ? ` Reason: ${reason}` : ""}`, read: false, href: "/dashboard", createdAt: FieldValue.serverTimestamp() });
+        notification = {
+          userId: String(payment.workerId),
+          type: "service_fee_rejected",
+          title: "Payment rejected",
+          message: `Your payment was rejected. Please retry.${reason ? ` Reason: ${reason}` : ""}`,
+          link: "/dashboard",
+          emailSubject: "COPIC service fee payment rejected",
+          eventId: `service-fee-payment:${snap.id}:rejected`
+        };
+        setNotification(transaction, db, notification);
       }
       return { id: snap.id, ...payment, workerId: String(payment.workerId ?? ""), status: action === "approve" ? "approved" : "rejected", rejectionReason: action === "reject" ? reason : null };
     });
+    if (notification) sendNotificationEmailsAfterCommit(db, [notification]);
     await writeAdminAuditLog(request, { admin, targetUserId: String(updated.workerId ?? ""), actionType: `service_fee.${action}`, oldValue: null, newValue: updated, reason: reason || "Service fee payment approved" });
     return NextResponse.json({ success: true, payment: updated });
   } catch (error) {

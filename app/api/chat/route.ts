@@ -2,6 +2,7 @@ import { isSqlBackend } from "@/lib/data-backend";
 import { adminAuth, adminDb, adminStorage } from "@/lib/firebase-admin";
 import { firebaseStorageBucketCandidates } from "@/lib/firebase-storage-bucket";
 import { createLocalMessage, getLocalConversation, listLocalConversations, listLocalMessages } from "@/lib/local-sql";
+import { sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -119,6 +120,8 @@ export async function POST(request: NextRequest) {
     const imageUrl = imageFile ? await saveChatImage(conversationId, decoded.uid, imageFile) : undefined;
     const messageRef = conversationRef.collection("items").doc();
     const receiverId = participants.find(id => id !== decoded.uid);
+    const senderSnap = await db.collection("users").doc(decoded.uid).get();
+    const senderName = typeof senderSnap.data()?.displayName === "string" ? senderSnap.data()?.displayName : "Someone";
     await db.runTransaction(async transaction => {
       transaction.set(messageRef, {
         id: messageRef.id,
@@ -131,18 +134,28 @@ export async function POST(request: NextRequest) {
       });
       transaction.set(conversationRef, { lastMessage: text || "Image message", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       if (receiverId) {
-        const notificationRef = db.collection("notifications").doc();
-        transaction.set(notificationRef, {
-          id: notificationRef.id,
+        setNotification(transaction, db, {
           userId: receiverId,
+          type: "chat_message_received",
           title: "New chat message",
-          body: text || "Image message",
-          read: false,
-          href: "/chat",
-          createdAt: FieldValue.serverTimestamp()
+          message: `You have a new message from ${senderName}.`,
+          link: "/chat",
+          emailSubject: "New message on COPIC",
+          eventId: `message:${messageRef.id}:received`
         });
       }
     });
+    if (receiverId) {
+      sendNotificationEmailsAfterCommit(db, [{
+        userId: receiverId,
+        type: "chat_message_received",
+        title: "New chat message",
+        message: `You have a new message from ${senderName}.`,
+        link: "/chat",
+        emailSubject: "New message on COPIC",
+        eventId: `message:${messageRef.id}:received`
+      }]);
+    }
     return NextResponse.json({ success: true, message: { id: messageRef.id } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to send message.";

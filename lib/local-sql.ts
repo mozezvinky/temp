@@ -1110,7 +1110,10 @@ export function cancelLocalLiveApplication(applicationId: string, workerId: stri
   const row = localDb().prepare("SELECT * FROM applications WHERE id = ? AND workerId = ?").get(applicationId, workerId);
   if (!row) return null;
   const application = rowToApplication(row);
-  if (!["accepted", "completion_requested", "payment_sent"].includes(application.status)) {
+  if (["completion_requested", "payment_sent", "completed"].includes(application.status)) {
+    throw new Error("This job has already been marked complete and can no longer be cancelled.");
+  }
+  if (application.status !== "accepted") {
     throw new Error("Only live jobs can be cancelled with the no-pay warning.");
   }
   const job = getLocalJob(application.jobId);

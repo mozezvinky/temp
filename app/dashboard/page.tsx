@@ -270,20 +270,20 @@ export default function DashboardPage() {
 
   if (demandedServiceFee > 0) {
     return (
-      <div className="fixed inset-0 z-[80] grid place-items-center overflow-hidden bg-black/80 p-4">
+      <div className="fixed inset-0 z-[80] grid place-items-center overflow-hidden bg-black/70 p-4">
         <Card className="no-visible-scrollbar max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto overscroll-contain border-amber-200/30">
-          <p className="text-sm font-bold uppercase tracking-[.2em] text-amber-200">10% Service Fee Due</p>
-          <h1 className="mt-3 text-3xl font-black text-[#FFFBFF]">Pay {kes(demandedServiceFee)} now</h1>
-          <p className="mt-3 text-sm font-black text-[#CCC6BB]">This is 10% of the client payment for your completed job. Pay this amount to unlock your worker account.</p>
-          {serviceFeePayment?.status === "rejected" && <p className="mt-4 rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-100">{serviceFeePayment.rejectionReason ?? "Your last payment was rejected. Please resubmit."}</p>}
-          {waitingForAdminConfirmation && <p className="mt-4 rounded-xl border border-sky-300/30 bg-sky-400/10 p-3 text-sm font-black text-sky-100">Waiting for admin confirmation.</p>}
+          <p className="text-sm font-bold uppercase tracking-[.2em] text-amber-700 dark:text-amber-200">10% Service Fee Due</p>
+          <h1 className="mt-3 text-3xl font-black text-[#111] dark:text-[#FFFBFF]">Pay {kes(demandedServiceFee)} now</h1>
+          <p className="mt-3 text-sm font-black text-[#4b453e] dark:text-[#CCC6BB]">This is 10% of the client payment for your completed job. Pay this amount to unlock your worker account.</p>
+          {serviceFeePayment?.status === "rejected" && <p className="mt-4 rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-800 dark:text-red-100">{serviceFeePayment.rejectionReason ?? "Your last payment was rejected. Please resubmit."}</p>}
+          {waitingForAdminConfirmation && <p className="mt-4 rounded-xl border border-sky-300/30 bg-sky-400/10 p-3 text-sm font-black text-sky-900 dark:text-sky-100">Waiting for admin confirmation.</p>}
           <p className="mt-5 text-xs font-bold uppercase tracking-[.18em] text-[#959087]">Payment details</p>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <CopyBox label="Paybill Number" value={SERVICE_FEE_PAYBILL_NUMBER} />
             <CopyBox label="Account Number" value={SERVICE_FEE_ACCOUNT_NUMBER} />
             <CopyBox label="Amount" value={kes(demandedServiceFee)} copyValue={String(demandedServiceFee)} />
           </div>
-          <p className="mt-4 text-sm font-semibold text-[#CCC6BB]">Use Paybill <span className="font-black text-[#FFFBFF]">{SERVICE_FEE_PAYBILL_NUMBER}</span> and Account <span className="font-black text-[#FFFBFF]">{SERVICE_FEE_ACCOUNT_NUMBER}</span>. The payment confirmation should show payment made to <span className="font-black text-[#FFFBFF]">{SERVICE_FEE_RECIPIENT_NAME}</span>. Upload the M-Pesa confirmation screenshot so admin can approve the unlock.</p>
+          <p className="mt-4 text-sm font-semibold text-[#4b453e] dark:text-[#CCC6BB]">Use Paybill <span className="font-black text-[#111] dark:text-[#FFFBFF]">{SERVICE_FEE_PAYBILL_NUMBER}</span> and Account <span className="font-black text-[#111] dark:text-[#FFFBFF]">{SERVICE_FEE_ACCOUNT_NUMBER}</span>. The payment confirmation should show payment made to <span className="font-black text-[#111] dark:text-[#FFFBFF]">{SERVICE_FEE_RECIPIENT_NAME}</span>. Upload the M-Pesa confirmation screenshot so admin can approve the unlock.</p>
           <form onSubmit={submitServiceFee} className="mt-6 grid gap-4">
             <label className="temp-label">M-Pesa confirmation screenshot<input name="screenshot" type="file" accept="image/*" required onChange={event => setFeeScreenshotSelected(!!event.currentTarget.files?.[0])} className="temp-input p-3 outline-none" /></label>
             <div className="flex flex-wrap gap-3">
@@ -621,23 +621,23 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
                 ? "confirm payment received"
               : application.status.replace("_", " ");
           return (
-            <div key={`${mode}-${application.id}`} className={`rounded-xl p-4 ${mode === "completed" ? "bg-emerald-400/10" : "bg-[#2A2A2B]"}`}>
+            <div key={`${mode}-${application.id}`} className={`rounded-xl border border-[#d8d8d8] p-4 dark:border-[#3B3832] ${mode === "completed" ? "bg-emerald-50 dark:bg-emerald-400/10" : "bg-white dark:bg-[#2A2A2B]"}`}>
               <p className="text-xs font-bold uppercase tracking-[.16em] text-[#959087]">{application.jobCategory ?? "Job category"}</p>
-              <p className="mt-1 font-black text-[#FFFBFF]">{application.jobTitle ?? "Job"}</p>
-              <p className="mt-2 text-sm capitalize text-[#CCC6BB]">Status: {statusLabel}</p>
+              <p className="mt-1 font-black text-[#111] dark:text-[#FFFBFF]">{application.jobTitle ?? "Job"}</p>
+              <p className="mt-2 text-sm capitalize text-[#4b453e] dark:text-[#CCC6BB]">Status: {statusLabel}</p>
               {mode === "completed" && (
                 <div className="mt-3 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-100">
                   Completed Job ID: <span className="font-black">{completedJobId(application.id)}</span>
                 </div>
               )}
               {mode === "requests" && (
-                <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm text-[#CCC6BB]">
-                  <p><strong className="text-[#FFFBFF]">Location:</strong> {application.requestLocation ?? "Not provided"}</p>
-                  <p><strong className="text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
-                  <p><strong className="text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
+                <div className="mt-3 rounded-xl border border-[#d8d8d8] bg-[#f3f4f5] p-3 text-sm text-[#4b453e] dark:border-bone/10 dark:bg-bone/[.04] dark:text-[#CCC6BB]">
+                  <p><strong className="text-[#111] dark:text-[#FFFBFF]">Location:</strong> {application.requestLocation ?? "Not provided"}</p>
+                  <p><strong className="text-[#111] dark:text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
+                  <p><strong className="text-[#111] dark:text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
                   {application.jobAmount ? (
                     <>
-                      <p><strong className="text-[#FFFBFF]">You should receive:</strong> {kes(fixedPay.workerEarnings)}</p>
+                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">You should receive:</strong> {kes(fixedPay.workerEarnings)}</p>
                     </>
                   ) : null}
                   {application.requestDescription ? <p className="mt-2">{application.requestDescription}</p> : null}
@@ -645,15 +645,25 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
               )}
               {mode === "completed" && application.clientRating && <p className="mt-2 inline-flex items-center gap-1 text-sm font-black text-amber-200"><Star size={16} /> Client rating: {application.clientRating}/5</p>}
               {isPayPerTimeline(application.jobPayType) && (
-                <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
+                <div className="mt-3 rounded-xl border border-[#d8d8d8] bg-[#f3f4f5] p-3 text-sm font-bold text-[#4b453e] dark:border-bone/10 dark:bg-bone/[.04] dark:text-[#CCC6BB]">
                   <p>Pay per {timelineUnitLabel}: {kes(timelinePay.workerPayPerTimeline)}</p>
                   <p className="mt-1">Paid worker amount: {kes(timelinePay.paidWorkerAmount)}</p>
                   <p className="mt-1">Remaining worker amount: {kes(timelinePay.remainingWorkerAmount)}</p>
                 </div>
               )}
               {!isPayPerTimeline(application.jobPayType) && Number(application.jobAmount ?? 0) > 0 && ["accepted", "completion_requested", "payment_sent", "completed"].includes(application.status) && (
-                <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
-                  <p className="text-base font-black text-[#FFFBFF]">You should receive: {kes(fixedPay.workerEarnings)}</p>
+                <div className="mt-3 rounded-xl border border-[#d8d8d8] bg-[#f3f4f5] p-3 text-sm font-bold text-[#4b453e] dark:border-bone/10 dark:bg-bone/[.04] dark:text-[#CCC6BB]">
+                  {application.status === "completed" ? (
+                    <>
+                      <p className="text-base font-black text-[#111] dark:text-[#FFFBFF]">Payment Received</p>
+                      <p className="mt-1">You have been paid {kes(fixedPay.total)} for this job.</p>
+                      <p className="mt-1">Your earnings: {kes(fixedPay.workerEarnings)}</p>
+                      <p className="mt-1">COPIC service fee (10%): {kes(fixedPay.serviceFee)}</p>
+                      <p className="mt-1 font-black text-[#111] dark:text-[#FFFBFF]">Amount Due: {kes(fixedPay.serviceFee)}</p>
+                    </>
+                  ) : (
+                    <p className="text-base font-black text-[#111] dark:text-[#FFFBFF]">You should receive: {kes(fixedPay.workerEarnings)}</p>
+                  )}
                 </div>
               )}
               <div className="mt-4 flex flex-wrap gap-2">
@@ -683,7 +693,7 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
                     {isBusy && busyAction === "complete" ? "Sending..." : isPayPerTimeline(application.jobPayType) ? `Mark ${timelineUnitLabel} ${application.nextTimelineNumber ?? ""} complete` : "Mark complete"}
                   </Button>
                 )}
-                {mode === "live" && ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && (
+                {mode === "live" && application.status === "accepted" && application.jobStatus !== "completed" && (
                   <Button type="button" variant="secondary" disabled={isBusy} onClick={() => setPendingLiveCancel(application)}>
                     {isBusy && busyAction === "cancel" ? "Cancelling..." : "Cancel live job"}
                   </Button>
