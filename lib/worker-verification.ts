@@ -38,11 +38,17 @@ function logIdentityVerificationResolution(input: {
   identityVerified: boolean;
   action: string;
 }) {
-  console.info("[COPIC VERIFICATION]", {
+  console.info("[COPIC VERIFY DEBUG]", {
     uid: input.uid,
+    authUid: input.uid,
+    profileUid: input.uid,
+    verificationDocumentUid: input.uid,
     source: input.source,
+    verificationSource: input.source,
     rawStatus: typeof input.rawStatus === "string" ? input.rawStatus : input.rawStatus == null ? null : String(input.rawStatus),
+    rawVerificationStatus: typeof input.rawStatus === "string" ? input.rawStatus : input.rawStatus == null ? null : String(input.rawStatus),
     normalizedStatus: input.normalizedStatus,
+    normalizedVerificationStatus: input.normalizedStatus,
     identityVerified: input.identityVerified,
     action: input.action
   });

@@ -4,7 +4,7 @@ import { sendAppEmail } from "@/lib/app-email";
 import { adminDb } from "@/lib/firebase-admin";
 import { acceptLocalApplication, cancelLocalApplication, cancelLocalLiveApplication, completeLocalApplication, confirmLocalWorkerPaid, countLocalAcceptedApplications, countLocalActiveAcceptedApplications, createLocalApplication, getLocalJob, getLocalUser, listLocalApplications, requestLocalApplicationCompletion } from "@/lib/local-sql";
 import { serverDebug } from "@/lib/server-debug";
-import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatusFromRecords, getWorkerWorkEligibility, logApplyEligibilityCheck } from "@/lib/worker-verification";
+import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatus, getWorkerVerificationStatusFromRecords, getWorkerWorkEligibility, logApplyEligibilityCheck } from "@/lib/worker-verification";
 import type { Role } from "@/types";
 import { calculateServiceFee } from "@/utils/money";
 import { normalizeVerificationStatus } from "@/utils/verification";
@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
       const profile = currentUser.profile;
       if (!profile || (profile.role !== role && profile.role !== "admin")) return NextResponse.json({ applications: [] });
       const applications = listLocalApplications(currentUser.uid, role).filter(application => application.coverNote !== "Rehire request");
+      if (role === "worker") await logApplicationsPageCheck(currentUser.uid, applications);
       return NextResponse.json({ applications });
     }
 
@@ -37,6 +38,7 @@ export async function GET(request: NextRequest) {
       snapshot.docs.map<Record<string, unknown>>(doc => ({ id: doc.id, ...doc.data() })).filter(application => application.coverNote !== "Rehire request"),
       role
     );
+    if (role === "worker") await logApplicationsPageCheck(currentUser.uid, applications);
     return NextResponse.json({ applications });
   } catch (error) {
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
@@ -48,6 +50,18 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json({ success: false, message: "Unable to load applications.", error: status === 500 ? "Unable to load applications." : message }, { status });
   }
+}
+
+async function logApplicationsPageCheck(uid: string, applications: Array<Record<string, unknown>>) {
+  const currentJob = applications.find(application => ["accepted", "completion_requested", "payment_sent"].includes(String(application.status)) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled");
+  const verification = await getWorkerVerificationStatus(uid);
+  console.info("[COPIC APPLICATIONS]", {
+    uid,
+    currentJobId: typeof currentJob?.jobId === "string" ? currentJob.jobId : null,
+    currentJobStatus: typeof currentJob?.status === "string" ? currentJob.status : null,
+    identityVerified: verification.identityVerified,
+    showApplicationVerificationWarning: false
+  });
 }
 
 export async function POST(request: NextRequest) {

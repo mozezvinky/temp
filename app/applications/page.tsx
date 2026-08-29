@@ -53,16 +53,6 @@ export default function ApplicationsPage() {
   const currentJobApplications = visibleApplications.filter(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled");
   const pastOrPendingApplications = visibleApplications.filter(application => !(["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled"));
 
-  if (profile.role === "worker") {
-    const currentJob = currentJobApplications[0] ?? null;
-    console.info("[COPIC APPLICATIONS]", {
-      uid: profile.uid ?? profile.id,
-      currentJobId: currentJob?.jobId ?? null,
-      currentJobStatus: currentJob?.status ?? null,
-      identityVerified: normalizeVerificationStatus(profile.verificationStatus) === "approved",
-      showApplicationVerificationWarning: false
-    });
-  }
   if (!visibleApplications.length) return (
     <div className="space-y-4">
       <Link href={profile.role === "client" ? "/find-work" : "/dashboard"} className="applications-back-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold">
@@ -270,7 +260,7 @@ export default function ApplicationsPage() {
   );
 }
 
-function ApplicationSection({ title, empty, applications, canDoJobs = true, blockedReason = "", onCancel }: { title: string; empty: string; applications: Application[]; canDoJobs?: boolean; blockedReason?: string; onCancel?: (application: Application) => void }) {
+function ApplicationSection({ title, empty, applications, onCancel }: { title: string; empty: string; applications: Application[]; onCancel?: (application: Application) => void }) {
   const [cancellingId, setCancellingId] = useState("");
   const [completingId, setCompletingId] = useState("");
   const [confirmingPaymentId, setConfirmingPaymentId] = useState("");
@@ -328,11 +318,12 @@ function ApplicationSection({ title, empty, applications, canDoJobs = true, bloc
       setConfirmingPaymentId("");
     }
   }
+  const isCurrentJobSection = title === "Current job";
   return (
     <section className="space-y-3">
       <h2 className="text-2xl font-black text-[#FFFBFF]">{title}</h2>
       {applications.length ? applications.map(application => (
-        <Card key={application.id}>
+        <Card key={application.id} data-copic-component={isCurrentJobSection ? "current-job-v2" : undefined}>
           {(() => {
             const timelinePay = applicationTimelinePay(application);
             const fixedPay = calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0));
@@ -372,7 +363,7 @@ function ApplicationSection({ title, empty, applications, canDoJobs = true, bloc
                 <Link href="/chat" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-bone px-4 py-2 text-sm font-black text-[#1E1B13]">
                   <MessageCircle size={16} /> Chat with employer
                 </Link>
-                <Button type="button" disabled={!canDoJobs || completingId === application.id} onClick={() => isPayPerTimeline(application.jobPayType) ? setPendingTimelineComplete(application) : void requestComplete(application)}>
+                <Button type="button" disabled={completingId === application.id} onClick={() => isPayPerTimeline(application.jobPayType) ? setPendingTimelineComplete(application) : void requestComplete(application)}>
                   {completingId === application.id ? "Sending..." : isPayPerTimeline(application.jobPayType) ? `Mark ${timelineUnitLabel} ${application.nextTimelineNumber ?? ""} complete` : "Mark complete"}
                 </Button>
                 <Button type="button" variant="secondary" disabled={cancellingId === application.id} onClick={() => setPendingLiveCancel(application)}>
@@ -385,7 +376,7 @@ function ApplicationSection({ title, empty, applications, canDoJobs = true, bloc
                 <Link href="/chat" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-bone px-4 py-2 text-sm font-black text-[#1E1B13]">
                   <MessageCircle size={16} /> Chat with employer
                 </Link>
-                <Button type="button" className="temp-success-button" disabled={!canDoJobs || confirmingPaymentId === application.id} onClick={() => void confirmPayment(application)}>
+                <Button type="button" className="temp-success-button" disabled={confirmingPaymentId === application.id} onClick={() => void confirmPayment(application)}>
                   {confirmingPaymentId === application.id ? "Confirming..." : "I Received Payment"}
                 </Button>
                 <Button type="button" variant="secondary" disabled={cancellingId === application.id} onClick={() => setPendingLiveCancel(application)}>
@@ -404,9 +395,6 @@ function ApplicationSection({ title, empty, applications, canDoJobs = true, bloc
               </Button>
             )}
           </div>
-          {!canDoJobs && ["accepted", "completion_requested", "payment_sent"].includes(application.status) && (
-            <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">{blockedReason}</p>
-          )}
           {application.coverNote && <p className="mt-4 text-sm text-[#959087]">{application.coverNote}</p>}
           {application.clientRating && <p className="mt-3 inline-flex items-center gap-1 text-sm font-black text-amber-200"><Star size={16} /> Client rating: {application.clientRating}/5</p>}
             </>
