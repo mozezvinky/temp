@@ -8,6 +8,11 @@ service cloud.firestore {
     function isClient() { return signedIn() && userDoc(request.auth.uid).data.role == "client"; }
     function isWorker() { return signedIn() && userDoc(request.auth.uid).data.role == "worker"; }
     function notLocked() { return signedIn() && userDoc(request.auth.uid).data.isLocked != true; }
+    function hasCopicIdentityVerification() {
+      return signedIn()
+        && (userDoc(request.auth.uid).data.verificationStatus in ["approved", "verified"]
+          || userDoc(request.auth.uid).data.identityVerificationStatus in ["approved", "verified"]);
+    }
     function hasVerifiedEmail() { return signedIn() && userDoc(request.auth.uid).data.emailVerified == true; }
     function validJobDuration() { return request.resource.data.durationHours > 0 && request.resource.data.durationHours <= 8760; }
     function validJobContent() {
@@ -92,6 +97,7 @@ service cloud.firestore {
       allow read: if signedIn() && (resource.data.workerId == request.auth.uid || resource.data.clientId == request.auth.uid || isAdmin());
       allow create: if isWorker()
         && notLocked()
+        && hasCopicIdentityVerification()
         && request.resource.data.workerId == request.auth.uid
         && request.resource.data.clientId == get(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.clientId
         && get(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.status == "open";

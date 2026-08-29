@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { loadMyVerification, submitVerification } from "@/services/kyc";
 import type { UserProfile, VerificationKind, VerificationRecord } from "@/types";
 import { normalizeKenyanPhone } from "@/utils/phone";
-import { verificationLabel } from "@/utils/verification";
+import { normalizeVerificationStatus, verificationLabel } from "@/utils/verification";
 import { Car, CheckCircle2, ImagePlus, ShieldCheck } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -56,7 +56,7 @@ export function IdentityVerificationModal({
   }, [previews]);
 
   const isDriverLicense = kind === "driver_license";
-  const status = verification?.status ?? (isDriverLicense ? profile.driverLicenseVerificationStatus ?? "not_submitted" : profile.verificationStatus);
+  const status = normalizeVerificationStatus(verification?.status ?? (isDriverLicense ? profile.driverLicenseVerificationStatus ?? "not_submitted" : profile.verificationStatus));
   const canSubmit = status === "not_submitted" || status === "rejected";
   const documentName = isDriverLicense ? "Driver's license" : "National ID";
   const selfieLabel = isDriverLicense ? "Selfie while holding driver's license" : "Selfie while holding ID";

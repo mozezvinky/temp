@@ -14,6 +14,7 @@ import { perDurationUnit } from "@/utils/duration";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 import { workerCanWork } from "@/utils/jobRules";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import { ArrowLeft, Mail, MessageCircle, Phone, Star } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
@@ -178,8 +179,8 @@ export default function ApplicationsPage() {
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={() => setViewingWorker(application)}>View worker profile</Button>
                 {application.status === "pending" && (
-                  <Button type="button" disabled={acceptingId === application.id || application.workerVerificationStatus !== "approved"} onClick={() => void accept(application)}>
-                    {acceptingId === application.id ? "Accepting..." : application.workerVerificationStatus !== "approved" ? "Worker not verified" : "Accept application"}
+                  <Button type="button" disabled={acceptingId === application.id || normalizeVerificationStatus(application.workerVerificationStatus) !== "approved"} onClick={() => void accept(application)}>
+                    {acceptingId === application.id ? "Accepting..." : normalizeVerificationStatus(application.workerVerificationStatus) !== "approved" ? "Worker not verified" : "Accept application"}
                   </Button>
                 )}
               {application.status === "completion_requested" && (
@@ -479,7 +480,7 @@ function ApplicationSection({ title, empty, applications, canDoJobs = true, bloc
 }
 
 function WorkerVerificationPill({ status }: { status?: Application["workerVerificationStatus"] }) {
-  const verified = status === "approved";
+  const verified = normalizeVerificationStatus(status) === "approved";
   return (
     <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${verified ? "border-emerald-500/40 bg-emerald-400/20 text-emerald-800 dark:text-emerald-100" : "border-amber-400/50 bg-amber-300/20 text-amber-800 dark:text-amber-100"}`}>
       {verified ? "Verified" : "Unverified"}

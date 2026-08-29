@@ -28,6 +28,7 @@ import { perDurationUnit } from "@/utils/duration";
 import { calculateJobPaymentBreakdown, calculateWorkerNet, kes } from "@/utils/money";
 import { completedJobId } from "@/utils/completed-job-id";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import { toast } from "sonner";
 
 const SERVICE_FEE_PAYBILL_NUMBER = "400200";
@@ -410,7 +411,7 @@ export default function DashboardPage() {
               <button type="button" onClick={() => { setJobsModalTab("live"); setOpenModal("jobs"); }}><Clock size={17} /> Live jobs <span>{liveApplications.length}</span></button>
               <button type="button" onClick={() => { setJobsModalTab("requests"); setOpenModal("jobs"); }}><MessageCircle size={17} /> Requests <span>{directHireRequests.length}</span></button>
               <button type="button" onClick={() => { setJobsModalTab("completed"); setOpenModal("jobs"); }}><CheckCircle2 size={17} /> Completed jobs <span>{completedJobsCount}</span></button>
-              <button type="button" onClick={() => setDriverLicenseOpen(true)}><Car size={17} /> Add driver&apos;s license <span>{profile.driverLicenseVerificationStatus === "approved" ? "Verified" : profile.driverLicenseVerificationStatus === "pending" ? "Pending" : "New"}</span></button>
+              <button type="button" onClick={() => setDriverLicenseOpen(true)}><Car size={17} /> Add driver&apos;s license <span>{normalizeVerificationStatus(profile.driverLicenseVerificationStatus) === "approved" ? "Verified" : normalizeVerificationStatus(profile.driverLicenseVerificationStatus) === "pending" ? "Pending" : "New"}</span></button>
               <button type="button" onClick={() => setLocationOpen(true)}><MapPin size={17} /> {profile.location ? "Change Location" : "Set Up Your Location"} <span>{profile.location ? "Saved" : "New"}</span></button>
             </Card>
           </aside>

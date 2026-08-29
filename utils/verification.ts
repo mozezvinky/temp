@@ -1,9 +1,10 @@
 import type { VerificationStatus } from "@/types";
 
 export function normalizeVerificationStatus(value: unknown): VerificationStatus {
-  if (value === "verified" || value === "approved") return "approved";
-  if (value === "pending") return "pending";
-  if (value === "rejected") return "rejected";
+  const status = String(value ?? "").trim().toLowerCase();
+  if (status === "verified" || status === "approved") return "approved";
+  if (status === "pending") return "pending";
+  if (status === "rejected") return "rejected";
   return "not_submitted";
 }
 

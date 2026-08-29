@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import type { Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateServiceFee } from "@/utils/money";
 import { workerCanApplyToJob } from "@/utils/jobRules";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 
 type SqlValue = string | number | bigint | null | Uint8Array;
@@ -479,8 +480,8 @@ export function rowToUser(row: Record<string, unknown>): UserProfile {
     ratingAverage: Number(row.ratingAverage ?? 0),
     ratingCount: Number(row.ratingCount ?? 0),
     completedJobs: Number(row.completedJobs ?? 0),
-    verificationStatus: String(row.verificationStatus ?? "not_submitted") as UserProfile["verificationStatus"],
-    driverLicenseVerificationStatus: String(row.driverLicenseVerificationStatus ?? "not_submitted") as UserProfile["driverLicenseVerificationStatus"],
+    verificationStatus: normalizeVerificationStatus(row.verificationStatus),
+    driverLicenseVerificationStatus: normalizeVerificationStatus(row.driverLicenseVerificationStatus),
     driverLicenseRejectionReason: typeof row.driverLicenseRejectionReason === "string" ? row.driverLicenseRejectionReason : null,
     profileCompleted: Number(row.profileCompleted ?? 0) === 1,
     isLocked: Number(row.isLocked ?? 0) === 1,

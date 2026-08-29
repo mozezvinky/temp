@@ -1,9 +1,9 @@
-import { mergeFirestoreVerificationRecords, withFirestoreVerificationStatus } from "@/lib/current-user-profile";
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { createLocalDirectHireRequest, getLocalUser, respondLocalDirectHireRequest } from "@/lib/local-sql";
-import type { UserProfile } from "@/types";
-import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
+import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatusFromRecords } from "@/lib/worker-verification";
+import { clientCanPost } from "@/utils/jobRules";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -23,9 +23,8 @@ export async function POST(request: NextRequest) {
       const client = getLocalUser(decoded.uid);
       if (!client || client.role !== "client") return NextResponse.json({ error: "Use a client account to send hire requests." }, { status: 403 });
       if (!clientCanPost(client)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
-      const worker = getLocalUser(input.workerId);
-      const allowedWorker = workerCanApplyToJob(worker, { title: input.title, category: input.category, requiredSkills: [] });
-      if (!allowedWorker.ok) return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
+      const allowedWorker = await getWorkerJobEligibility(input.workerId, { title: input.title, category: input.category, requiredSkills: [] });
+      if (allowedWorker.decision === "blocked") return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
       const application = createLocalDirectHireRequest({
         id: crypto.randomUUID(),
         jobId: crypto.randomUUID(),
@@ -45,23 +44,15 @@ export async function POST(request: NextRequest) {
     const client = clientSnap.data();
     const worker = workerSnap.data();
     if (!clientSnap.exists || client?.role !== "client") return NextResponse.json({ error: "Use a client account to send hire requests." }, { status: 403 });
-    const clientVerificationStatus = clientVerificationSnap.data()?.status;
+    const clientVerificationStatus = normalizeVerificationStatus(clientVerificationSnap.data()?.identityVerificationStatus ?? clientVerificationSnap.data()?.status);
     const effectiveClient: Record<string, unknown> = {
       ...client,
-      verificationStatus: clientVerificationStatus === "approved" || clientVerificationStatus === "pending" || clientVerificationStatus === "rejected"
-        ? clientVerificationStatus
-        : client?.verificationStatus
+      verificationStatus: clientVerificationStatus !== "not_submitted" ? clientVerificationStatus : client?.verificationStatus
     };
     if (!clientCanPost(effectiveClient as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
     if (!workerSnap.exists || worker?.role !== "worker") return NextResponse.json({ error: "Choose a valid worker." }, { status: 404 });
-    const effectiveWorker = await withFirestoreVerificationStatus(input.workerId, worker as Partial<UserProfile> | null);
-    const allowedWorker = workerCanApplyToJob({
-      verificationStatus: effectiveWorker?.verificationStatus ?? "not_submitted",
-      driverLicenseVerificationStatus: effectiveWorker?.driverLicenseVerificationStatus ?? "not_submitted",
-      isLocked: effectiveWorker?.isLocked === true,
-      outstandingServiceFee: Number(effectiveWorker?.outstandingServiceFee ?? 0)
-    }, { title: input.title, category: input.category, requiredSkills: [] });
-    if (!allowedWorker.ok) return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
+    const allowedWorker = await getWorkerJobEligibility(input.workerId, { title: input.title, category: input.category, requiredSkills: [] });
+    if (allowedWorker.decision === "blocked") return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
     const activeSnap = await db.collection("applications").where("workerId", "==", input.workerId).limit(40).get();
     const activeApps = activeSnap.docs.filter(doc => ["accepted", "completion_requested", "payment_sent"].includes(String(doc.data().status)));
     if (activeApps.length) return NextResponse.json({ error: "This worker is occupied on another job right now." }, { status: 400 });
@@ -160,22 +151,17 @@ export async function PATCH(request: NextRequest) {
           transaction.get(db.collection("verifications").doc(decoded.uid)),
           transaction.get(db.collection("verifications").doc(`driver-license-${decoded.uid}`))
         ]);
-        const worker = mergeFirestoreVerificationRecords(
-          workerSnap.data() as Partial<UserProfile> | null,
+        const allowedWorker = getWorkerEligibilityFromVerification(getWorkerVerificationStatusFromRecords(
+          decoded.uid,
+          workerSnap.exists ? workerSnap.data() : null,
           identityVerificationSnap.exists ? identityVerificationSnap.data() : null,
           driverLicenseVerificationSnap.exists ? driverLicenseVerificationSnap.data() : null
-        ) ?? {};
-        const allowedWorker = workerCanApplyToJob({
-          verificationStatus: worker.verificationStatus ?? "not_submitted",
-          driverLicenseVerificationStatus: worker.driverLicenseVerificationStatus ?? "not_submitted",
-          isLocked: worker.isLocked === true,
-          outstandingServiceFee: Number(worker.outstandingServiceFee ?? 0)
-        }, {
+        ), {
           title: String(application.jobTitle ?? ""),
           category: String(application.jobCategory ?? ""),
           requiredSkills: []
         });
-        if (!allowedWorker.ok) throw new AuthRouteError(allowedWorker.reason, 403);
+        if (allowedWorker.decision === "blocked") throw new AuthRouteError(allowedWorker.reason, 403);
       }
       const jobRef = db.collection("jobs").doc(String(application.jobId));
       const jobSnap = await transaction.get(jobRef);

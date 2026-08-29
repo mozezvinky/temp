@@ -4,6 +4,7 @@ import { adminDb, adminStorage } from "@/lib/firebase-admin";
 import { firebaseStorageBucketCandidates } from "@/lib/firebase-storage-bucket";
 import { localDb } from "@/lib/local-sql";
 import { authErrorStatus, requireVerifiedServerUser } from "@/lib/server-auth";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -115,13 +116,13 @@ async function assertCanSubmitVerification(userId: string, kind: "identity" | "d
   if (isSqlBackend()) {
     if (kind === "driver_license") {
       const current = localDb().prepare("SELECT status FROM driver_license_verifications WHERE userId = ?").get(userId);
-      if (current?.status === "pending") throw new SubmissionConflictError("Your driver's license is already awaiting review.");
-      if (current?.status === "approved") throw new SubmissionConflictError("Your driver's license is already verified.");
+      if (normalizeVerificationStatus(current?.status) === "pending") throw new SubmissionConflictError("Your driver's license is already awaiting review.");
+      if (normalizeVerificationStatus(current?.status) === "approved") throw new SubmissionConflictError("Your driver's license is already verified.");
       return;
     }
     const current = localDb().prepare("SELECT status FROM identity_verifications WHERE userId = ?").get(userId);
-    if (current?.status === "pending") throw new SubmissionConflictError("Your verification is already awaiting review.");
-    if (current?.status === "approved") throw new SubmissionConflictError("Your account is already verified.");
+    if (normalizeVerificationStatus(current?.status) === "pending") throw new SubmissionConflictError("Your verification is already awaiting review.");
+    if (normalizeVerificationStatus(current?.status) === "approved") throw new SubmissionConflictError("Your account is already verified.");
     const duplicate = localDb().prepare("SELECT userId FROM identity_verifications WHERE nationalIdHash = ? AND userId <> ?").get(nationalIdHashValue, userId);
     if (duplicate) throw new SubmissionConflictError("This ID is already attached to another account.");
     return;
@@ -129,8 +130,8 @@ async function assertCanSubmitVerification(userId: string, kind: "identity" | "d
 
   const db = adminDb();
   const verificationSnap = await db.collection("verifications").doc(verificationDocId(userId, kind)).get();
-  if (verificationSnap.data()?.status === "pending") throw new SubmissionConflictError(kind === "driver_license" ? "Your driver's license is already awaiting review." : "Your verification is already awaiting review.");
-  if (verificationSnap.data()?.status === "approved") throw new SubmissionConflictError(kind === "driver_license" ? "Your driver's license is already verified." : "Your account is already verified.");
+  if (normalizeVerificationStatus(verificationSnap.data()?.status) === "pending") throw new SubmissionConflictError(kind === "driver_license" ? "Your driver's license is already awaiting review." : "Your verification is already awaiting review.");
+  if (normalizeVerificationStatus(verificationSnap.data()?.status) === "approved") throw new SubmissionConflictError(kind === "driver_license" ? "Your driver's license is already verified." : "Your account is already verified.");
   if (kind === "identity") {
     const claim = await db.collection("identityClaims").doc(nationalIdHashValue).get();
     if (claim.exists && claim.data()?.userId !== userId) throw new SubmissionConflictError("This ID is already attached to another account.");
@@ -219,8 +220,8 @@ export async function POST(request: NextRequest) {
     if (isSqlBackend()) {
       if (kind === "driver_license") {
         const current = localDb().prepare("SELECT status FROM driver_license_verifications WHERE userId = ?").get(user.uid);
-        if (current?.status === "pending") return NextResponse.json({ error: "Your driver's license is already awaiting review." }, { status: 409 });
-        if (current?.status === "approved") return NextResponse.json({ error: "Your driver's license is already verified." }, { status: 409 });
+        if (normalizeVerificationStatus(current?.status) === "pending") return NextResponse.json({ error: "Your driver's license is already awaiting review." }, { status: 409 });
+        if (normalizeVerificationStatus(current?.status) === "approved") return NextResponse.json({ error: "Your driver's license is already verified." }, { status: 409 });
         localDb().prepare(`
           INSERT INTO driver_license_verifications (userId, role, fullName, email, phoneNumber, username, licenseNumber, idFrontUrl, idBackUrl, selfieWithIdUrl, status, rejectionReason, reviewedBy, submittedAt, reviewedAt, updatedAt)
           VALUES (?, 'worker', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, NULL, ?)
@@ -233,8 +234,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, status: "pending", message: "Your driver's license was submitted for manual review." });
       }
       const current = localDb().prepare("SELECT status FROM identity_verifications WHERE userId = ?").get(user.uid);
-      if (current?.status === "pending") return NextResponse.json({ error: "Your verification is already awaiting review." }, { status: 409 });
-      if (current?.status === "approved") return NextResponse.json({ error: "Your account is already verified." }, { status: 409 });
+      if (normalizeVerificationStatus(current?.status) === "pending") return NextResponse.json({ error: "Your verification is already awaiting review." }, { status: 409 });
+      if (normalizeVerificationStatus(current?.status) === "approved") return NextResponse.json({ error: "Your account is already verified." }, { status: 409 });
       const duplicate = localDb().prepare("SELECT userId FROM identity_verifications WHERE nationalIdHash = ? AND userId <> ?").get(idHash, user.uid);
       if (duplicate) return NextResponse.json({ error: "This ID is already attached to another account." }, { status: 409 });
       localDb().prepare(`
@@ -254,8 +255,8 @@ export async function POST(request: NextRequest) {
       const verificationRef = db.collection("verifications").doc(verificationDocId(user.uid, kind));
       const userRef = db.collection("users").doc(user.uid);
       const currentVerification = await verificationRef.get();
-      if (currentVerification.data()?.status === "pending") return NextResponse.json({ error: "Your driver's license is already awaiting review." }, { status: 409 });
-      if (currentVerification.data()?.status === "approved") return NextResponse.json({ error: "Your driver's license is already verified." }, { status: 409 });
+      if (normalizeVerificationStatus(currentVerification.data()?.status) === "pending") return NextResponse.json({ error: "Your driver's license is already awaiting review." }, { status: 409 });
+      if (normalizeVerificationStatus(currentVerification.data()?.status) === "approved") return NextResponse.json({ error: "Your driver's license is already verified." }, { status: 409 });
       await db.runTransaction(async transaction => {
         transaction.set(verificationRef, {
           id: verificationRef.id, userId: user.uid, kind, role: "worker", provider: "manual", fullName, email, phoneNumber, username,
@@ -271,8 +272,8 @@ export async function POST(request: NextRequest) {
     const verificationRef = db.collection("verifications").doc(user.uid);
     const userRef = db.collection("users").doc(user.uid);
     const currentVerification = await verificationRef.get();
-    if (currentVerification.data()?.status === "pending") return NextResponse.json({ error: "Your verification is already awaiting review." }, { status: 409 });
-    if (currentVerification.data()?.status === "approved") return NextResponse.json({ error: "Your account is already verified." }, { status: 409 });
+    if (normalizeVerificationStatus(currentVerification.data()?.status) === "pending") return NextResponse.json({ error: "Your verification is already awaiting review." }, { status: 409 });
+    if (normalizeVerificationStatus(currentVerification.data()?.status) === "approved") return NextResponse.json({ error: "Your account is already verified." }, { status: 409 });
     await db.runTransaction(async transaction => {
       const claim = await transaction.get(claimRef);
       if (claim.exists && claim.data()?.userId !== user.uid) throw new Error("This ID is already attached to another account.");

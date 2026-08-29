@@ -10,7 +10,7 @@ import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { loadMyVerification } from "@/services/kyc";
 import { enablePush } from "@/services/notifications";
 import type { VerificationRecord } from "@/types";
-import { verificationLabel } from "@/utils/verification";
+import { normalizeVerificationStatus, verificationLabel } from "@/utils/verification";
 import { BellRing, CheckCircle2, Clock3, ShieldCheck, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -28,7 +28,7 @@ export default function SettingsPage() {
 
   if (loading || !isAuthorized || !profile) return <LoadingSpinner label="Opening verification" />;
   if (!profile.emailVerified) return <EmailVerificationRequired />;
-  const status = verification?.status ?? profile.verificationStatus;
+  const status = normalizeVerificationStatus(verification?.status ?? profile.verificationStatus);
   return (
     <div className="grid gap-4 lg:grid-cols-[1.2fr_.8fr]">
       <Card>

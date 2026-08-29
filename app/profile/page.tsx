@@ -10,6 +10,7 @@ import { VerificationBadge } from "@/components/verification/VerificationBadge";
 import { auth, requireAuth } from "@/lib/firebase";
 import { loadRatings } from "@/services/ratings";
 import type { Rating } from "@/types";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import { normalizeKenyanPhone } from "@/utils/phone";
 import { BriefcaseBusiness, CalendarCheck, FileBadge, Mail, Move, Phone, Star, UserCircle, X } from "lucide-react";
 import Link from "next/link";
@@ -183,7 +184,7 @@ export default function ProfilePage() {
               <h2 className="text-xl font-black text-[#FFFBFF]">Identity verification</h2>
               <p className="mt-1 text-sm text-[#CCC6BB]">Build trust with clients and workers by verifying your government ID.</p>
             </div>
-            {profile.verificationStatus === "approved" ? (
+            {normalizeVerificationStatus(profile.verificationStatus) === "approved" ? (
               <VerificationBadge status={profile.verificationStatus} />
             ) : profile.verificationStatus === "pending" ? (
               <VerificationBadge status={profile.verificationStatus} />

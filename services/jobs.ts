@@ -3,6 +3,7 @@
 import { requireAuth, requireDb } from "@/lib/firebase";
 import type { Application, Job, UserProfile } from "@/types";
 import { workerCanApplyToJob } from "@/utils/jobRules";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import { jobSchema } from "@/utils/validation";
 import {
   collection,
@@ -494,7 +495,10 @@ export async function requestApplicationCompletion(application: Application, tim
 
 export async function canWorkerApply(worker: UserProfile) {
   if (worker.isLocked || Number(worker.outstandingServiceFee ?? 0) > 0) return { ok: false, reason: worker.lockReason ?? "Your account is locked. Open your dashboard for the next step." };
-  if (worker.verificationStatus !== "approved") return { ok: false, reason: "Verify your identity before applying for or doing jobs." };
+  const status = normalizeVerificationStatus(worker.verificationStatus);
+  if (status === "pending") return { ok: false, reason: "Your identity verification is still under review." };
+  if (status === "rejected") return { ok: false, reason: "Your identity verification was not approved. Please resubmit your verification." };
+  if (status !== "approved") return { ok: false, reason: "Verification required. Verify your identity before applying for jobs." };
   return { ok: true };
 }
 

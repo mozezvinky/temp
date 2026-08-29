@@ -13,6 +13,7 @@ import type { Conversation, Message, UserProfile, WorkerSkillProfile } from "@/t
 import { addPlatformFee, kes } from "@/utils/money";
 import { displayJobQuantity } from "@/utils/jobUnits";
 import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import { ChevronDown, MapPin, MessageCircle, Search, Send } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -324,7 +325,7 @@ export default function WorkersPage() {
                   <div className="marketplace-worker-name-line">
                     <button type="button" className="marketplace-worker-name-button" onClick={() => setMessageWorker(worker)}>{worker.displayName}</button>
                     <div className="marketplace-worker-chips">
-                      <span className={`worker-info-chip ${worker.verificationStatus === "approved" ? "is-neutral" : "is-warning"}`}>{worker.verificationStatus === "approved" ? "Verified" : "Unverified"}</span>
+                      <span className={`worker-info-chip ${normalizeVerificationStatus(worker.verificationStatus) === "approved" ? "is-neutral" : "is-warning"}`}>{normalizeVerificationStatus(worker.verificationStatus) === "approved" ? "Verified" : "Unverified"}</span>
                       {worker.isOccupied && <span className="worker-info-chip is-neutral">Occupied</span>}
                       <span className="worker-info-chip is-neutral">Completed jobs {workerCompletedJobs(worker)}</span>
                     </div>
@@ -353,7 +354,7 @@ export default function WorkersPage() {
                 <div>
                   <p className="text-sm text-[#CCC6BB]">{selectedWorker.bio ?? "Worker profile"}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <span className={`worker-info-chip ${selectedWorker.verificationStatus === "approved" ? "is-neutral" : "is-warning"}`}>{selectedWorker.verificationStatus === "approved" ? "Verified" : "Unverified"}</span>
+                    <span className={`worker-info-chip ${normalizeVerificationStatus(selectedWorker.verificationStatus) === "approved" ? "is-neutral" : "is-warning"}`}>{normalizeVerificationStatus(selectedWorker.verificationStatus) === "approved" ? "Verified" : "Unverified"}</span>
                     <span className="worker-info-chip is-neutral">{selectedWorker.isOccupied ? "Occupied" : "Available"}</span>
                     <span className="worker-info-chip is-neutral">{workerLocation(selectedWorker)}</span>
                   </div>

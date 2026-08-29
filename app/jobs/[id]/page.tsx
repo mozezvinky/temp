@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { useLiveVerificationStatus } from "@/hooks/useLiveVerificationStatus";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { applyToJob, subscribeApplications, subscribeJob } from "@/services/jobs";
 import type { Application, Job } from "@/types";
@@ -11,7 +12,7 @@ import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 import { displayJobQuantity } from "@/utils/jobUnits";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 import { perDurationUnit } from "@/utils/duration";
-import { workerCanApplyToJob } from "@/utils/jobRules";
+import { requiresDriverLicenseForJob, workerCanApplyToJob } from "@/utils/jobRules";
 import { jobLocationLabel } from "@/utils/location-display";
 import { Clock, MapPin } from "lucide-react";
 import Link from "next/link";
@@ -28,6 +29,8 @@ export default function JobDetailsPage() {
   const [error, setError] = useState("");
   const [applying, setApplying] = useState(false);
   const [applications, setApplications] = useState<Application[]>([]);
+  const { status: liveVerificationStatus, checking: checkingVerification } = useLiveVerificationStatus(profile?.verificationStatus);
+  const { status: liveDriverLicenseStatus, checking: checkingDriverLicense } = useLiveVerificationStatus(profile?.driverLicenseVerificationStatus, "driver_license");
 
   useEffect(() => {
     if (authLoading || !isAuthorized || !id) return;
@@ -48,11 +51,15 @@ export default function JobDetailsPage() {
   async function submitApplication(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!profile || !job || profile.role !== "worker") return;
+    if (checkingVerification || (requiresDriverLicenseForJob(job) && checkingDriverLicense)) {
+      toast.message("Checking your verification status. Try again in a moment.");
+      return;
+    }
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     setApplying(true);
     try {
-      await applyToJob(job, profile, String(form.get("coverNote") ?? "").trim());
+      await applyToJob(job, { ...profile, verificationStatus: liveVerificationStatus, driverLicenseVerificationStatus: liveDriverLicenseStatus }, String(form.get("coverNote") ?? "").trim());
       toast.success("Application submitted.");
       formElement.reset();
       router.replace("/jobs");
@@ -76,7 +83,12 @@ export default function JobDetailsPage() {
   const timelineUnitLabel = perDurationUnit(job.durationUnit);
   const timelineUnitTitle = timelineUnitLabel.charAt(0).toUpperCase() + timelineUnitLabel.slice(1);
   const timelineTotalEarnings = timelineSummary.totalWorkerAmount;
-  const applyStatus = profile?.role === "worker" ? workerCanApplyToJob(profile, job) : { ok: false, reason: "Use a worker account to apply." };
+  const jobNeedsDriverLicense = requiresDriverLicenseForJob(job);
+  const verificationChecking = checkingVerification || (jobNeedsDriverLicense && checkingDriverLicense);
+  const effectiveWorkerProfile = profile?.role === "worker"
+    ? { ...profile, verificationStatus: liveVerificationStatus, driverLicenseVerificationStatus: liveDriverLicenseStatus }
+    : null;
+  const applyStatus = effectiveWorkerProfile ? workerCanApplyToJob(effectiveWorkerProfile, job) : { ok: false, reason: "Use a worker account to apply." };
 
   return (
     <div className="mx-auto grid max-w-4xl gap-4 lg:grid-cols-[1.15fr_.85fr]">
@@ -108,7 +120,11 @@ export default function JobDetailsPage() {
         </div>
         <p className="mt-5 text-sm text-[#959087]">Posted by {job.clientName}</p>
       </Card>
-      {profile?.role === "worker" && job.status === "open" && !alreadyApplied && applyStatus.ok ? (
+      {profile?.role === "worker" && job.status === "open" && !alreadyApplied && verificationChecking ? (
+        <Card>
+          <LoadingSpinner label="Checking verification" />
+        </Card>
+      ) : profile?.role === "worker" && job.status === "open" && !alreadyApplied && applyStatus.ok ? (
         <Card>
           <h2 className="text-xl font-black text-[#FFFBFF]">Apply for this job</h2>
           <form onSubmit={submitApplication} className="mt-4 grid gap-3">

@@ -1,4 +1,5 @@
 import type { Job, UserProfile, VerificationStatus } from "@/types";
+import { normalizeVerificationStatus } from "@/utils/verification";
 
 const driverJobTerms = [
   "driver",
@@ -14,7 +15,7 @@ const driverJobTerms = [
 ];
 
 export function isApprovedVerification(status?: VerificationStatus | null) {
-  return status === "approved";
+  return normalizeVerificationStatus(status) === "approved";
 }
 
 export function requiresDriverLicenseForJob(job: Pick<Job, "title" | "category" | "requiredSkills">) {
@@ -28,8 +29,15 @@ export function clientCanPost(profile: { verificationStatus?: VerificationStatus
 
 export function workerCanWork(profile: Pick<UserProfile, "verificationStatus" | "isLocked" | "outstandingServiceFee"> | null | undefined) {
   if (!profile) return { ok: false, reason: "Use a worker account to do jobs." };
-  if (!isApprovedVerification(profile.verificationStatus)) {
-    return { ok: false, reason: "Verify your identity before applying for or doing jobs." };
+  const identityStatus = normalizeVerificationStatus(profile.verificationStatus);
+  if (identityStatus === "pending") {
+    return { ok: false, reason: "Your identity verification is still under review." };
+  }
+  if (identityStatus === "rejected") {
+    return { ok: false, reason: "Your identity verification was not approved. Please resubmit your verification." };
+  }
+  if (!isApprovedVerification(identityStatus)) {
+    return { ok: false, reason: "Verification required. Verify your identity before applying for jobs." };
   }
   if (profile.isLocked || Number(profile.outstandingServiceFee ?? 0) > 0) {
     return { ok: false, reason: "Your account is locked. Open your dashboard for the next step." };
@@ -41,7 +49,7 @@ export function workerCanApplyToJob(worker: Pick<UserProfile, "verificationStatu
   const base = workerCanWork(worker);
   if (!base.ok) return base;
   if (requiresDriverLicenseForJob(job) && !isApprovedVerification(worker?.driverLicenseVerificationStatus)) {
-    return { ok: false, reason: "You do not have a current verified driving licence" };
+    return { ok: false, reason: "Driving licence verification required. Your identity is verified, but you do not currently have a verified driving licence on COPIC." };
   }
   return { ok: true, reason: "" };
 }

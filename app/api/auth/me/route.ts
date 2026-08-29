@@ -2,6 +2,7 @@ import { isSqlBackend } from "@/lib/data-backend";
 import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-user-profile";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { upsertLocalUser } from "@/lib/local-sql";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -25,8 +26,8 @@ export async function GET(request: NextRequest) {
 
     if (currentUser.profile) {
       const verification = await adminDb().collection("verifications").doc(currentUser.uid).get();
-      const verificationStatus = verification.data()?.status;
-      if (verificationStatus === "approved" || verificationStatus === "pending" || verificationStatus === "rejected") {
+      const verificationStatus = normalizeVerificationStatus(verification.data()?.identityVerificationStatus ?? verification.data()?.status);
+      if (verificationStatus !== "not_submitted") {
         return NextResponse.json({
           profile: {
             ...currentUser.profile,

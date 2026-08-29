@@ -4,6 +4,7 @@ import { adminDb } from "@/lib/firebase-admin";
 import { createLocalJob, markLocalEmailVerified } from "@/lib/local-sql";
 import { jobSchema } from "@/utils/validation";
 import { clientCanPost } from "@/utils/jobRules";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 import { FieldValue } from "firebase-admin/firestore";
 import { randomUUID } from "node:crypto";
@@ -86,12 +87,10 @@ export async function POST(request: NextRequest) {
     if (!userSnap.exists || !["client", "admin"].includes(String(user?.role))) {
       return NextResponse.json({ error: "You do not have permission to post work. Please use a client account." }, { status: 403 });
     }
-    const verificationStatus = verificationSnap.data()?.status;
+    const verificationStatus = normalizeVerificationStatus(verificationSnap.data()?.identityVerificationStatus ?? verificationSnap.data()?.status);
     const effectiveUser = {
       ...user,
-      verificationStatus: verificationStatus === "approved" || verificationStatus === "pending" || verificationStatus === "rejected"
-        ? verificationStatus
-        : user?.verificationStatus
+      verificationStatus: verificationStatus !== "not_submitted" ? verificationStatus : user?.verificationStatus
     };
     if (!clientCanPost(effectiveUser as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) {
       return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });

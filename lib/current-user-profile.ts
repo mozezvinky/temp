@@ -4,6 +4,7 @@ import { shouldUseFirebase } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { getLocalUser, getLocalUserByEmail, linkLocalUserUidByEmail, upsertLocalUser } from "@/lib/local-sql";
 import type { Role, UserProfile, VerificationStatus } from "@/types";
+import { normalizeVerificationStatus } from "@/utils/verification";
 import type { DecodedIdToken } from "firebase-admin/auth";
 import { NextRequest } from "next/server";
 
@@ -93,7 +94,7 @@ export function mergeFirestoreVerificationRecords<T extends Partial<UserProfile>
   if (!profile) return profile;
 
   const nextProfile = { ...profile };
-  const identityStatus = identity?.status;
+  const identityStatus = normalizeVerificationStatus(identity?.identityVerificationStatus ?? identity?.status);
   if (isVerificationStatus(identityStatus)) {
     nextProfile.verificationStatus = identityStatus;
     nextProfile.verificationRejectionReason = identityStatus === "rejected"
@@ -101,7 +102,7 @@ export function mergeFirestoreVerificationRecords<T extends Partial<UserProfile>
       : null;
   }
 
-  const driverLicenseStatus = driverLicense?.status;
+  const driverLicenseStatus = normalizeVerificationStatus(driverLicense?.driverLicenseVerificationStatus ?? driverLicense?.status);
   if (isVerificationStatus(driverLicenseStatus)) {
     nextProfile.driverLicenseVerificationStatus = driverLicenseStatus;
     nextProfile.driverLicenseRejectionReason = driverLicenseStatus === "rejected"
