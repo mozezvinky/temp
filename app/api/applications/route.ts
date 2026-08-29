@@ -239,6 +239,10 @@ export async function PATCH(request: NextRequest) {
         ? confirmLocalWorkerPaid(applicationId, currentUser.uid, timelineIds)
         : acceptLocalApplication(applicationId, currentUser.uid);
       if (!application) return NextResponse.json({ error: "Application was not found." }, { status: 404 });
+      if (action === "accept") {
+        const worker = getLocalUser(application.workerId);
+        void sendApplicationAcceptedEmail(worker?.email, application.jobTitle ?? "your job").catch(error => console.error("[api/applications] accepted application email failed", error));
+      }
       return NextResponse.json({ success: true, application });
     }
 
@@ -660,6 +664,13 @@ export async function PATCH(request: NextRequest) {
       });
       return { id: applicationSnap.id, ...application, status: "accepted" };
     });
+    const acceptedApplication = result as Record<string, unknown>;
+    void db.collection("users").doc(String(acceptedApplication.workerId ?? "")).get()
+      .then(workerSnap => sendApplicationAcceptedEmail(
+        typeof workerSnap.data()?.email === "string" ? workerSnap.data()?.email : null,
+        typeof acceptedApplication.jobTitle === "string" ? acceptedApplication.jobTitle : "your job"
+      ))
+      .catch(error => console.error("[api/applications] accepted application email failed", error));
     return NextResponse.json({ success: true, application: result });
   } catch (error) {
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
@@ -756,6 +767,16 @@ function sendNewApplicationEmail(clientEmail: string | undefined | null, jobTitl
       <h1 style="font-size:22px;margin:0 0 12px;">New application</h1>
       <p>${escapeHtml(workerName)} applied for <strong>${escapeHtml(jobTitle)}</strong>.</p>
       <p>Open Copic to review the application and contact the worker.</p>
+    </div>
+  `);
+}
+
+function sendApplicationAcceptedEmail(workerEmail: string | undefined | null, jobTitle: string) {
+  return sendAppEmail(workerEmail, "Your Copic application was accepted", `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#1f2933;">
+      <h1 style="font-size:22px;margin:0 0 12px;">Application accepted</h1>
+      <p>Your application for <strong>${escapeHtml(jobTitle)}</strong> was accepted.</p>
+      <p>Open Copic to chat with the employer and manage the job from your applications page.</p>
     </div>
   `);
 }

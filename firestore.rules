@@ -10,8 +10,8 @@ service cloud.firestore {
     function notLocked() { return signedIn() && userDoc(request.auth.uid).data.isLocked != true; }
     function hasCopicIdentityVerification() {
       return signedIn()
-        && (userDoc(request.auth.uid).data.verificationStatus in ["approved", "verified"]
-          || userDoc(request.auth.uid).data.identityVerificationStatus in ["approved", "verified"]);
+        && (userDoc(request.auth.uid).data.verificationStatus in ["approved", "verified", "Approved", "Verified", "APPROVED", "VERIFIED"]
+          || userDoc(request.auth.uid).data.identityVerificationStatus in ["approved", "verified", "Approved", "Verified", "APPROVED", "VERIFIED"]);
     }
     function hasVerifiedEmail() { return signedIn() && userDoc(request.auth.uid).data.emailVerified == true; }
     function validJobDuration() { return request.resource.data.durationHours > 0 && request.resource.data.durationHours <= 8760; }

@@ -30,6 +30,24 @@ function firstStatus(...values: unknown[]) {
   return "not_submitted";
 }
 
+function logIdentityVerificationResolution(input: {
+  uid: string;
+  source: string;
+  rawStatus: unknown;
+  normalizedStatus: VerificationStatus;
+  identityVerified: boolean;
+  action: string;
+}) {
+  console.info("[COPIC VERIFICATION]", {
+    uid: input.uid,
+    source: input.source,
+    rawStatus: typeof input.rawStatus === "string" ? input.rawStatus : input.rawStatus == null ? null : String(input.rawStatus),
+    normalizedStatus: input.normalizedStatus,
+    identityVerified: input.identityVerified,
+    action: input.action
+  });
+}
+
 export function getWorkerVerificationStatusFromRecords(
   uid: string,
   user: Partial<UserProfile> | Record<string, unknown> | null | undefined,
@@ -37,8 +55,17 @@ export function getWorkerVerificationStatusFromRecords(
   driverLicense: Record<string, unknown> | null | undefined
 ): WorkerVerificationStatus {
   const userRecord = user as (Partial<UserProfile> & Record<string, unknown>) | null | undefined;
+  const rawIdentityStatus = identity?.identityVerificationStatus ?? identity?.status ?? userRecord?.identityVerificationStatus ?? userRecord?.verificationStatus ?? userRecord?.kycStatus;
   const identityVerificationStatus = firstStatus(identity?.identityVerificationStatus, identity?.status, userRecord?.identityVerificationStatus, userRecord?.verificationStatus, userRecord?.kycStatus);
   const drivingLicenceStatus = firstStatus(driverLicense?.driverLicenseVerificationStatus, driverLicense?.status, userRecord?.driverLicenseVerificationStatus);
+  logIdentityVerificationResolution({
+    uid,
+    source: identity ? "verification_record" : userRecord ? "user_profile_fallback" : "missing",
+    rawStatus: rawIdentityStatus,
+    normalizedStatus: identityVerificationStatus,
+    identityVerified: identityVerificationStatus === "approved",
+    action: "worker_eligibility"
+  });
   return {
     uid,
     identityVerificationStatus,

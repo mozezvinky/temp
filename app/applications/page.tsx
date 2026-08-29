@@ -13,7 +13,6 @@ import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { perDurationUnit } from "@/utils/duration";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
-import { workerCanWork } from "@/utils/jobRules";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { ArrowLeft, Mail, MessageCircle, Phone, Star } from "lucide-react";
 import Link from "next/link";
@@ -51,7 +50,19 @@ export default function ApplicationsPage() {
     ? nonRehireApplications.filter(application => application.status !== "completion_requested")
     : nonRehireApplications;
   const visibleApplications = selectedJobId ? roleScopedApplications.filter(application => application.jobId === selectedJobId) : roleScopedApplications;
-  const workerWorkStatus = profile.role === "worker" ? workerCanWork(profile) : { ok: true, reason: "" };
+  const currentJobApplications = visibleApplications.filter(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled");
+  const pastOrPendingApplications = visibleApplications.filter(application => !(["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled"));
+
+  if (profile.role === "worker") {
+    const currentJob = currentJobApplications[0] ?? null;
+    console.info("[COPIC APPLICATIONS]", {
+      uid: profile.uid ?? profile.id,
+      currentJobId: currentJob?.jobId ?? null,
+      currentJobStatus: currentJob?.status ?? null,
+      identityVerified: normalizeVerificationStatus(profile.verificationStatus) === "approved",
+      showApplicationVerificationWarning: false
+    });
+  }
   if (!visibleApplications.length) return (
     <div className="space-y-4">
       <Link href={profile.role === "client" ? "/find-work" : "/dashboard"} className="applications-back-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold">
@@ -132,9 +143,7 @@ export default function ApplicationsPage() {
           <ApplicationSection
             title="Current job"
             empty="Accepted jobs will appear here as ongoing work."
-            applications={visibleApplications.filter(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled")}
-            canDoJobs={workerWorkStatus.ok}
-            blockedReason={workerWorkStatus.reason}
+            applications={currentJobApplications}
             onCancel={application => {
               setApplications(items => items.map(item => item.id === application.id ? application : item));
             }}
@@ -142,9 +151,7 @@ export default function ApplicationsPage() {
           <ApplicationSection
             title="Applied jobs"
             empty="Pending and past applications will appear here."
-            applications={visibleApplications.filter(application => !(["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled"))}
-            canDoJobs={workerWorkStatus.ok}
-            blockedReason={workerWorkStatus.reason}
+            applications={pastOrPendingApplications}
             onCancel={application => {
               setApplications(items => items.map(item => item.id === application.id ? application : item));
             }}
