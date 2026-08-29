@@ -60,7 +60,14 @@ export default function DashboardPage() {
   const profileId = profile?.id;
   const profileRole = profile?.role;
   const profileOutstandingServiceFee = Number(profile?.outstandingServiceFee ?? 0);
-  const currentOutstandingServiceFee = profileOutstandingServiceFee > 0 ? profileOutstandingServiceFee : forcedServiceFee;
+  const pendingServiceFeeAmount = !!serviceFeePayment && serviceFeePayment.status !== "approved" && serviceFeePayment.status !== "rejected"
+    ? Number(serviceFeePayment.amount ?? 0)
+    : 0;
+  const currentOutstandingServiceFee = profileOutstandingServiceFee > 0
+    ? profileOutstandingServiceFee
+    : pendingServiceFeeAmount > 0
+      ? pendingServiceFeeAmount
+      : forcedServiceFee;
   const pendingServiceFeePayment = !!serviceFeePayment
     && serviceFeePayment.status !== "rejected"
     && serviceFeePayment.status !== "approved"

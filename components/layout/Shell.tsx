@@ -43,6 +43,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const [uiTheme, setUiTheme] = useState<UiTheme>("light");
   const [switchingRole, setSwitchingRole] = useState<Role | null>(null);
   const [topAlerts, setTopAlerts] = useState<AppNotification[]>([]);
+  const [serviceFeePayment, setServiceFeePayment] = useState<ServiceFeePayment | null>(null);
   const [dismissedTopAlertIds, setDismissedTopAlertIds] = useState<string[]>([]);
   const [viewedTopAlertIds, setViewedTopAlertIds] = useState<string[]>([]);
   const [topAlertDetail, setTopAlertDetail] = useState<AppNotification | null>(null);
@@ -50,7 +51,10 @@ export function Shell({ children }: { children: ReactNode }) {
   const showAppNav = !!profile && !pathname.startsWith("/auth");
   const profileId = profile?.id;
   const profileRole = profile?.role;
-  const accountLocked = !!profile && profile.role !== "admin" && (profile.isLocked || Number(profile.outstandingServiceFee ?? 0) > 0);
+  const pendingServiceFeeAmount = !!serviceFeePayment && serviceFeePayment.status !== "approved" && serviceFeePayment.status !== "rejected"
+    ? Number(serviceFeePayment.amount ?? 0)
+    : 0;
+  const accountLocked = !!profile && profile.role !== "admin" && (profile.isLocked || Number(profile.outstandingServiceFee ?? 0) > 0 || pendingServiceFeeAmount > 0);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("copic.uiTheme") === "dark" ? "dark" : "light";
@@ -69,6 +73,25 @@ export function Shell({ children }: { children: ReactNode }) {
     setDrawerOpen(false);
     setProfileOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!profileId || profileRole !== "worker") {
+      setServiceFeePayment(null);
+      return;
+    }
+    let cancelled = false;
+    void loadServiceFeePayment()
+      .then(payment => {
+        if (cancelled) return;
+        setServiceFeePayment(payment);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceFeePayment(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profileId, profileRole, profile?.isLocked, profile?.outstandingServiceFee]);
 
   useEffect(() => {
     if (!accountLocked) return;
@@ -95,7 +118,7 @@ export function Shell({ children }: { children: ReactNode }) {
       const serviceFeeAlert = items.find(item => serviceFeeAmountFromAlert(item) > 0);
       if (serviceFeeAlert) {
         const amount = serviceFeeAmountFromAlert(serviceFeeAlert);
-        const profileHasServiceFeeDebt = !!profile?.isLocked || Number(profile?.outstandingServiceFee ?? 0) > 0;
+        const profileHasServiceFeeDebt = !!profile?.isLocked || Number(profile?.outstandingServiceFee ?? 0) > 0 || pendingServiceFeeAmount > 0;
         if (!profileHasServiceFeeDebt) {
           window.sessionStorage.removeItem("temp.forceServiceFee");
           window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: 0 }));
@@ -124,14 +147,14 @@ export function Shell({ children }: { children: ReactNode }) {
       }
       setTopAlerts(items.filter(item => !item.read).slice(0, 8));
     }, () => setTopAlerts([]));
-  }, [pathname, profile?.isLocked, profile?.outstandingServiceFee, profileId, profileRole, refreshProfile, router]);
+  }, [pathname, pendingServiceFeeAmount, profile?.isLocked, profile?.outstandingServiceFee, profileId, profileRole, refreshProfile, router]);
 
   useEffect(() => {
     const serviceFeeAlert = topAlerts.find(item => serviceFeeAmountFromAlert(item) > 0);
     if (serviceFeeAlert) {
       const amount = serviceFeeAmountFromAlert(serviceFeeAlert);
       if (Number.isFinite(amount) && amount > 0) {
-        const profileHasServiceFeeDebt = !!profile?.isLocked || Number(profile?.outstandingServiceFee ?? 0) > 0;
+        const profileHasServiceFeeDebt = !!profile?.isLocked || Number(profile?.outstandingServiceFee ?? 0) > 0 || pendingServiceFeeAmount > 0;
         if (!profileHasServiceFeeDebt) {
           window.sessionStorage.removeItem("temp.forceServiceFee");
           window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: 0 }));
@@ -169,7 +192,7 @@ export function Shell({ children }: { children: ReactNode }) {
       }
       void refreshProfile();
     }
-  }, [pathname, profile?.isLocked, profile?.outstandingServiceFee, refreshProfile, router, topAlerts]);
+  }, [pathname, pendingServiceFeeAmount, profile?.isLocked, profile?.outstandingServiceFee, refreshProfile, router, topAlerts]);
 
   useEffect(() => {
     if (!drawerOpen) return;
