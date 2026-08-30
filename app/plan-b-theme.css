@@ -1870,13 +1870,23 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
   position: fixed;
   inset: 0;
   z-index: 80;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  padding: 16px;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   background: rgba(15, 23, 42, .72);
 }
+.copic-paywall-scroll-frame {
+  display: flex;
+  min-height: 100%;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+}
 .copic-service-fee-paywall.copic-card {
+  display: grid;
+  gap: 22px;
   width: min(100%, 672px);
   max-height: calc(100vh - 32px) !important;
   max-height: calc(100svh - 32px) !important;
@@ -1888,6 +1898,10 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
   background: #ffffff !important;
   color: #111827 !important;
   box-shadow: 0 24px 70px rgba(15, 23, 42, .32) !important;
+}
+.copic-paywall-header {
+  display: grid;
+  gap: 10px;
 }
 .copic-paywall-eyebrow,
 .copic-paywall-section-label,
@@ -1904,29 +1918,29 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
   letter-spacing: .16em;
 }
 .copic-paywall-title {
-  margin-top: 12px;
   color: #020617 !important;
   font-size: 1.9rem;
   font-weight: 950;
   line-height: 1.08;
 }
 .copic-paywall-description {
-  margin-top: 12px;
   color: #374151 !important;
   font-size: .95rem;
   font-weight: 750;
   line-height: 1.55;
 }
 .copic-payment-received-panel {
-  margin-top: 20px;
   border: 1px solid #bbf7d0;
   border-radius: 12px;
-  padding: 16px;
+  padding: 18px;
   background: #f0fdf4;
   color: #111827 !important;
   font-size: .95rem;
   font-weight: 700;
   line-height: 1.55;
+}
+.copic-payment-received-panel > * + * {
+  margin-top: 8px;
 }
 .copic-payment-received-title,
 .copic-payment-received-due {
@@ -1934,18 +1948,30 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
   font-weight: 950;
 }
 .copic-payment-received-due {
-  margin-top: 12px;
+  margin-top: 14px;
   font-size: 1rem;
 }
+.copic-paywall-section {
+  display: grid;
+  gap: 12px;
+}
 .copic-paywall-section-label {
-  margin-top: 20px;
   color: #374151 !important;
   font-size: .76rem;
   font-weight: 900;
   letter-spacing: .14em;
 }
+.copic-paywall-details-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
 .copic-paywall-copy-card {
+  display: flex;
+  min-height: 134px;
   min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
   border: 1px solid #d1d5db;
   border-radius: 12px;
   padding: 16px;
@@ -1966,7 +1992,7 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
 }
 .copic-paywall-copy-button.button-format {
   min-height: 36px;
-  margin-top: 12px;
+  margin-top: auto;
   border-color: #d1d5db !important;
   background: #f3f4f6 !important;
   color: #111827 !important;
@@ -1974,10 +2000,9 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
   font-size: .75rem;
 }
 .copic-paywall-instructions {
-  margin-top: 16px;
   border: 1px solid #bfdbfe;
   border-radius: 12px;
-  padding: 14px;
+  padding: 16px 18px;
   background: #eff6ff;
   color: #1e3a8a !important;
   font-size: .9rem;
@@ -1988,14 +2013,27 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
   color: #172554 !important;
   font-weight: 950;
 }
+.copic-paywall-form {
+  display: grid;
+  gap: 16px;
+}
+.copic-paywall-upload-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 14px;
+  padding: 16px;
+  background: #f9fafb;
+}
 .copic-paywall-upload-label {
   display: grid !important;
-  gap: 8px;
+  gap: 10px;
   color: #374151 !important;
   font-size: .76rem !important;
   font-weight: 900 !important;
 }
 .copic-paywall-file-input.temp-input {
+  width: 100%;
   min-height: 52px;
   border: 1px solid #9ca3af !important;
   border-radius: 12px !important;
@@ -2017,14 +2055,12 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
   box-shadow: 0 0 0 3px rgba(178, 247, 70, .42) !important;
 }
 .copic-paywall-helper {
-  margin-top: -6px;
   color: #4b5563 !important;
   font-size: .83rem;
   font-weight: 700;
   line-height: 1.45;
 }
 .copic-paywall-message {
-  margin-top: 16px;
   border-radius: 12px;
   padding: 12px 14px;
   font-size: .9rem;
@@ -2046,10 +2082,19 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
   background: #f0fdf4;
   color: #166534 !important;
 }
+.copic-paywall-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
 .copic-paywall-submit-button.button-format,
 .copic-paywall-secondary-button.button-format {
-  min-height: 44px;
+  min-height: 48px;
+  width: 100%;
   padding-inline: 16px !important;
+  justify-content: center;
+  text-align: center;
 }
 .copic-paywall-submit-button.button-format {
   color: #203300 !important;
@@ -2098,6 +2143,10 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
   background: #262626 !important;
   color: #ffffff !important;
 }
+[data-ui-theme="dark"] .copic-paywall-upload-card {
+  border-color: #404040;
+  background: #171717;
+}
 [data-ui-theme="dark"] .copic-paywall-instructions {
   border-color: #1d4ed8;
   background: rgba(30, 58, 138, .32);
@@ -2137,14 +2186,24 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
   color: #203300 !important;
 }
 @media (max-width: 640px) {
-  .copic-paywall-overlay { align-items: stretch; padding: 10px; }
+  .copic-paywall-scroll-frame { padding: 10px; }
   .copic-service-fee-paywall.copic-card {
+    gap: 18px;
     width: 100%;
     max-height: calc(100svh - 20px) !important;
     border-radius: 18px !important;
     padding: 18px !important;
   }
   .copic-paywall-title { font-size: 1.55rem; }
+  .copic-paywall-details-grid,
+  .copic-paywall-actions {
+    grid-template-columns: 1fr;
+  }
+  .copic-payment-received-panel,
+  .copic-paywall-instructions,
+  .copic-paywall-upload-card {
+    padding: 14px;
+  }
   .copic-paywall-submit-button.button-format,
   .copic-paywall-secondary-button.button-format { width: 100%; }
 }

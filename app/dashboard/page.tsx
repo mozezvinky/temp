@@ -276,37 +276,45 @@ export default function DashboardPage() {
 
   if (demandedServiceFee > 0) {
     return (
-      <div className="copic-paywall-overlay">
-        <Card className="copic-service-fee-paywall">
-          <p className="copic-paywall-eyebrow">10% Service Fee Due</p>
-          <h1 className="copic-paywall-title">Pay {kes(demandedServiceFee)} now</h1>
-          <p className="copic-paywall-description">This is 10% of the client payment for your completed job. Pay this amount to unlock your worker account.</p>
-          {serviceFeePayment?.status === "rejected" && <p className="copic-paywall-message is-error">{serviceFeePayment.rejectionReason ?? "Your last payment was rejected. Please resubmit."}</p>}
-          {waitingForAdminConfirmation && <p className="copic-paywall-message is-pending">Waiting for admin confirmation.</p>}
-          <div className="copic-payment-received-panel">
-            <p className="copic-payment-received-title">Payment Received</p>
-            <p className="mt-2">You have been paid {kes(paywallGrossAmount)} for this job.</p>
-            <p className="mt-2">Your earnings: {kes(paywallWorkerEarnings)}</p>
-            <p>COPIC service fee: {kes(paywallServiceFeeAmount)}</p>
-            <p className="copic-payment-received-due">Amount Due: {kes(demandedServiceFee)}</p>
-          </div>
-          <p className="copic-paywall-section-label">Payment details</p>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <CopyBox label="Paybill Number" value={SERVICE_FEE_PAYBILL_NUMBER} />
-            <CopyBox label="Account Number" value={SERVICE_FEE_ACCOUNT_NUMBER} />
-            <CopyBox label="Amount" value={kes(demandedServiceFee)} copyValue={String(demandedServiceFee)} />
-          </div>
-          <p className="copic-paywall-instructions">Use Paybill <span>{SERVICE_FEE_PAYBILL_NUMBER}</span> and Account <span>{SERVICE_FEE_ACCOUNT_NUMBER}</span>. The payment confirmation should show payment made to <span>{SERVICE_FEE_RECIPIENT_NAME}</span>. Upload the M-Pesa confirmation screenshot so admin can approve the unlock.</p>
-          <form onSubmit={submitServiceFee} className="mt-6 grid gap-4">
-            <label className="copic-paywall-upload-label">M-Pesa confirmation screenshot<input name="screenshot" type="file" accept="image/*" required onChange={event => { setFeeScreenshotSelected(!!event.currentTarget.files?.[0]); setFeeMessage(null); }} className="copic-paywall-file-input" /></label>
-            <p className="copic-paywall-helper">Upload a clear JPEG, PNG, or WebP screenshot of the M-Pesa confirmation.</p>
-            {feeMessage && <p className={`copic-paywall-message is-${feeMessage.tone}`}>{feeMessage.text}</p>}
-            <div className="flex flex-wrap gap-3">
-              <Button type="submit" className="copic-paywall-submit-button temp-success-button" disabled={submittingFee || waitingForAdminConfirmation || !feeScreenshotSelected}>{waitingForAdminConfirmation ? "Waiting for admin confirmation" : submittingFee ? "Submitting..." : feeScreenshotSelected ? "Submit for Admin Approval" : "Upload Screenshot First"}</Button>
-              <Button type="button" variant="secondary" className="copic-paywall-secondary-button" onClick={promptPhoneNumberDirectly}>Prompt Phone Number Directly</Button>
+      <div className="copic-paywall-overlay" data-copic-paywall="service-fee-v3">
+        <div className="copic-paywall-scroll-frame">
+          <Card role="dialog" aria-modal="true" aria-label="COPIC service fee payment" className="copic-service-fee-paywall" data-copic-paywall="service-fee-v3">
+            <div className="copic-paywall-header">
+              <p className="copic-paywall-eyebrow">10% Service Fee Due</p>
+              <h1 className="copic-paywall-title">Pay {kes(demandedServiceFee)} now</h1>
+              <p className="copic-paywall-description">This is 10% of the client payment for your completed job. Pay this amount to unlock your worker account.</p>
             </div>
-          </form>
-        </Card>
+            {serviceFeePayment?.status === "rejected" && <p className="copic-paywall-message is-error">{serviceFeePayment.rejectionReason ?? "Your last payment was rejected. Please resubmit."}</p>}
+            {waitingForAdminConfirmation && <p className="copic-paywall-message is-pending">Waiting for admin confirmation.</p>}
+            <div className="copic-payment-received-panel">
+              <p className="copic-payment-received-title">Payment Received</p>
+              <p>You have been paid {kes(paywallGrossAmount)} for this job.</p>
+              <p>Your earnings: {kes(paywallWorkerEarnings)}</p>
+              <p>COPIC service fee: {kes(paywallServiceFeeAmount)}</p>
+              <p className="copic-payment-received-due">Amount Due: {kes(demandedServiceFee)}</p>
+            </div>
+            <div className="copic-paywall-section">
+              <p className="copic-paywall-section-label">Payment details</p>
+              <div className="copic-paywall-details-grid">
+                <CopyBox label="Paybill Number" value={SERVICE_FEE_PAYBILL_NUMBER} />
+                <CopyBox label="Account Number" value={SERVICE_FEE_ACCOUNT_NUMBER} />
+                <CopyBox label="Amount" value={kes(demandedServiceFee)} copyValue={String(demandedServiceFee)} />
+              </div>
+            </div>
+            <p className="copic-paywall-instructions">Use Paybill <span>{SERVICE_FEE_PAYBILL_NUMBER}</span> and Account <span>{SERVICE_FEE_ACCOUNT_NUMBER}</span>. The payment confirmation should show payment made to <span>{SERVICE_FEE_RECIPIENT_NAME}</span>. Upload the M-Pesa confirmation screenshot so admin can approve the unlock.</p>
+            <form onSubmit={submitServiceFee} className="copic-paywall-form">
+              <div className="copic-paywall-upload-card">
+                <label className="copic-paywall-upload-label">M-Pesa confirmation screenshot<input name="screenshot" type="file" accept="image/*" required onChange={event => { setFeeScreenshotSelected(!!event.currentTarget.files?.[0]); setFeeMessage(null); }} className="copic-paywall-file-input temp-input" /></label>
+                <p className="copic-paywall-helper">Upload a clear JPEG, PNG, or WebP screenshot of the M-Pesa confirmation.</p>
+              </div>
+              {feeMessage && <p className={`copic-paywall-message is-${feeMessage.tone}`}>{feeMessage.text}</p>}
+              <div className="copic-paywall-actions">
+                <Button type="submit" className="copic-paywall-submit-button temp-success-button" disabled={submittingFee || waitingForAdminConfirmation || !feeScreenshotSelected}>{waitingForAdminConfirmation ? "Waiting for admin confirmation" : submittingFee ? "Submitting..." : feeScreenshotSelected ? "Submit for Admin Approval" : "Upload Screenshot First"}</Button>
+                <Button type="button" variant="secondary" className="copic-paywall-secondary-button" onClick={promptPhoneNumberDirectly}>Prompt Phone Number Directly</Button>
+              </div>
+            </form>
+          </Card>
+        </div>
       </div>
     );
   }
