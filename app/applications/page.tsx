@@ -13,11 +13,20 @@ import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { perDurationUnit } from "@/utils/duration";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
+import { jobLocationLabel } from "@/utils/location-display";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { ArrowLeft, Mail, MessageCircle, Phone, Star } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
+
+function applicationRequestLocationLabel(application: Application) {
+  return jobLocationLabel({
+    location: application.requestLocation ?? "",
+    county: application.requestLocationDetails?.county ?? "",
+    locationDetails: application.requestLocationDetails
+  });
+}
 
 export default function ApplicationsPage() {
   const { profile, loading: authLoading, isAuthorized } = useProtectedRoute(["client", "worker"]);
@@ -173,6 +182,14 @@ export default function ApplicationsPage() {
                 </div>
               )}
               {application.coverNote && <p className="mt-4 text-sm text-[#959087]">{application.coverNote}</p>}
+              {application.source === "direct_hire" && (
+                <div className="mt-4 rounded-xl border border-[#d8d8d8] bg-[#f3f4f5] p-3 text-sm text-[#4b453e] dark:border-[#4A463F] dark:bg-[#1F1F20] dark:text-[#CCC6BB]">
+                  <p><strong className="text-[#111] dark:text-[#FFFBFF]">Location:</strong> {applicationRequestLocationLabel(application)}</p>
+                  <p className="mt-1"><strong className="text-[#111] dark:text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
+                  <p className="mt-1"><strong className="text-[#111] dark:text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
+                  {application.requestDescription && <p className="mt-2">{application.requestDescription}</p>}
+                </div>
+              )}
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={() => setViewingWorker(application)}>View worker profile</Button>
                 {application.status === "pending" && (
@@ -396,6 +413,14 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
             )}
           </div>
           {application.coverNote && <p className="mt-4 text-sm text-[#959087]">{application.coverNote}</p>}
+          {application.source === "direct_hire" && (
+            <div className="mt-4 rounded-xl border border-[#d8d8d8] bg-[#f3f4f5] p-3 text-sm text-[#4b453e] dark:border-[#4A463F] dark:bg-[#1F1F20] dark:text-[#CCC6BB]">
+              <p><strong className="text-[#111] dark:text-[#FFFBFF]">Location:</strong> {applicationRequestLocationLabel(application)}</p>
+              <p className="mt-1"><strong className="text-[#111] dark:text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
+              <p className="mt-1"><strong className="text-[#111] dark:text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
+              {application.requestDescription && <p className="mt-2">{application.requestDescription}</p>}
+            </div>
+          )}
           {application.clientRating && <p className="mt-3 inline-flex items-center gap-1 text-sm font-black text-amber-200"><Star size={16} /> Client rating: {application.clientRating}/5</p>}
             </>
           );

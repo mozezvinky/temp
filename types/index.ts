@@ -27,6 +27,7 @@ export type ServiceFeePaymentStatus = "service_fee_due" | "payment_pending_verif
 export type WorkerSkillCategory = "tools_software" | "services_trades" | "credentials_licenses";
 export type WorkerSkillLevel = "beginner" | "independent" | "expert";
 export type WorkerSkillProofType = "certificate" | "license" | "reference" | "work_photo";
+export type WorkerSkillVerificationStatus = "pending" | "approved" | "rejected";
 
 export interface WorkerSkillProfile {
   id: string;
@@ -35,6 +36,10 @@ export interface WorkerSkillProfile {
   category: WorkerSkillCategory;
   level: WorkerSkillLevel;
   proofType: WorkerSkillProofType;
+  verificationStatus?: WorkerSkillVerificationStatus;
+  reviewedBy?: string | null;
+  reviewedAt?: Timestamp | string | null;
+  rejectionReason?: string | null;
   licenseNumber?: string;
   referencePhone?: string;
   proofUrl?: string;
@@ -45,10 +50,11 @@ export interface WorkerSkillProfile {
   chargeCustomUnit?: string | null;
   chargeTimeline?: number | null;
   chargeTimelineUnit?: "minutes" | "hours" | "days" | "weeks" | "months";
-  chargePayType?: "fixed" | "timeline";
+  chargePayType?: "fixed" | "timeline" | "unit";
   completedJobs: number;
   ratingAverage: number;
   ratingCount: number;
+  submittedAt?: Timestamp | string | null;
   createdAt?: Timestamp | null;
 }
 
@@ -312,6 +318,7 @@ export interface Application {
   source?: "application" | "direct_hire";
   requestTitle?: string;
   requestLocation?: string;
+  requestLocationDetails?: LocationFields;
   requestStartDate?: string;
   requestDuration?: string;
   requestDescription?: string;

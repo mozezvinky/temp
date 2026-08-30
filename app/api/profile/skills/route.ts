@@ -2,6 +2,7 @@ import { isSqlBackend } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { deleteLocalWorkerSkill, getLocalUser, saveLocalWorkerSkill } from "@/lib/local-sql";
 import type { WorkerSkillCategory, WorkerSkillLevel, WorkerSkillProfile, WorkerSkillProofType } from "@/types";
+import { approvedSkillNames, normalizeSkillVerificationStatus } from "@/utils/worker-skills";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -28,12 +29,13 @@ export async function GET(request: NextRequest) {
 
     if (isSqlBackend()) {
       const profile = getLocalUser(decoded.uid);
-      if (!profile || profile.role !== "worker") return NextResponse.json({ error: "Worker access required." }, { status: 403 });
-      return NextResponse.json({ skillProfiles: profile.skillProfiles ?? [] });
+      if (!hasRole(profile, "worker")) return NextResponse.json({ error: "Worker access required." }, { status: 403 });
+      const workerProfile = profile as NonNullable<typeof profile>;
+      return NextResponse.json({ skillProfiles: workerProfile.skillProfiles ?? [] });
     }
 
     const snapshot = await adminDb().collection("users").doc(decoded.uid).get();
-    if (!snapshot.exists || snapshot.data()?.role !== "worker") return NextResponse.json({ error: "Worker access required." }, { status: 403 });
+    if (!snapshot.exists || !hasRole(snapshot.data(), "worker")) return NextResponse.json({ error: "Worker access required." }, { status: 403 });
     const skillProfiles = Array.isArray(snapshot.data()?.skillProfiles) ? snapshot.data()!.skillProfiles as WorkerSkillProfile[] : [];
     return NextResponse.json({ skillProfiles: removeUndefinedFields(skillProfiles) });
   } catch (error) {
@@ -57,6 +59,8 @@ export async function POST(request: NextRequest) {
     const description = String(body.description ?? "").trim();
     const chargeAmount = Number(body.chargeAmount);
     const chargeQuantity = Number(body.chargeQuantity);
+    const chargeUnit = typeof body.chargeUnit === "string" ? body.chargeUnit.trim() : "";
+    const chargeCustomUnit = typeof body.chargeCustomUnit === "string" ? body.chargeCustomUnit.trim() : "";
     const chargeTimeline = Number(body.chargeTimeline);
     const chargeTimelineUnit = String(body.chargeTimelineUnit ?? "hours");
     const chargePayType = String(body.chargePayType ?? "fixed");
@@ -68,6 +72,8 @@ export async function POST(request: NextRequest) {
     if (proofType === "license" && !licenseNumber) return NextResponse.json({ error: "Enter the official license number." }, { status: 400 });
     if (proofType === "reference" && !referencePhone) return NextResponse.json({ error: "Enter a past client or employer phone number." }, { status: 400 });
     if (!Number.isFinite(chargeAmount) || chargeAmount <= 0) return NextResponse.json({ error: "Enter what you charge for this skill." }, { status: 400 });
+    if (chargePayType === "unit" && !chargeUnit) return NextResponse.json({ error: "Choose the unit for per-unit pay." }, { status: 400 });
+    if (chargePayType === "unit" && chargeUnit === "Other" && !chargeCustomUnit) return NextResponse.json({ error: "Enter the custom unit for per-unit pay." }, { status: 400 });
 
     const id = typeof body.id === "string" && body.id.trim() ? body.id.trim() : crypto.randomUUID();
     const skill: WorkerSkillProfile = {
@@ -83,23 +89,35 @@ export async function POST(request: NextRequest) {
       chargeAmount,
       chargeCategory: String(body.chargeCategory ?? name).trim() || name,
       chargeQuantity: Number.isFinite(chargeQuantity) && chargeQuantity > 0 ? chargeQuantity : null,
-      chargeUnit: typeof body.chargeUnit === "string" ? body.chargeUnit.trim() || null : null,
-      chargeCustomUnit: typeof body.chargeCustomUnit === "string" ? body.chargeCustomUnit.trim() || null : null,
+      chargeUnit: chargeUnit || null,
+      chargeCustomUnit: chargeCustomUnit || null,
       chargeTimeline: Number.isFinite(chargeTimeline) && chargeTimeline > 0 ? chargeTimeline : null,
       chargeTimelineUnit: ["minutes", "hours", "days", "weeks", "months"].includes(chargeTimelineUnit) ? chargeTimelineUnit as WorkerSkillProfile["chargeTimelineUnit"] : "hours",
-      chargePayType: chargePayType === "timeline" ? "timeline" : "fixed",
+      chargePayType: chargePayType === "timeline" ? "timeline" : chargePayType === "unit" ? "unit" : "fixed",
+      verificationStatus: "pending",
+      reviewedBy: null,
+      reviewedAt: null,
+      rejectionReason: null,
       completedJobs: 0,
       ratingAverage: 0,
       ratingCount: 0,
+      submittedAt: new Date().toISOString(),
       createdAt: null
     };
 
     if (isSqlBackend()) {
-      if (getLocalUser(decoded.uid)?.role !== "worker") return NextResponse.json({ error: "Worker access required." }, { status: 403 });
-      const existingSkill = (getLocalUser(decoded.uid)?.skillProfiles ?? []).find(item => item.id === id || item.name.toLowerCase() === name.toLowerCase());
+      const profile = getLocalUser(decoded.uid);
+      if (!hasRole(profile, "worker")) return NextResponse.json({ error: "Worker access required." }, { status: 403 });
+      const workerProfile = profile as NonNullable<typeof profile>;
+      const existingSkill = (workerProfile.skillProfiles ?? []).find(item => item.id === id || item.name.toLowerCase() === name.toLowerCase());
+      const materialChanged = hasMaterialSkillChange(existingSkill, skill);
       const skillProfiles = saveLocalWorkerSkill(decoded.uid, {
         ...existingSkill,
         ...skill,
+        verificationStatus: materialChanged ? "pending" : normalizeSkillVerificationStatus(existingSkill?.verificationStatus),
+        reviewedBy: materialChanged ? null : existingSkill?.reviewedBy ?? null,
+        reviewedAt: materialChanged ? null : existingSkill?.reviewedAt ?? null,
+        rejectionReason: materialChanged ? null : existingSkill?.rejectionReason ?? null,
         proofUrl: proofUrl || existingSkill?.proofUrl,
         completedJobs: existingSkill?.completedJobs ?? skill.completedJobs,
         ratingAverage: existingSkill?.ratingAverage ?? skill.ratingAverage,
@@ -113,13 +131,18 @@ export async function POST(request: NextRequest) {
     let savedSkillProfiles: WorkerSkillProfile[] = [];
     await adminDb().runTransaction(async transaction => {
       const snapshot = await transaction.get(ref);
-      if (!snapshot.exists || snapshot.data()?.role !== "worker") throw new Error("Worker access required.");
+      if (!snapshot.exists || !hasRole(snapshot.data(), "worker")) throw new Error("Worker access required.");
       const existing = Array.isArray(snapshot.data()?.skillProfiles) ? snapshot.data()!.skillProfiles as WorkerSkillProfile[] : [];
       const existingSkill = existing.find(item => item.id === skill.id || item.name.toLowerCase() === name.toLowerCase());
       const mergedProofUrl = proofUrl || existingSkill?.proofUrl;
+      const materialChanged = hasMaterialSkillChange(existingSkill, skill);
       const mergedSkill = {
         ...existingSkill,
         ...skill,
+        verificationStatus: materialChanged ? "pending" : normalizeSkillVerificationStatus(existingSkill?.verificationStatus),
+        reviewedBy: materialChanged ? null : existingSkill?.reviewedBy ?? null,
+        reviewedAt: materialChanged ? null : existingSkill?.reviewedAt ?? null,
+        rejectionReason: materialChanged ? null : existingSkill?.rejectionReason ?? null,
         ...(mergedProofUrl ? { proofUrl: mergedProofUrl } : {}),
         completedJobs: existingSkill?.completedJobs ?? skill.completedJobs,
         ratingAverage: existingSkill?.ratingAverage ?? skill.ratingAverage,
@@ -130,7 +153,7 @@ export async function POST(request: NextRequest) {
       savedSkillProfiles = next;
       transaction.update(ref, {
         skillProfiles: next,
-        skills: Array.from(new Set(next.map(item => item.name))),
+        skills: approvedSkillNames(next),
         updatedAt: FieldValue.serverTimestamp()
       });
     });
@@ -149,7 +172,7 @@ export async function DELETE(request: NextRequest) {
     if (!skillId) return NextResponse.json({ error: "Choose a skill to delete." }, { status: 400 });
 
     if (isSqlBackend()) {
-      if (getLocalUser(decoded.uid)?.role !== "worker") return NextResponse.json({ error: "Worker access required." }, { status: 403 });
+      if (!hasRole(getLocalUser(decoded.uid), "worker")) return NextResponse.json({ error: "Worker access required." }, { status: 403 });
       const skillProfiles = deleteLocalWorkerSkill(decoded.uid, skillId);
       return NextResponse.json({ success: true, skillProfiles });
     }
@@ -158,13 +181,13 @@ export async function DELETE(request: NextRequest) {
     let savedSkillProfiles: WorkerSkillProfile[] = [];
     await adminDb().runTransaction(async transaction => {
       const snapshot = await transaction.get(ref);
-      if (!snapshot.exists || snapshot.data()?.role !== "worker") throw new Error("Worker access required.");
+      if (!snapshot.exists || !hasRole(snapshot.data(), "worker")) throw new Error("Worker access required.");
       const existing = Array.isArray(snapshot.data()?.skillProfiles) ? snapshot.data()!.skillProfiles as WorkerSkillProfile[] : [];
       const next = existing.filter(item => item.id !== skillId);
       savedSkillProfiles = next;
       transaction.update(ref, {
         skillProfiles: next,
-        skills: Array.from(new Set(next.map(item => item.name))),
+        skills: approvedSkillNames(next),
         updatedAt: FieldValue.serverTimestamp()
       });
     });
@@ -173,4 +196,18 @@ export async function DELETE(request: NextRequest) {
     const message = error instanceof Error ? error.message : "Unable to delete this skill.";
     return NextResponse.json({ error: message }, { status: message.includes("access") ? 403 : 500 });
   }
+}
+
+function hasMaterialSkillChange(existing: WorkerSkillProfile | undefined, next: WorkerSkillProfile) {
+  if (!existing) return true;
+  return existing.name.trim().toLowerCase() !== next.name.trim().toLowerCase()
+    || existing.category !== next.category
+    || existing.proofType !== next.proofType
+    || String(existing.chargeCategory ?? "").trim().toLowerCase() !== String(next.chargeCategory ?? "").trim().toLowerCase();
+}
+
+function hasRole(profile: unknown, role: "worker") {
+  if (!profile || typeof profile !== "object") return false;
+  const data = profile as { role?: unknown; roles?: unknown };
+  return data.role === role || (Array.isArray(data.roles) && data.roles.includes(role));
 }

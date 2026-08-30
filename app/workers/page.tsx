@@ -9,14 +9,19 @@ import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { sendMessage, subscribeMessages, subscribeUserConversations } from "@/services/chat";
 import { sendDirectHireRequest } from "@/services/jobs";
 import { subscribeWorkers } from "@/services/users";
-import type { Conversation, Message, UserProfile, WorkerSkillProfile } from "@/types";
+import type { Conversation, LocationFields, Message, UserProfile, WorkerSkillProfile } from "@/types";
 import { addPlatformFee, kes } from "@/utils/money";
 import { displayJobQuantity } from "@/utils/jobUnits";
+import { defaultKenyaLocation } from "@/lib/location";
+import { jobLocationLabel } from "@/utils/location-display";
 import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
 import { normalizeVerificationStatus } from "@/utils/verification";
+import dynamic from "next/dynamic";
 import { ChevronDown, MapPin, MessageCircle, Search, Send } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+const MapPicker = dynamic(() => import("@/components/location/MapPicker"), { ssr: false });
 
 export default function WorkersPage() {
   const { profile, loading, isAuthorized } = useProtectedRoute(["client", "admin"]);
@@ -27,6 +32,7 @@ export default function WorkersPage() {
   const [sortOpen, setSortOpen] = useState(false);
   const [selectedWorker, setSelectedWorker] = useState<UserProfile | null>(null);
   const [hireSkill, setHireSkill] = useState<WorkerSkillProfile | null>(null);
+  const [hireLocation, setHireLocation] = useState<LocationFields>(defaultKenyaLocation);
   const [sendingHire, setSendingHire] = useState(false);
   const [messageWorker, setMessageWorker] = useState<UserProfile | null>(null);
   const [messageConversation, setMessageConversation] = useState<Conversation | null>(null);
@@ -142,6 +148,7 @@ export default function WorkersPage() {
     }
     setSelectedWorker(worker);
     setHireSkill(skill);
+    setHireLocation(defaultKenyaLocation);
   }
 
   async function submitHireRequest(event: FormEvent<HTMLFormElement>) {
@@ -160,6 +167,14 @@ export default function WorkersPage() {
       toast.error(allowedWorker.reason);
       return;
     }
+    if (!hireLocation.addressText || !Number.isFinite(hireLocation.latitude) || !Number.isFinite(hireLocation.longitude)) {
+      toast.error("Choose a valid job location before sending the request.");
+      return;
+    }
+    if (hireLocation.locationSource === "current" && hireLocation.landmarkResolved === false && !hireLocation.locationDescription?.trim()) {
+      toast.error("Add a location description because no nearby landmark was found.");
+      return;
+    }
     const form = new FormData(event.currentTarget);
     setSendingHire(true);
     try {
@@ -168,7 +183,8 @@ export default function WorkersPage() {
         title: String(form.get("title") ?? ""),
         category: String(form.get("category") ?? hireSkill.name),
         payAmount: Number(form.get("payAmount") ?? hireSkill.chargeAmount ?? 0),
-        location: String(form.get("location") ?? ""),
+        location: hireLocation.addressText,
+        locationDetails: hireLocation,
         startDate: String(form.get("startDate") ?? ""),
         duration: String(form.get("duration") ?? ""),
         description: String(form.get("description") ?? "")
@@ -254,8 +270,23 @@ export default function WorkersPage() {
     return skill.ratingCount || worker.ratingCount || 0;
   }
 
-  function clientVisibleRate(amount?: number) {
-    return amount ? kes(addPlatformFee(amount)) : "Rate not set";
+  function clientVisibleRate(skill: WorkerSkillProfile) {
+    if (!skill.chargeAmount) return "Rate not set";
+    const amount = kes(addPlatformFee(skill.chargeAmount));
+    if (skill.chargePayType === "unit") {
+      const unit = skill.chargeUnit === "Other" ? skill.chargeCustomUnit : skill.chargeUnit;
+      return unit ? `${amount} per ${unit}` : `${amount} per unit`;
+    }
+    if (skill.chargePayType === "timeline") return `${amount} per timeline`;
+    return amount;
+  }
+
+  function skillPayTypeLabel(skill: WorkerSkillProfile) {
+    if (skill.chargePayType === "unit") {
+      const unit = skill.chargeUnit === "Other" ? skill.chargeCustomUnit : skill.chargeUnit;
+      return unit ? `Pay per ${unit}` : "Pay per unit";
+    }
+    return skill.chargePayType === "timeline" ? "Timeline pay" : "Fixed pay";
   }
 
   function ratingText(value: number, count?: number) {
@@ -376,14 +407,14 @@ export default function WorkersPage() {
                           <p className="mt-1 text-xs font-bold text-[#959087]">{profileCompletedJobs(selectedWorker, skillProfile)} completed jobs - {ratingText(profileRating(selectedWorker, skillProfile), profileRatingCount(selectedWorker, skillProfile))}</p>
                         </div>
                         <div className="worker-profile-skill-actions">
-                          <span className="design-chip worker-profile-skill-price px-2.5 py-1 text-xs font-black">{clientVisibleRate(skillProfile.chargeAmount)}</span>
+                          <span className="design-chip worker-profile-skill-price px-2.5 py-1 text-xs font-black">{clientVisibleRate(skillProfile)}</span>
                           {selectedWorker.isOccupied
                             ? <span className="worker-skill-occupied-chip">Occupied</span>
                             : <Button type="button" disabled={checkingVerification} onClick={() => requestSkill(selectedWorker, skillProfile)} className="min-h-9 px-3 py-1.5 text-xs">{checkingVerification ? "Checking..." : "Hire"}</Button>}
                         </div>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-[#CCC6BB]">
-                        <span className="design-chip px-2 py-1">{skillProfile.chargePayType === "timeline" ? "Dynamic pay" : "Fixed pay"}</span>
+                        <span className="design-chip px-2 py-1">{skillPayTypeLabel(skillProfile)}</span>
                         {quantity && <span className="design-chip px-2 py-1">{quantity}</span>}
                         {skillProfile.chargeTimeline && <span className="design-chip px-2 py-1">{skillProfile.chargeTimeline} {skillProfile.chargeTimelineUnit}</span>}
                       </div>
@@ -401,10 +432,14 @@ export default function WorkersPage() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="temp-label">Category<input name="category" required defaultValue={hireSkill.chargeCategory ?? hireSkill.name} className="temp-input p-3 outline-none" /></label>
                     <label className="temp-label">Pay amount<input name="payAmount" required type="number" min="1" defaultValue={hireSkill.chargeAmount ? addPlatformFee(hireSkill.chargeAmount) : ""} className="temp-input p-3 outline-none" /></label>
-                    <label className="temp-label">Location<input name="location" required placeholder="Town, estate, or address" className="temp-input p-3 outline-none" /></label>
                     <label className="temp-label">Start date<input name="startDate" required type="date" className="temp-input p-3 outline-none" /></label>
                     <label className="temp-label sm:col-span-2">Duration<input name="duration" required defaultValue={hireSkill.chargeTimeline ? `${hireSkill.chargeTimeline} ${hireSkill.chargeTimelineUnit}` : ""} placeholder="Example: 2 days" className="temp-input p-3 outline-none" /></label>
                     <label className="temp-label sm:col-span-2">Optional job description<textarea name="description" rows={3} className="temp-input p-3 outline-none" placeholder="Explain the work, tools, and expectations." /></label>
+                  </div>
+                  <div className="grid gap-3">
+                    <p className="text-sm font-black text-[#FFFBFF]">Job location</p>
+                    <MapPicker value={hireLocation} onChange={setHireLocation} />
+                    {hireLocation.addressText && <p className="rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">Selected: {jobLocationLabel({ location: hireLocation.addressText, county: hireLocation.county, locationDetails: hireLocation })}</p>}
                   </div>
                   <div className="flex flex-wrap gap-3">
                     <Button type="submit" disabled={sendingHire}>{sendingHire ? "Sending..." : "Send request"}</Button>

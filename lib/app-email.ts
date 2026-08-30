@@ -27,7 +27,12 @@ export async function sendAppEmail(to: string | undefined | null, subject: strin
     },
     idempotencyKey ? { idempotencyKey } : undefined
   );
-  if (error) throw new Error("Unable to send email. Check Resend sender settings.");
+  if (error) {
+    const message = typeof error.message === "string" && error.message.trim()
+      ? error.message.trim()
+      : "Unable to send email. Check Resend sender settings.";
+    throw new Error(message);
+  }
   const resendEmailId = typeof data?.id === "string" ? data.id : null;
   return { attempted: true, resendEmailId } satisfies AppEmailResult;
 }

@@ -1,9 +1,12 @@
 import { isSqlBackend } from "@/lib/data-backend";
+import { getCurrentUserProfile } from "@/lib/current-user-profile";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { createLocalDirectHireRequest, getLocalUser, respondLocalDirectHireRequest } from "@/lib/local-sql";
 import { sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatusFromRecords } from "@/lib/worker-verification";
 import { clientCanPost } from "@/utils/jobRules";
+import { normalizeLocationFields, locationRequiresDescription } from "@/utils/location-fields";
+import { jobLocationLabel } from "@/utils/location-display";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -12,26 +15,33 @@ export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
-    const decoded = await requireDecodedUser(request);
+    const activeMode = activeRoleFromRequest(request);
+    if (activeMode === "worker") return NextResponse.json({ error: "Switch to client mode before sending hire requests." }, { status: 403 });
+    const currentUser = await getCurrentUserProfile(request, activeMode === "client" ? "client" : null);
+    const decoded = currentUser.decoded;
     const body = await request.json().catch(() => ({}));
     const input = normalizeRequest(body);
-    if (!input.workerId || !input.title || !input.category || !input.location || !input.startDate || !input.duration || input.payAmount <= 0) {
+    if (!input.workerId || !input.title || !input.category || !input.location || !input.locationDetails || !input.startDate || !input.duration || input.payAmount <= 0) {
       return NextResponse.json({ error: "Complete the direct hire request details." }, { status: 400 });
     }
+    const locationDetails = input.locationDetails;
+    if (locationRequiresDescription(locationDetails)) return NextResponse.json({ error: "Add a location description because no nearby landmark was found." }, { status: 400 });
     if (input.workerId === decoded.uid) return NextResponse.json({ error: "You cannot hire yourself." }, { status: 400 });
 
     if (isSqlBackend()) {
-      const client = getLocalUser(decoded.uid);
-      if (!client || client.role !== "client") return NextResponse.json({ error: "Use a client account to send hire requests." }, { status: 403 });
-      if (!clientCanPost(client)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
+      const client = currentUser.profile ?? getLocalUser(decoded.uid);
+      if (!hasRole(client, "client") || currentUser.role !== "client") return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
+      const localClient = client as NonNullable<typeof client>;
+      if (!clientCanPost(localClient)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
       const allowedWorker = await getWorkerJobEligibility(input.workerId, { title: input.title, category: input.category, requiredSkills: [] });
       if (allowedWorker.decision === "blocked") return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
       const application = createLocalDirectHireRequest({
         id: crypto.randomUUID(),
         jobId: crypto.randomUUID(),
-        clientId: client.id,
-        clientName: client.displayName,
-        ...input
+        clientId: localClient.id,
+        clientName: localClient.displayName,
+        ...input,
+        locationDetails
       });
       return NextResponse.json({ success: true, request: application });
     }
@@ -44,14 +54,14 @@ export async function POST(request: NextRequest) {
     ]);
     const client = clientSnap.data();
     const worker = workerSnap.data();
-    if (!clientSnap.exists || client?.role !== "client") return NextResponse.json({ error: "Use a client account to send hire requests." }, { status: 403 });
+    if (!clientSnap.exists || currentUser.role !== "client" || !hasRole(client, "client")) return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
     const clientVerificationStatus = normalizeVerificationStatus(clientVerificationSnap.data()?.identityVerificationStatus ?? clientVerificationSnap.data()?.status);
     const effectiveClient: Record<string, unknown> = {
       ...client,
       verificationStatus: clientVerificationStatus !== "not_submitted" ? clientVerificationStatus : client?.verificationStatus
     };
     if (!clientCanPost(effectiveClient as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
-    if (!workerSnap.exists || worker?.role !== "worker") return NextResponse.json({ error: "Choose a valid worker." }, { status: 404 });
+    if (!workerSnap.exists || !hasRole(worker, "worker")) return NextResponse.json({ error: "Choose a valid worker." }, { status: 404 });
     const allowedWorker = await getWorkerJobEligibility(input.workerId, { title: input.title, category: input.category, requiredSkills: [] });
     if (allowedWorker.decision === "blocked") return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
     const activeSnap = await db.collection("applications").where("workerId", "==", input.workerId).limit(40).get();
@@ -64,7 +74,7 @@ export async function POST(request: NextRequest) {
       userId: input.workerId,
       type: "direct_hire_received",
       title: "Direct hire request",
-      message: `${String(effectiveClient.displayName ?? "A client")} sent you a direct hire request for ${input.title}.`,
+      message: `${String(effectiveClient.displayName ?? "A client")} sent you a direct hire request for ${input.title} in ${input.locationLabel}.`,
       link: "/dashboard",
       emailSubject: "Direct hire request on COPIC",
       eventId: `direct-hire:${applicationRef.id}:created`
@@ -79,6 +89,7 @@ export async function POST(request: NextRequest) {
       coverNote: "Direct hire request",
       source: "direct_hire",
       requestLocation: input.location,
+      requestLocationDetails: input.locationDetails,
       requestStartDate: input.startDate,
       requestDuration: input.duration,
       requestDescription: input.description,
@@ -97,6 +108,7 @@ export async function POST(request: NextRequest) {
       category: input.category,
       location: input.location,
       county: "",
+      locationDetails: input.locationDetails,
       payAmount: input.payAmount,
       payType: "fixed",
       duration: input.duration,
@@ -224,16 +236,31 @@ async function requireDecodedUser(request: NextRequest) {
 
 function normalizeRequest(body: unknown) {
   const input = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  const locationDetails = normalizeLocationFields(input.locationDetails);
+  const locationLabel = locationDetails ? jobLocationLabel({ location: locationDetails.addressText, county: locationDetails.county, locationDetails }) : String(input.location ?? "").trim();
   return {
     workerId: typeof input.workerId === "string" ? input.workerId : "",
     title: typeof input.title === "string" ? input.title.trim() : "",
     category: typeof input.category === "string" ? input.category.trim() : "",
     payAmount: Number(input.payAmount),
-    location: typeof input.location === "string" ? input.location.trim() : "",
+    location: locationDetails?.addressText ?? (typeof input.location === "string" ? input.location.trim() : ""),
+    locationDetails,
+    locationLabel,
     startDate: typeof input.startDate === "string" ? input.startDate : "",
     duration: typeof input.duration === "string" ? input.duration.trim() : "",
     description: typeof input.description === "string" ? input.description.trim() : ""
   };
+}
+
+function activeRoleFromRequest(request: NextRequest) {
+  const value = request.headers.get("x-temp-role") ?? request.cookies.get("temp-role")?.value ?? "";
+  return value === "client" || value === "worker" || value === "admin" ? value : null;
+}
+
+function hasRole(profile: unknown, role: "client" | "worker") {
+  if (!profile || typeof profile !== "object") return false;
+  const data = profile as { role?: unknown; roles?: unknown };
+  return data.role === role || (Array.isArray(data.roles) && data.roles.includes(role));
 }
 
 class AuthRouteError extends Error {

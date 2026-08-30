@@ -5,8 +5,10 @@ import { dirname, join } from "node:path";
 import type { Application, Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateJobPaymentBreakdown, calculateServiceFee } from "@/utils/money";
 import { workerCanApplyToJob } from "@/utils/jobRules";
+import { jobLocationLabel } from "@/utils/location-display";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
+import { approvedSkillNames } from "@/utils/worker-skills";
 
 type SqlValue = string | number | bigint | null | Uint8Array;
 type SqlStatement = {
@@ -139,6 +141,7 @@ export function localDb() {
       status TEXT NOT NULL DEFAULT 'pending',
       source TEXT NOT NULL DEFAULT 'application',
       requestLocation TEXT,
+      requestLocationDetails TEXT,
       requestStartDate TEXT,
       requestDuration TEXT,
       requestDescription TEXT,
@@ -411,6 +414,7 @@ export function localDb() {
   ensureColumn("ratings", "ratingScopeId", "TEXT");
   ensureColumn("applications", "source", "TEXT NOT NULL DEFAULT 'application'");
   ensureColumn("applications", "requestLocation", "TEXT");
+  ensureColumn("applications", "requestLocationDetails", "TEXT");
   ensureColumn("applications", "requestStartDate", "TEXT");
   ensureColumn("applications", "requestDuration", "TEXT");
   ensureColumn("applications", "requestDescription", "TEXT");
@@ -891,6 +895,7 @@ function rowToApplication(row: Record<string, unknown>) {
     source: String(row.source ?? "application") as "application" | "direct_hire",
     requestTitle: typeof row.jobTitle === "string" ? row.jobTitle : undefined,
     requestLocation: typeof row.requestLocation === "string" ? row.requestLocation : undefined,
+    requestLocationDetails: parseJson<LocationFields | undefined>(row.requestLocationDetails, undefined),
     requestStartDate: typeof row.requestStartDate === "string" ? row.requestStartDate : undefined,
     requestDuration: typeof row.requestDuration === "string" ? row.requestDuration : undefined,
     requestDescription: typeof row.requestDescription === "string" ? row.requestDescription : undefined,
@@ -962,16 +967,19 @@ export function createLocalDirectHireRequest(input: {
   category: string;
   payAmount: number;
   location: string;
+  locationDetails: LocationFields;
   startDate: string;
   duration: string;
   description?: string;
 }) {
   if (input.workerId === input.clientId) throw new Error("You cannot hire yourself.");
   const worker = getLocalUser(input.workerId);
-  if (!worker || worker.role !== "worker") throw new Error("Choose a valid worker.");
-  if (worker.isLocked || Number(worker.outstandingServiceFee ?? 0) > 0) throw new Error("This worker is not available for new jobs.");
+  if (!hasProfileRole(worker, "worker")) throw new Error("Choose a valid worker.");
+  const localWorker = worker as UserProfile;
+  if (localWorker.isLocked || Number(localWorker.outstandingServiceFee ?? 0) > 0) throw new Error("This worker is not available for new jobs.");
   if (countLocalActiveAcceptedApplications(input.workerId) > 0) throw new Error("This worker is occupied on another job right now.");
   const createdAt = nowIso();
+  const locationLabel = jobLocationLabel({ location: input.location, county: input.locationDetails.county, locationDetails: input.locationDetails });
   localDb().exec("BEGIN IMMEDIATE");
   try {
     localDb().prepare(`
@@ -979,7 +987,7 @@ export function createLocalDirectHireRequest(input: {
         id, clientId, clientName, createdBy, title, description, category, location, county, locationDetails,
         payAmount, payType, duration, durationHours, durationValue, durationUnit, workersNeeded, quantity, unit, customUnit, paymentMethod, requiredSkills, applicants, assignedWorkerId, status,
         rateType, rateAmount, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '{}', ?, 'fixed', ?, 0, 1, 'days', 1, NULL, NULL, NULL, 'mpesa', '[]', '[]', NULL, 'pending', 'fixed', ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'fixed', ?, 0, 1, 'days', 1, NULL, NULL, NULL, 'mpesa', '[]', '[]', NULL, 'pending', 'fixed', ?, ?, ?)
     `).run(
       input.jobId,
       input.clientId,
@@ -989,6 +997,8 @@ export function createLocalDirectHireRequest(input: {
       input.description ?? "",
       input.category,
       input.location,
+      input.locationDetails.county,
+      jsonString(input.locationDetails),
       input.payAmount,
       input.duration,
       input.payAmount,
@@ -996,13 +1006,13 @@ export function createLocalDirectHireRequest(input: {
       createdAt
     );
     localDb().prepare(`
-      INSERT INTO applications (id, jobId, workerId, clientId, jobTitle, coverNote, status, source, requestLocation, requestStartDate, requestDuration, requestDescription, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', 'direct_hire', ?, ?, ?, ?, ?, ?)
-    `).run(input.id, input.jobId, input.workerId, input.clientId, input.title, "Direct hire request", input.location, input.startDate, input.duration, input.description ?? "", createdAt, createdAt);
+      INSERT INTO applications (id, jobId, workerId, clientId, jobTitle, coverNote, status, source, requestLocation, requestLocationDetails, requestStartDate, requestDuration, requestDescription, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', 'direct_hire', ?, ?, ?, ?, ?, ?, ?)
+    `).run(input.id, input.jobId, input.workerId, input.clientId, input.title, "Direct hire request", input.location, jsonString(input.locationDetails), input.startDate, input.duration, input.description ?? "", createdAt, createdAt);
     localDb().prepare(`
       INSERT OR REPLACE INTO notifications (id, userId, title, body, read, href, createdAt)
       VALUES (?, ?, 'Direct hire request', ?, 0, '/dashboard', ?)
-    `).run(`notification-direct-hire-${input.id}`, input.workerId, `${input.clientName} sent you a direct hire request for ${input.title}.`, createdAt);
+    `).run(`notification-direct-hire-${input.id}`, input.workerId, `${input.clientName} sent you a direct hire request for ${input.title} in ${locationLabel}.`, createdAt);
     localDb().exec("COMMIT");
   } catch (error) {
     localDb().exec("ROLLBACK");
@@ -1015,6 +1025,10 @@ export function createLocalDirectHireRequest(input: {
     WHERE applications.id = ?
   `).get(input.id);
   return created ? rowToApplication(created) : null;
+}
+
+function hasProfileRole(profile: UserProfile | null | undefined, role: Role) {
+  return profile?.role === role || Boolean(profile?.roles?.includes(role));
 }
 
 export function respondLocalDirectHireRequest(applicationId: string, workerId: string, response: "accept" | "reject") {
@@ -1632,10 +1646,11 @@ function normalizeNotificationBody(body: string) {
 
 export function saveLocalWorkerSkill(userId: string, skill: WorkerSkillProfile) {
   const user = getLocalUser(userId);
-  if (!user || user.role !== "worker") throw new Error("Worker access required.");
-  const existing = user.skillProfiles ?? [];
+  if (!hasProfileRole(user, "worker")) throw new Error("Worker access required.");
+  const localUser = user as UserProfile;
+  const existing = localUser.skillProfiles ?? [];
   const next = [...existing.filter(item => item.id !== skill.id && item.name.toLowerCase() !== skill.name.toLowerCase()), skill];
-  const names = Array.from(new Set(next.map(item => item.name)));
+  const names = approvedSkillNames(next);
   localDb().prepare("UPDATE users SET skills = ?, skillProfiles = ?, updatedAt = ? WHERE uid = ?")
     .run(jsonString(names), jsonString(next), nowIso(), userId);
   return next;
@@ -1643,9 +1658,10 @@ export function saveLocalWorkerSkill(userId: string, skill: WorkerSkillProfile) 
 
 export function deleteLocalWorkerSkill(userId: string, skillId: string) {
   const user = getLocalUser(userId);
-  if (!user || user.role !== "worker") throw new Error("Worker access required.");
-  const next = (user.skillProfiles ?? []).filter(item => item.id !== skillId);
-  const names = Array.from(new Set(next.map(item => item.name)));
+  if (!hasProfileRole(user, "worker")) throw new Error("Worker access required.");
+  const localUser = user as UserProfile;
+  const next = (localUser.skillProfiles ?? []).filter(item => item.id !== skillId);
+  const names = approvedSkillNames(next);
   localDb().prepare("UPDATE users SET skills = ?, skillProfiles = ?, updatedAt = ? WHERE uid = ?")
     .run(jsonString(names), jsonString(next), nowIso(), userId);
   return next;

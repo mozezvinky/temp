@@ -57,7 +57,7 @@ export default function AdminPage() {
         <Card><AlertTriangle /><p className="mt-4">Reports</p><p className="text-3xl font-black">{value("reports")}</p></Card>
         <Card><Activity /><p className="mt-4">Audit logs</p><p className="text-3xl font-black">{value("auditLogs")}</p></Card>
       </div>
-      <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">{["kyc", "support", "service-fees", "disputes", "reports", "jobs", "users", "admins", "audit", "settings"].map(item => <Link className="copic-surface rounded-xl p-5 text-center font-bold capitalize" href={`/admin/${item}`} key={item}>{item.replace("-", " ")}</Link>)}</div>
+      <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">{["kyc", "skills", "support", "service-fees", "disputes", "reports", "jobs", "users", "admins", "audit", "settings"].map(item => <Link className="copic-surface rounded-xl p-5 text-center font-bold capitalize" href={`/admin/${item}`} key={item}>{item.replace("-", " ")}</Link>)}</div>
       <Card>
         <h2 className="text-xl font-black text-[#FFFBFF]">Admin password</h2>
         <form onSubmit={changePassword} className="mt-4 flex max-w-xl flex-col gap-3 sm:flex-row">

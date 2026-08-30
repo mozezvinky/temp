@@ -2,7 +2,7 @@
 
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { Activity, BriefcaseBusiness, Coins, FileWarning, Headphones, LayoutDashboard, Settings, ShieldCheck, UsersRound } from "lucide-react";
+import { Activity, BadgeCheck, BriefcaseBusiness, Coins, FileWarning, Headphones, LayoutDashboard, Settings, ShieldCheck, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -15,6 +15,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     { href: "/admin", label: "Overview", icon: LayoutDashboard },
     { href: "/admin/support", label: "Tickets", icon: Headphones },
     { href: "/admin/users", label: "Users", icon: UsersRound },
+    { href: "/admin/skills", label: "Skills", icon: BadgeCheck },
     { href: "/admin/admins", label: "Admins", icon: ShieldCheck },
     { href: "/admin/kyc", label: "ID Verification Requests", icon: ShieldCheck },
     { href: "/admin/service-fees", label: "Service Fees", icon: Coins },

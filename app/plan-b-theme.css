@@ -584,6 +584,10 @@ tr:last-child td { border-bottom: 0; }
 .copic-skill-row h3, .copic-work-row h3 { color: var(--copic-text); font-size: 1rem; }
 .copic-skill-row p, .copic-work-row p { margin-top: 4px; color: var(--copic-muted); font-size: .82rem; }
 .copic-skill-row small { display: block; margin-top: 7px; color: var(--copic-soft); font-size: .72rem; }
+.copic-skill-status { margin-top: 10px; display: inline-flex; width: fit-content; align-items: center; border-radius: 999px; border: 1px solid rgba(255, 251, 244, .14); padding: 4px 9px; font-size: .72rem; font-weight: 900; }
+.copic-skill-status.is-approved { border-color: rgba(157, 241, 45, .35); background: rgba(157, 241, 45, .12); color: #365314; }
+.copic-skill-status.is-pending { border-color: rgba(217, 119, 6, .35); background: rgba(251, 191, 36, .14); color: #92400e; }
+.copic-skill-status.is-rejected { border-color: rgba(220, 38, 38, .32); background: rgba(248, 113, 113, .12); color: #991b1b; }
 .copic-row-actions { display: flex; flex: 0 0 auto; gap: 7px; }
 .copic-row-actions button { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid var(--copic-border); border-radius: 11px; color: var(--copic-muted); transition: var(--transition-smooth); }
 .copic-row-actions button:hover { border-color: var(--copic-primary); background: var(--copic-surface); color: var(--copic-text); }
@@ -2130,6 +2134,9 @@ body.copic-modal-open .temp-app-shell { overscroll-behavior: none; }
 }
 [data-ui-theme="dark"] .copic-payment-received-title,
 [data-ui-theme="dark"] .copic-payment-received-due { color: #86efac !important; }
+[data-ui-theme="dark"] .copic-skill-status.is-approved { color: #d9f99d; }
+[data-ui-theme="dark"] .copic-skill-status.is-pending { color: #fde68a; }
+[data-ui-theme="dark"] .copic-skill-status.is-rejected { color: #fecaca; }
 [data-ui-theme="dark"] .copic-paywall-copy-card {
   border-color: #404040;
   background: #171717;

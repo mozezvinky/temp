@@ -27,12 +27,22 @@ import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { perDurationUnit } from "@/utils/duration";
 import { calculateJobPaymentBreakdown, calculateWorkerNet, kes } from "@/utils/money";
 import { completedJobId } from "@/utils/completed-job-id";
+import { jobLocationLabel } from "@/utils/location-display";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
+import { normalizeSkillVerificationStatus, skillVerificationLabel } from "@/utils/worker-skills";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { toast } from "sonner";
 
 const SERVICE_FEE_PAYBILL_NUMBER = "400200";
 const SERVICE_FEE_ACCOUNT_NUMBER = "1196158";
+
+function directHireRequestLocationLabel(application: Application) {
+  return jobLocationLabel({
+    location: application.requestLocation ?? "",
+    county: application.requestLocationDetails?.county ?? "",
+    locationDetails: application.requestLocationDetails
+  });
+}
 const SERVICE_FEE_RECIPIENT_NAME = "BLUEPEAK SOFTWARE SERVICES LIMITED";
 const PHONE_PROMPT_UNAVAILABLE_MESSAGE = "Service not available yet. This feature will be activated in a future update.";
 
@@ -158,6 +168,7 @@ export default function DashboardPage() {
           category: "services_trades",
           level: "independent",
           proofType: "reference",
+          verificationStatus: "approved",
           completedJobs: 0,
           ratingAverage: 0,
           ratingCount: 0
@@ -388,6 +399,7 @@ export default function DashboardPage() {
                       <h3>{skill.name}</h3>
                       {skill.description && <p>{skill.description}</p>}
                       <small>{skill.completedJobs} jobs completed · {skill.ratingAverage} rating</small>
+                      <span className={`copic-skill-status is-${normalizeSkillVerificationStatus(skill.verificationStatus)}`}>{skillVerificationLabel(skill.verificationStatus)}</span>
                     </div>
                     <div className="copic-row-actions">
                       <button type="button" aria-label={`Edit ${skill.name}`} onClick={() => { setEditingSkill(skill); setSkillOpen(true); }}><Pencil size={15} /></button>
@@ -653,7 +665,7 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
               )}
               {mode === "requests" && (
                 <div className="mt-3 rounded-xl border border-[#d8d8d8] bg-[#f3f4f5] p-3 text-sm text-[#4b453e] dark:border-bone/10 dark:bg-bone/[.04] dark:text-[#CCC6BB]">
-                  <p><strong className="text-[#111] dark:text-[#FFFBFF]">Location:</strong> {application.requestLocation ?? "Not provided"}</p>
+                  <p><strong className="text-[#111] dark:text-[#FFFBFF]">Location:</strong> {directHireRequestLocationLabel(application)}</p>
                   <p><strong className="text-[#111] dark:text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
                   <p><strong className="text-[#111] dark:text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
                   {application.jobAmount ? (

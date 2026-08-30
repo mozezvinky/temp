@@ -1,7 +1,7 @@
 "use client";
 
 import { requireAuth, requireDb } from "@/lib/firebase";
-import type { Application, Job, UserProfile } from "@/types";
+import type { Application, Job, LocationFields, UserProfile } from "@/types";
 import { workerCanApplyToJob } from "@/utils/jobRules";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { jobSchema } from "@/utils/validation";
@@ -575,6 +575,7 @@ export async function sendDirectHireRequest(input: {
   category: string;
   payAmount: number;
   location: string;
+  locationDetails: LocationFields;
   startDate: string;
   duration: string;
   description?: string;
@@ -584,7 +585,7 @@ export async function sendDirectHireRequest(input: {
   const token = await user.getIdToken(true);
   const response = await fetch("/api/hire-requests", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...activeRoleHeaders(user.uid, "client") },
     body: JSON.stringify(input)
   });
   const payload = await response.json().catch(() => ({}));

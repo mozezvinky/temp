@@ -21,7 +21,7 @@ export type WorkerSkillInput = {
   chargeCustomUnit?: string | null;
   chargeTimeline?: number | null;
   chargeTimelineUnit?: "minutes" | "hours" | "days" | "weeks" | "months";
-  chargePayType?: "fixed" | "timeline";
+  chargePayType?: "fixed" | "timeline" | "unit";
 };
 
 export async function loadWorkerSkills() {

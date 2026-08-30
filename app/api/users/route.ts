@@ -1,6 +1,8 @@
 import { isSqlBackend, logDataMode } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { countLocalActiveAcceptedApplications, listLocalWorkers } from "@/lib/local-sql";
+import type { WorkerSkillProfile } from "@/types";
+import { approvedSkillNames, approvedSkillProfiles } from "@/utils/worker-skills";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
     const activeJobCounts = await countActiveAcceptedJobsForWorkers(workerDocs.map(doc => doc.id));
     const users: Array<Record<string, unknown>> = workerDocs.map(doc => {
       const activeJobCount = activeJobCounts.get(doc.id) ?? 0;
-      return { id: doc.id, ...(doc.data() as Record<string, unknown>), activeJobCount, isOccupied: activeJobCount > 0 };
+      return publicWorker({ id: doc.id, ...(doc.data() as Record<string, unknown>), activeJobCount, isOccupied: activeJobCount > 0 });
     });
     return NextResponse.json({ users: users.filter(worker => worker.isLocked !== true && Number(worker.outstandingServiceFee ?? 0) <= 0) });
   } catch (error) {
@@ -69,6 +71,15 @@ function chunk<T>(items: T[], size: number) {
 function localWorkersFor(uid: string) {
   return listLocalWorkers().filter(worker => worker.id !== uid && worker.uid !== uid).map(worker => {
     const activeJobCount = countLocalActiveAcceptedApplications(worker.id);
-    return { ...worker, activeJobCount, isOccupied: activeJobCount > 0 };
+    return publicWorker({ ...worker, activeJobCount, isOccupied: activeJobCount > 0 });
   });
+}
+
+function publicWorker(worker: Record<string, unknown>) {
+  const skillProfiles = approvedSkillProfiles(Array.isArray(worker.skillProfiles) ? worker.skillProfiles as WorkerSkillProfile[] : []);
+  return {
+    ...worker,
+    skillProfiles,
+    skills: approvedSkillNames(skillProfiles)
+  };
 }

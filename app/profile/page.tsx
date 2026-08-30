@@ -7,12 +7,14 @@ import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { RatingHistory } from "@/components/ratings/RatingHistory";
 import { IdentityVerificationModal } from "@/components/verification/IdentityVerificationModal";
 import { VerificationBadge } from "@/components/verification/VerificationBadge";
+import { AddSkillModal } from "@/components/profile/AddSkillModal";
 import { auth, requireAuth } from "@/lib/firebase";
 import { loadRatings } from "@/services/ratings";
-import type { Rating } from "@/types";
+import type { Rating, WorkerSkillProfile } from "@/types";
 import { normalizeVerificationStatus } from "@/utils/verification";
+import { normalizeSkillVerificationStatus, skillVerificationLabel } from "@/utils/worker-skills";
 import { normalizeKenyanPhone } from "@/utils/phone";
-import { BriefcaseBusiness, CalendarCheck, FileBadge, Mail, Move, Phone, Star, UserCircle, X } from "lucide-react";
+import { BriefcaseBusiness, CalendarCheck, FileBadge, Mail, Move, Pencil, Phone, Star, UserCircle, X } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -31,6 +33,8 @@ export default function ProfilePage() {
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsError, setSettingsError] = useState("");
   const [verificationOpen, setVerificationOpen] = useState(false);
+  const [skillOpen, setSkillOpen] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<WorkerSkillProfile | null>(null);
 
   useEffect(() => {
     if (!profile && !user) return;
@@ -169,6 +173,7 @@ export default function ProfilePage() {
   const displayPhoto = savedPhoto ?? (profile.photoURL ? { photoURL: profile.photoURL, photoPositionX: profile.photoPositionX ?? 50, photoPositionY: profile.photoPositionY ?? 50, photoZoom: profile.photoZoom ?? 1 } : null);
   const workerRating = ratingSummary(ratings.filter(rating => rating.fromUserRole === "client"));
   const clientRating = ratingSummary(ratings.filter(rating => rating.fromUserRole === "worker"));
+  const workerSkills = profile.skillProfiles ?? [];
 
   return (
     <div className="profile-settings-page mx-auto grid max-w-6xl gap-6 lg:grid-cols-[220px_1fr]">
@@ -265,6 +270,31 @@ export default function ProfilePage() {
             <Card><CalendarCheck /><h2 className="mt-3 font-black">Availability</h2><p className="mt-2 text-sm text-[#959087]">{profile.availability ?? "Set your availability for temporary work."}</p></Card>
             <Card><FileBadge /><h2 className="mt-3 font-black">Certificates and portfolio</h2><p className="mt-2 text-sm text-[#959087]">{certificates}</p></Card>
           </div>
+          <Card className="p-7 md:p-9">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">Edit User Info</p>
+                <h2 className="mt-2 text-2xl font-black text-[#FFFBF4]">Worker skills</h2>
+              </div>
+              <Button type="button" onClick={() => { setEditingSkill(null); setSkillOpen(true); }}>Add skill</Button>
+            </div>
+            <div className="mt-5 grid gap-3">
+              {workerSkills.length ? workerSkills.map(skill => (
+                <article key={skill.id} className="copic-skill-row">
+                  <div>
+                    <h3>{skill.name}</h3>
+                    {skill.description && <p>{skill.description}</p>}
+                    <small>{skill.chargeAmount ? `Ksh ${Number(skill.chargeAmount).toLocaleString()}` : "Rate not set"}</small>
+                    <span className={`copic-skill-status is-${normalizeSkillVerificationStatus(skill.verificationStatus)}`}>{skillVerificationLabel(skill.verificationStatus)}</span>
+                    {skill.rejectionReason && <p>{skill.rejectionReason}</p>}
+                  </div>
+                  <div className="copic-row-actions">
+                    <button type="button" aria-label={`Edit ${skill.name}`} onClick={() => { setEditingSkill(skill); setSkillOpen(true); }}><Pencil size={15} /></button>
+                  </div>
+                </article>
+              )) : <p className="text-sm font-bold text-[#959087]">No skills yet.</p>}
+            </div>
+          </Card>
           <RatingHistory userId={profile.id} />
         </>
       ) : <RatingHistory userId={profile.id} />}
@@ -327,6 +357,7 @@ export default function ProfilePage() {
         </div>
       )}
       {verificationOpen && <IdentityVerificationModal profile={profile} onClose={() => setVerificationOpen(false)} onSubmitted={refreshProfile} />}
+      {skillOpen && <AddSkillModal skill={editingSkill} onClose={() => { setSkillOpen(false); setEditingSkill(null); }} onSaved={() => void refreshProfile()} />}
     </div>
   );
 }
