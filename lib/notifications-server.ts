@@ -99,28 +99,49 @@ export async function notifyUser(db: Firestore, input: CopicNotificationInput) {
     created = true;
   });
   if (created) {
-    void sendNotificationEmail(db, input).catch(error => {
-      console.error("[COPIC NOTIFICATION] email failed", safeNotificationLog(input, { emailStatus: "failed", error }));
-    });
+    await sendNotificationEmail(db, input);
   }
   return { id: ref.id, created };
 }
 
 export async function sendNotificationEmail(db: Firestore, input: CopicNotificationInput) {
-  if (input.emailEnabled === false) return false;
+  if (input.emailEnabled === false) {
+    logCopicEmail(input, { recipientEmailFound: false, resendAttempted: false, resendEmailId: null });
+    return false;
+  }
   const notificationRef = db.collection("notifications").doc(notificationDocId(input.eventId));
   const userSnap = await db.collection("users").doc(input.userId).get();
   const user = userSnap.data() ?? {};
-  if (input.essential !== true && user.emailNotificationsEnabled === false) return false;
   const email = typeof user.email === "string" ? user.email.trim() : "";
-  if (!email) return false;
+  const recipientEmailFound = !!email;
+  if (!recipientEmailFound) {
+    logCopicEmail(input, { recipientEmailFound, resendAttempted: false, resendEmailId: null, error: "Recipient email not found." });
+    return false;
+  }
+  if (input.essential !== true && user.emailNotificationsEnabled === false) {
+    logCopicEmail(input, { recipientEmailFound, resendAttempted: false, resendEmailId: null, error: "Recipient disabled notification emails." });
+    return false;
+  }
 
-  const notificationSnap = await notificationRef.get();
-  if (!notificationSnap.exists) return false;
-  if (notificationSnap.data()?.emailSentAt) return false;
-  await notificationRef.set({ emailAttemptedAt: FieldValue.serverTimestamp() }, { merge: true });
+  let claimed = false;
+  await db.runTransaction(async transaction => {
+    const notificationSnap = await transaction.get(notificationRef);
+    if (!notificationSnap.exists) return;
+    const notification = notificationSnap.data() ?? {};
+    if (notification.emailSentAt || notification.emailAttemptedAt || notification.emailStatus === "sending") return;
+    transaction.set(notificationRef, {
+      emailStatus: "sending",
+      emailAttemptedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    claimed = true;
+  });
+  if (!claimed) {
+    logCopicEmail(input, { recipientEmailFound, resendAttempted: false, resendEmailId: null, error: "Email already attempted or notification missing." });
+    return false;
+  }
   try {
-    const sent = await sendAppEmail(
+    const result = await sendAppEmail(
       email,
       input.emailSubject ?? input.title,
       copicEmailLayout({
@@ -133,36 +154,52 @@ export async function sendNotificationEmail(db: Firestore, input: CopicNotificat
       input.eventId
     );
     await notificationRef.set({
-      emailStatus: sent ? "sent" : "skipped",
-      emailSentAt: sent ? FieldValue.serverTimestamp() : null,
+      emailStatus: result.attempted ? "sent" : "skipped",
+      emailSentAt: result.attempted ? FieldValue.serverTimestamp() : null,
+      resendEmailId: result.resendEmailId,
+      emailSkipReason: result.skippedReason ?? null,
       updatedAt: FieldValue.serverTimestamp()
     }, { merge: true });
-    console.info("[COPIC NOTIFICATION]", safeNotificationLog(input, { inAppCreated: true, emailAttempted: true, emailStatus: sent ? "sent" : "skipped" }));
-    return sent;
+    logCopicEmail(input, { recipientEmailFound, resendAttempted: result.attempted, resendEmailId: result.resendEmailId });
+    return result.attempted;
   } catch (error) {
     await notificationRef.set({
       emailStatus: "failed",
       emailLastError: error instanceof Error ? error.message : "Unknown email error",
       updatedAt: FieldValue.serverTimestamp()
     }, { merge: true });
-    console.error("[COPIC EMAIL]", safeNotificationLog(input, { emailStatus: "failed", error }));
+    logCopicEmail(input, {
+      recipientEmailFound,
+      resendAttempted: true,
+      resendEmailId: null,
+      error: error instanceof Error ? error.message : "Unknown email error"
+    });
     return false;
   }
 }
 
-export function sendNotificationEmailsAfterCommit(db: Firestore, inputs: CopicNotificationInput[]) {
-  inputs.forEach(input => {
-    void sendNotificationEmail(db, input).catch(error => {
-      console.error("[COPIC NOTIFICATION] email failed", safeNotificationLog(input, { emailStatus: "failed", error }));
+export async function sendNotificationEmailsAfterCommit(db: Firestore, inputs: CopicNotificationInput[]) {
+  await Promise.all(inputs.map(input => sendNotificationEmail(db, input).catch(error => {
+    logCopicEmail(input, {
+      recipientEmailFound: false,
+      resendAttempted: false,
+      resendEmailId: null,
+      error: error instanceof Error ? error.message : "Unknown email error"
     });
-  });
+    return false;
+  })));
 }
 
-function safeNotificationLog(input: CopicNotificationInput, extra: Record<string, unknown>) {
-  return {
+function logCopicEmail(input: CopicNotificationInput, extra: { recipientEmailFound: boolean; resendAttempted: boolean; resendEmailId: string | null; error?: string }) {
+  const payload = {
+    eventType: input.type,
+    recipientUid: input.userId,
+    recipientEmailFound: extra.recipientEmailFound,
+    resendAttempted: extra.resendAttempted,
+    resendEmailId: extra.resendEmailId,
+    ...(extra.error ? { error: extra.error } : {}),
     eventId: input.eventId,
-    type: input.type,
-    recipientUserId: input.userId,
-    ...extra
   };
+  if (extra.error) console.error("[COPIC EMAIL]", payload);
+  else console.info("[COPIC EMAIL]", payload);
 }

@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     batch.set(applicationRef, payload);
     setNotification(batch, db, notification);
     await batch.commit();
-    sendNotificationEmailsAfterCommit(db, [notification]);
+    await sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, request: payload });
   } catch (error) {
     const status = error instanceof AuthRouteError ? error.status : 500;
@@ -206,7 +206,7 @@ export async function PATCH(request: NextRequest) {
       setNotification(transaction, db, notification);
       return { id: applicationSnap.id, ...application, status };
     });
-    if (notification) sendNotificationEmailsAfterCommit(db, [notification]);
+    if (notification) await sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, request: result });
   } catch (error) {
     const status = error instanceof AuthRouteError ? error.status : 500;

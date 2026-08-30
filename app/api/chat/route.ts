@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
       }
     });
     if (receiverId) {
-      sendNotificationEmailsAfterCommit(db, [{
+      await sendNotificationEmailsAfterCommit(db, [{
         userId: receiverId,
         type: "chat_message_received",
         title: "New chat message",

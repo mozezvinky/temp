@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       }, { merge: true });
       setNotification(transaction, db, notification);
     });
-    sendNotificationEmailsAfterCommit(db, [notification]);
+    await sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, payment: payload });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to submit payment." }, { status: 500 });

@@ -99,7 +99,7 @@ export async function PATCH(request: NextRequest) {
       }
       return { id: snap.id, ...payment, workerId: String(payment.workerId ?? ""), status: action === "approve" ? "approved" : "rejected", rejectionReason: action === "reject" ? reason : null };
     });
-    if (notification) sendNotificationEmailsAfterCommit(db, [notification]);
+    if (notification) await sendNotificationEmailsAfterCommit(db, [notification]);
     await writeAdminAuditLog(request, { admin, targetUserId: String(updated.workerId ?? ""), actionType: `service_fee.${action}`, oldValue: null, newValue: updated, reason: reason || "Service fee payment approved" });
     return NextResponse.json({ success: true, payment: updated });
   } catch (error) {

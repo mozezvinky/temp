@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
     });
     setNotification(batch, db, notification);
     await batch.commit();
-    sendNotificationEmailsAfterCommit(db, [notification]);
+    await sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, application: payload });
   } catch (error) {
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
@@ -288,7 +288,7 @@ export async function PATCH(request: NextRequest) {
         setNotification(transaction, db, notification);
         return { id: applicationSnap.id, ...application, status: "withdrawn" };
       });
-      if (notification) sendNotificationEmailsAfterCommit(db, [notification]);
+      if (notification) await sendNotificationEmailsAfterCommit(db, [notification]);
       return NextResponse.json({ success: true, application: result });
     }
     if (action === "worker_cancel_live") {
@@ -333,7 +333,7 @@ export async function PATCH(request: NextRequest) {
         });
         return { id: applicationSnap.id, ...application, status: "cancelled", jobStatus: "cancelled" };
       });
-      sendNotificationEmailsAfterCommit(db, [{
+      await sendNotificationEmailsAfterCommit(db, [{
         userId: String((result as Record<string, unknown>).clientId ?? ""),
         type: "live_job_cancelled",
         title: "Live job cancelled",
@@ -443,7 +443,7 @@ export async function PATCH(request: NextRequest) {
         });
         return { id: applicationSnap.id, ...application, status: "completion_requested" };
       });
-      sendNotificationEmailsAfterCommit(db, [{
+      await sendNotificationEmailsAfterCommit(db, [{
         userId: String((result as Record<string, unknown>).clientId ?? ""),
         type: "completion_requested",
         title: "Completion requested",
@@ -524,7 +524,7 @@ export async function PATCH(request: NextRequest) {
         serverDebug("Worker confirmed direct payment received", { applicationId, workerId: currentUser.uid });
         return { id: applicationSnap.id, ...application, status: "completed", grossAmount: breakdown.total, workerEarnings: breakdown.workerEarnings, serviceFeeAmount: serviceFee, serviceFeeStatus: serviceFee > 0 ? "due" : "paid", workerLocked: serviceFee > 0, outstandingServiceFee: serviceFee };
       });
-      sendNotificationEmailsAfterCommit(db, [
+      await sendNotificationEmailsAfterCommit(db, [
         {
           userId: String((result as Record<string, unknown>).workerId ?? ""),
           type: "service_fee_due",
@@ -637,7 +637,7 @@ export async function PATCH(request: NextRequest) {
         serverDebug("Client marked direct worker payment sent", { applicationId, clientId: currentUser.uid, amount });
         return { id: applicationSnap.id, ...application, status: "payment_sent" };
       });
-      sendNotificationEmailsAfterCommit(db, [{
+      await sendNotificationEmailsAfterCommit(db, [{
         userId: String((result as Record<string, unknown>).workerId ?? ""),
         type: "payment_sent",
         title: "Payment sent",
@@ -733,7 +733,7 @@ export async function PATCH(request: NextRequest) {
       });
       return { id: applicationSnap.id, ...application, status: "accepted" };
     });
-    sendNotificationEmailsAfterCommit(db, [{
+    await sendNotificationEmailsAfterCommit(db, [{
       userId: String((result as Record<string, unknown>).workerId ?? ""),
       type: "application_accepted",
       title: "Application accepted",

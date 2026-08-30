@@ -130,7 +130,7 @@ export async function PATCH(request: NextRequest) {
         : { verificationStatus: status, identityVerificationStatus: status, verificationRejectionReason: status === "rejected" ? reason : null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       setNotification(transaction, db, notification);
     });
-    sendNotificationEmailsAfterCommit(db, [notification]);
+    await sendNotificationEmailsAfterCommit(db, [notification]);
     await writeAdminAuditLog(request, { admin, targetUserId: userId, actionType: kind === "driver_license" ? "driver_license.manual_review" : "kyc.manual_review", oldValue: { status: existing.data()?.status }, newValue: { status, rejectionReason: status === "rejected" ? reason : null }, reason });
     return NextResponse.json({ success: true });
   } catch (error) {
