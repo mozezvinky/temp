@@ -56,6 +56,7 @@ export default function DashboardPage() {
   const [serviceFeePaywall, setServiceFeePaywall] = useState<ServiceFeePaywallState | null>(null);
   const [submittingFee, setSubmittingFee] = useState(false);
   const [feeScreenshotSelected, setFeeScreenshotSelected] = useState(false);
+  const [feeMessage, setFeeMessage] = useState<{ tone: "success" | "error" | "pending"; text: string } | null>(null);
   const [ratingAggregate, setRatingAggregate] = useState<{ average: number; count: number; breakdown: Record<number, number> }>({ average: 0, count: 0, breakdown: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } });
   const profileId = profile?.id;
   const profileRole = profile?.role;
@@ -206,10 +207,12 @@ export default function DashboardPage() {
     const form = new FormData(event.currentTarget);
     const screenshot = form.get("screenshot");
     if (!(screenshot instanceof File) || screenshot.size <= 0) {
+      setFeeMessage({ tone: "error", text: "Upload the M-Pesa confirmation screenshot before submitting." });
       toast.error("Upload the M-Pesa confirmation screenshot before submitting.");
       return;
     }
     setSubmittingFee(true);
+    setFeeMessage(null);
     try {
       const payment = await submitServiceFeePayment({
         screenshot
@@ -217,6 +220,7 @@ export default function DashboardPage() {
       setServiceFeePayment(payment);
       const paywall = await loadServiceFeePaywallState();
       setServiceFeePaywall(paywall);
+      setFeeMessage({ tone: "pending", text: "Screenshot submitted. Waiting for admin confirmation." });
       toast.success("Waiting for admin confirmation.");
       await refreshProfile();
     } catch (error) {
@@ -225,6 +229,7 @@ export default function DashboardPage() {
         setServiceFeePaywall(null);
         await refreshProfile();
       }
+      setFeeMessage({ tone: "error", text: message });
       toast.error(message);
     } finally {
       setSubmittingFee(false);
@@ -271,32 +276,34 @@ export default function DashboardPage() {
 
   if (demandedServiceFee > 0) {
     return (
-      <div className="fixed inset-0 z-[80] grid place-items-center overflow-hidden bg-slate-950/70 p-4">
-        <Card className="no-visible-scrollbar max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto overscroll-contain border border-amber-300/60 bg-white text-slate-950 shadow-2xl dark:border-amber-200/30 dark:bg-[#171412] dark:text-[#FFFBFF]">
-          <p className="text-sm font-black uppercase tracking-[.2em] text-amber-800 dark:text-amber-200">10% Service Fee Due</p>
-          <h1 className="mt-3 text-3xl font-black text-slate-950 dark:text-[#FFFBFF]">Pay {kes(demandedServiceFee)} now</h1>
-          <p className="mt-3 text-sm font-black text-slate-700 dark:text-[#CCC6BB]">This is 10% of the client payment for your completed job. Pay this amount to unlock your worker account.</p>
-          {serviceFeePayment?.status === "rejected" && <p className="mt-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-bold text-red-900 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-100">{serviceFeePayment.rejectionReason ?? "Your last payment was rejected. Please resubmit."}</p>}
-          {waitingForAdminConfirmation && <p className="mt-4 rounded-lg border border-sky-300 bg-sky-50 p-3 text-sm font-black text-sky-950 dark:border-sky-300/30 dark:bg-sky-400/10 dark:text-sky-100">Waiting for admin confirmation.</p>}
-          <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-slate-800 dark:border-amber-200/20 dark:bg-amber-200/10 dark:text-[#FFFBFF]">
-            <p className="font-black text-slate-950 dark:text-[#FFFBFF]">Payment Received</p>
+      <div className="copic-paywall-overlay">
+        <Card className="copic-service-fee-paywall">
+          <p className="copic-paywall-eyebrow">10% Service Fee Due</p>
+          <h1 className="copic-paywall-title">Pay {kes(demandedServiceFee)} now</h1>
+          <p className="copic-paywall-description">This is 10% of the client payment for your completed job. Pay this amount to unlock your worker account.</p>
+          {serviceFeePayment?.status === "rejected" && <p className="copic-paywall-message is-error">{serviceFeePayment.rejectionReason ?? "Your last payment was rejected. Please resubmit."}</p>}
+          {waitingForAdminConfirmation && <p className="copic-paywall-message is-pending">Waiting for admin confirmation.</p>}
+          <div className="copic-payment-received-panel">
+            <p className="copic-payment-received-title">Payment Received</p>
             <p className="mt-2">You have been paid {kes(paywallGrossAmount)} for this job.</p>
             <p className="mt-2">Your earnings: {kes(paywallWorkerEarnings)}</p>
             <p>COPIC service fee: {kes(paywallServiceFeeAmount)}</p>
-            <p className="mt-3 text-base font-black text-slate-950 dark:text-[#FFFBFF]">Amount Due: {kes(demandedServiceFee)}</p>
+            <p className="copic-payment-received-due">Amount Due: {kes(demandedServiceFee)}</p>
           </div>
-          <p className="mt-5 text-xs font-black uppercase tracking-[.18em] text-slate-600 dark:text-[#CCC6BB]">Payment details</p>
+          <p className="copic-paywall-section-label">Payment details</p>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <CopyBox label="Paybill Number" value={SERVICE_FEE_PAYBILL_NUMBER} />
             <CopyBox label="Account Number" value={SERVICE_FEE_ACCOUNT_NUMBER} />
             <CopyBox label="Amount" value={kes(demandedServiceFee)} copyValue={String(demandedServiceFee)} />
           </div>
-          <p className="mt-4 text-sm font-semibold text-slate-700 dark:text-[#CCC6BB]">Use Paybill <span className="font-black text-slate-950 dark:text-[#FFFBFF]">{SERVICE_FEE_PAYBILL_NUMBER}</span> and Account <span className="font-black text-slate-950 dark:text-[#FFFBFF]">{SERVICE_FEE_ACCOUNT_NUMBER}</span>. The payment confirmation should show payment made to <span className="font-black text-slate-950 dark:text-[#FFFBFF]">{SERVICE_FEE_RECIPIENT_NAME}</span>. Upload the M-Pesa confirmation screenshot so admin can approve the unlock.</p>
+          <p className="copic-paywall-instructions">Use Paybill <span>{SERVICE_FEE_PAYBILL_NUMBER}</span> and Account <span>{SERVICE_FEE_ACCOUNT_NUMBER}</span>. The payment confirmation should show payment made to <span>{SERVICE_FEE_RECIPIENT_NAME}</span>. Upload the M-Pesa confirmation screenshot so admin can approve the unlock.</p>
           <form onSubmit={submitServiceFee} className="mt-6 grid gap-4">
-            <label className="temp-label text-slate-700 dark:text-[#CCC6BB]">M-Pesa confirmation screenshot<input name="screenshot" type="file" accept="image/*" required onChange={event => setFeeScreenshotSelected(!!event.currentTarget.files?.[0])} className="temp-input bg-white p-3 text-slate-950 outline-none dark:bg-[#201c19] dark:text-[#FFFBFF]" /></label>
+            <label className="copic-paywall-upload-label">M-Pesa confirmation screenshot<input name="screenshot" type="file" accept="image/*" required onChange={event => { setFeeScreenshotSelected(!!event.currentTarget.files?.[0]); setFeeMessage(null); }} className="copic-paywall-file-input" /></label>
+            <p className="copic-paywall-helper">Upload a clear JPEG, PNG, or WebP screenshot of the M-Pesa confirmation.</p>
+            {feeMessage && <p className={`copic-paywall-message is-${feeMessage.tone}`}>{feeMessage.text}</p>}
             <div className="flex flex-wrap gap-3">
-              <Button type="submit" className="temp-success-button min-h-11 px-4" disabled={submittingFee || waitingForAdminConfirmation || !feeScreenshotSelected}>{waitingForAdminConfirmation ? "Waiting for admin confirmation" : submittingFee ? "Submitting..." : feeScreenshotSelected ? "Submit Payment" : "Upload Screenshot First"}</Button>
-              <Button type="button" variant="secondary" className="min-h-11 px-4" onClick={promptPhoneNumberDirectly}>Prompt Phone Number Directly</Button>
+              <Button type="submit" className="copic-paywall-submit-button temp-success-button" disabled={submittingFee || waitingForAdminConfirmation || !feeScreenshotSelected}>{waitingForAdminConfirmation ? "Waiting for admin confirmation" : submittingFee ? "Submitting..." : feeScreenshotSelected ? "Submit for Admin Approval" : "Upload Screenshot First"}</Button>
+              <Button type="button" variant="secondary" className="copic-paywall-secondary-button" onClick={promptPhoneNumberDirectly}>Prompt Phone Number Directly</Button>
             </div>
           </form>
         </Card>
@@ -487,10 +494,10 @@ const DashboardModal = AppModal;
 
 function CopyBox({ label, value, copyValue = value }: { label: string; value: string; copyValue?: string }) {
   return (
-    <div className="rounded-lg border border-slate-300 bg-slate-50 p-4 text-slate-950 dark:border-[#4A463F] dark:bg-[#2A2A2B] dark:text-[#FFFBFF]">
-      <p className="text-xs font-black uppercase tracking-[.16em] text-slate-600 dark:text-[#CCC6BB]">{label}</p>
-      <p className="mt-2 text-lg font-black text-slate-950 dark:text-[#FFFBFF]">{value}</p>
-      <Button type="button" variant="secondary" className="mt-3 min-h-9 px-3 py-1.5 text-xs" onClick={() => void navigator.clipboard.writeText(copyValue)}>Copy</Button>
+    <div className="copic-paywall-copy-card">
+      <p className="copic-paywall-copy-label">{label}</p>
+      <p className="copic-paywall-copy-value">{value}</p>
+      <Button type="button" variant="secondary" className="copic-paywall-copy-button" onClick={() => void navigator.clipboard.writeText(copyValue)}>Copy</Button>
     </div>
   );
 }
