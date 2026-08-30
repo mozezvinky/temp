@@ -1,9 +1,10 @@
 "use client";
 
 import { requireAuth } from "@/lib/firebase";
-import type { ServiceFeePayment } from "@/types";
+import type { ServiceFeePayment, ServiceFeePaywallState } from "@/types";
 
 let serviceFeePaymentRequest: Promise<ServiceFeePayment | null> | null = null;
+let serviceFeeStatusRequest: Promise<ServiceFeePaywallState | null> | null = null;
 
 export async function loadServiceFeePayment() {
   if (serviceFeePaymentRequest) return serviceFeePaymentRequest;
@@ -19,6 +20,22 @@ export async function loadServiceFeePayment() {
       serviceFeePaymentRequest = null;
     });
   return serviceFeePaymentRequest;
+}
+
+export async function loadServiceFeePaywallState() {
+  if (serviceFeeStatusRequest) return serviceFeeStatusRequest;
+  const user = requireAuth().currentUser;
+  if (!user) throw new Error("Please sign in.");
+  serviceFeeStatusRequest = fetch("/api/service-fee/status", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" })
+    .then(async response => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to load service fee status.");
+      return (payload.paywall ?? null) as ServiceFeePaywallState | null;
+    })
+    .finally(() => {
+      serviceFeeStatusRequest = null;
+    });
+  return serviceFeeStatusRequest;
 }
 
 export async function submitServiceFeePayment(input: { screenshot?: File | null } = {}) {

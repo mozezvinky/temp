@@ -2,8 +2,8 @@ import "server-only";
 
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
-import { calculateServiceFee } from "@/utils/money";
+import type { Application, Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
+import { calculateJobPaymentBreakdown, calculateServiceFee } from "@/utils/money";
 import { workerCanApplyToJob } from "@/utils/jobRules";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
@@ -143,6 +143,11 @@ export function localDb() {
       requestDuration TEXT,
       requestDescription TEXT,
       clientRating INTEGER,
+      paymentConfirmedAt TEXT,
+      grossAmount REAL,
+      workerEarnings REAL,
+      serviceFeeAmount REAL,
+      serviceFeeStatus TEXT,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
@@ -409,6 +414,11 @@ export function localDb() {
   ensureColumn("applications", "requestStartDate", "TEXT");
   ensureColumn("applications", "requestDuration", "TEXT");
   ensureColumn("applications", "requestDescription", "TEXT");
+  ensureColumn("applications", "paymentConfirmedAt", "TEXT");
+  ensureColumn("applications", "grossAmount", "REAL");
+  ensureColumn("applications", "workerEarnings", "REAL");
+  ensureColumn("applications", "serviceFeeAmount", "REAL");
+  ensureColumn("applications", "serviceFeeStatus", "TEXT");
   ensureColumn("conversation_messages", "imageUrl", "TEXT");
   ensureColumn("users", "skillProfiles", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn("users", "driverLicenseVerificationStatus", "TEXT NOT NULL DEFAULT 'not_submitted'");
@@ -873,6 +883,11 @@ function rowToApplication(row: Record<string, unknown>) {
     clientRatingAverage: Number(row.clientRatingAverage ?? 0),
     clientRatingCount: Number(row.clientRatingCount ?? 0),
     clientRating: row.clientRating == null ? undefined : Number(row.clientRating),
+    paymentConfirmedAt: typeof row.paymentConfirmedAt === "string" ? row.paymentConfirmedAt : null,
+    grossAmount: row.grossAmount == null ? undefined : Number(row.grossAmount),
+    workerEarnings: row.workerEarnings == null ? undefined : Number(row.workerEarnings),
+    serviceFeeAmount: row.serviceFeeAmount == null ? undefined : Number(row.serviceFeeAmount),
+    serviceFeeStatus: typeof row.serviceFeeStatus === "string" ? row.serviceFeeStatus as Application["serviceFeeStatus"] : undefined,
     source: String(row.source ?? "application") as "application" | "direct_hire",
     requestTitle: typeof row.jobTitle === "string" ? row.jobTitle : undefined,
     requestLocation: typeof row.requestLocation === "string" ? row.requestLocation : undefined,
@@ -1280,7 +1295,10 @@ export function confirmLocalWorkerPaid(applicationId: string, clientId: string, 
       const remaining = localDb().prepare("SELECT COUNT(*) as count FROM job_timelines WHERE jobId = ? AND status != 'paid'").get(application.jobId);
       allPaid = Number(remaining?.count ?? 0) === 0;
       serviceFee = payableRows.reduce((sum, row) => sum + calculateServiceFee(Number(row.clientAmount ?? 0)), 0);
-      localDb().prepare("UPDATE applications SET status = ?, updatedAt = ? WHERE id = ?").run(allPaid ? "completed" : "accepted", now, applicationId);
+      const grossAmount = payableRows.reduce((sum, row) => sum + Number(row.clientAmount ?? 0), 0);
+      const workerEarnings = Math.max(0, grossAmount - serviceFee);
+      localDb().prepare("UPDATE applications SET status = ?, paymentConfirmedAt = ?, grossAmount = ?, workerEarnings = ?, serviceFeeAmount = ?, serviceFeeStatus = ?, updatedAt = ? WHERE id = ?")
+        .run(allPaid ? "completed" : "accepted", now, grossAmount, workerEarnings, serviceFee, serviceFee > 0 ? "due" : "paid", now, applicationId);
       localDb().prepare("UPDATE jobs SET status = ?, updatedAt = ? WHERE id = ?").run(allPaid ? "completed" : "live", now, application.jobId);
       if (serviceFee > 0) {
         localDb().prepare(`
@@ -1351,10 +1369,12 @@ export function completeLocalApplication(applicationId: string, workerId: string
   if (application.status !== "payment_sent") throw new Error("Confirm payment only after the client has marked the direct payment as sent.");
 
   const now = nowIso();
-  const serviceFee = calculateServiceFee(Number(job?.payAmount ?? application.jobAmount ?? 0));
+  const breakdown = calculateJobPaymentBreakdown(Number(job?.payAmount ?? application.jobAmount ?? 0));
+  const serviceFee = breakdown.serviceFee;
   localDb().exec("BEGIN IMMEDIATE");
   try {
-    localDb().prepare("UPDATE applications SET status = 'completed', updatedAt = ? WHERE id = ?").run(now, applicationId);
+    localDb().prepare("UPDATE applications SET status = 'completed', paymentConfirmedAt = ?, grossAmount = ?, workerEarnings = ?, serviceFeeAmount = ?, serviceFeeStatus = ?, updatedAt = ? WHERE id = ?")
+      .run(now, breakdown.total, breakdown.workerEarnings, serviceFee, serviceFee > 0 ? "due" : "paid", now, applicationId);
     if (job) localDb().prepare("UPDATE jobs SET status = 'completed', completedPeriods = 1, recurrenceStatus = 'completed', updatedAt = ? WHERE id = ?").run(now, job.id);
     localDb().prepare("UPDATE users SET completedJobs = completedJobs + 1, updatedAt = ? WHERE uid IN (?, ?)").run(now, application.workerId, application.clientId);
     localDb().prepare("UPDATE users SET isLocked = 1, outstandingServiceFee = outstandingServiceFee + ?, lockReason = ?, updatedAt = ? WHERE uid = ?")

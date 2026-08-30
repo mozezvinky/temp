@@ -7,7 +7,7 @@ import { type CopicNotificationInput, sendNotificationEmailsAfterCommit, setNoti
 import { serverDebug } from "@/lib/server-debug";
 import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatus, getWorkerVerificationStatusFromRecords, getWorkerWorkEligibility, logApplyEligibilityCheck } from "@/lib/worker-verification";
 import type { Role } from "@/types";
-import { calculateServiceFee } from "@/utils/money";
+import { calculateJobPaymentBreakdown, calculateServiceFee } from "@/utils/money";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 import { FieldValue } from "firebase-admin/firestore";
@@ -489,8 +489,19 @@ export async function PATCH(request: NextRequest) {
           participants: [application.clientId, application.workerId],
           updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
-        const serviceFee = calculateServiceFee(Number(jobSnap.data()?.payAmount ?? jobSnap.data()?.rateAmount ?? application.jobAmount ?? 0));
-        transaction.set(workerUserRef, { completedJobs: FieldValue.increment(1), isLocked: true, outstandingServiceFee: FieldValue.increment(serviceFee), lockReason: "Service Fee Payment Required", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        const grossAmount = Number(jobSnap.data()?.payAmount ?? jobSnap.data()?.rateAmount ?? application.jobAmount ?? 0);
+        const breakdown = calculateJobPaymentBreakdown(grossAmount);
+        const serviceFee = breakdown.serviceFee;
+        transaction.set(applicationRef, {
+          status: "completed",
+          paymentConfirmedAt: FieldValue.serverTimestamp(),
+          grossAmount: breakdown.total,
+          workerEarnings: breakdown.workerEarnings,
+          serviceFeeAmount: serviceFee,
+          serviceFeeStatus: serviceFee > 0 ? "due" : "paid",
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+        transaction.set(workerUserRef, { completedJobs: FieldValue.increment(1), isLocked: serviceFee > 0, outstandingServiceFee: FieldValue.increment(serviceFee), lockReason: serviceFee > 0 ? "Service Fee Payment Required" : null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         transaction.set(clientUserRef, { completedJobs: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         setNotification(transaction, db, {
           userId: String(application.workerId),
@@ -511,7 +522,7 @@ export async function PATCH(request: NextRequest) {
           eventId: `application:${applicationSnap.id}:worker-confirmed-payment`
         });
         serverDebug("Worker confirmed direct payment received", { applicationId, workerId: currentUser.uid });
-        return { id: applicationSnap.id, ...application, status: "completed", workerLocked: true, outstandingServiceFee: serviceFee };
+        return { id: applicationSnap.id, ...application, status: "completed", grossAmount: breakdown.total, workerEarnings: breakdown.workerEarnings, serviceFeeAmount: serviceFee, serviceFeeStatus: serviceFee > 0 ? "due" : "paid", workerLocked: serviceFee > 0, outstandingServiceFee: serviceFee };
       });
       sendNotificationEmailsAfterCommit(db, [
         {
@@ -559,10 +570,20 @@ export async function PATCH(request: NextRequest) {
           const paidTimelineNumbers = payableDocs.map(doc => Number(doc.data().timelineNumber ?? 0)).filter(Number.isFinite);
           const paidTimelineRatingScopeId = `timeline:${applicationSnap.id}:${payableDocs.map(doc => doc.id).sort().join("-")}`;
           const allPaid = allTimelinesSnap.docs.every(doc => doc.data().status === "paid" || paidIds.has(doc.id));
+          const grossAmount = payableDocs.reduce((sum, doc) => sum + Number(doc.data().clientAmount ?? 0), 0);
           const serviceFee = payableDocs.reduce((sum, doc) => sum + calculateServiceFee(Number(doc.data().clientAmount ?? 0)), 0);
+          const workerEarnings = Math.max(0, grossAmount - serviceFee);
           const workerUserRef = db.collection("users").doc(String(application.workerId));
           payableDocs.forEach(doc => transaction.set(doc.ref, { status: "paid", approvedAt: FieldValue.serverTimestamp(), paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true }));
-          transaction.set(applicationRef, { status: allPaid ? "completed" : "accepted", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          transaction.set(applicationRef, {
+            status: allPaid ? "completed" : "accepted",
+            paymentConfirmedAt: FieldValue.serverTimestamp(),
+            grossAmount,
+            workerEarnings,
+            serviceFeeAmount: serviceFee,
+            serviceFeeStatus: serviceFee > 0 ? "due" : "paid",
+            updatedAt: FieldValue.serverTimestamp()
+          }, { merge: true });
           transaction.set(jobRef, { status: allPaid ? "completed" : "live", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
           if (serviceFee > 0) {
             transaction.set(workerUserRef, {

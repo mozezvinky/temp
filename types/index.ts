@@ -304,6 +304,11 @@ export interface Application {
   clientRatingAverage?: number;
   clientRatingCount?: number;
   clientRating?: number;
+  paymentConfirmedAt?: Timestamp | string | null;
+  grossAmount?: number;
+  workerEarnings?: number;
+  serviceFeeAmount?: number;
+  serviceFeeStatus?: "not_due" | "due" | "pending" | "paid" | "failed";
   source?: "application" | "direct_hire";
   requestTitle?: string;
   requestLocation?: string;
@@ -356,6 +361,22 @@ export interface ServiceFeePayment {
   reviewedAt?: Timestamp | null;
   reviewedBy?: string | null;
   requiresWorkerSubmission?: boolean;
+}
+
+export interface ServiceFeePaywallState {
+  shouldShowPaywall: boolean;
+  status: "not_due" | "due" | "pending" | "paid" | "failed";
+  amountDue: number;
+  totalOutstandingFee: number;
+  grossAmount: number;
+  workerEarnings: number;
+  serviceFeeAmount: number;
+  paymentId?: string | null;
+  paymentStatus?: ServiceFeePaymentStatus | null;
+  jobId?: string | null;
+  applicationId?: string | null;
+  accountRestricted: boolean;
+  lockReason?: string | null;
 }
 
 export interface Rating {

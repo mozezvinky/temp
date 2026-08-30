@@ -5,8 +5,8 @@ import { AppModal } from "@/components/ui/AppModal";
 import { Button } from "@/components/ui/Button";
 import { activateProfileRole, authErrorMessage, logout } from "@/services/auth";
 import { markNotificationRead, subscribeNotifications } from "@/services/notifications";
-import { loadServiceFeePayment } from "@/services/service-fee";
-import type { AppNotification, Role, ServiceFeePayment } from "@/types";
+import { loadServiceFeePayment, loadServiceFeePaywallState } from "@/services/service-fee";
+import type { AppNotification, Role, ServiceFeePayment, ServiceFeePaywallState } from "@/types";
 import { RoleModeToggle, ThemeModeSwitch, type UiTheme } from "@/components/layout/NavControls";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell, BriefcaseBusiness, ChevronDown, CircleHelp, ClipboardCheck, Coins, FileWarning, Headphones, History, Home, Menu, MessageCircle, Settings, ShieldCheck, UsersRound, X } from "lucide-react";
@@ -19,17 +19,25 @@ function roleHome(role: Role) {
   return role === "client" ? "/find-work" : role === "worker" ? "/jobs" : "/admin";
 }
 
+function canLockedWorkerAccess(pathname: string) {
+  return pathname === "/dashboard"
+    || pathname.startsWith("/auth")
+    || pathname.startsWith("/profile")
+    || pathname.startsWith("/account-settings")
+    || pathname.startsWith("/settings")
+    || pathname.startsWith("/help")
+    || pathname.startsWith("/faq")
+    || pathname.startsWith("/chat")
+    || pathname.startsWith("/applications")
+    || pathname.startsWith("/completed-requests")
+    || pathname.startsWith("/notifications");
+}
+
 function serviceFeeAmountFromAlert(item: AppNotification) {
   const text = `${item.title} ${item.body}`;
   if (!/service fee/i.test(text)) return 0;
   const amount = Number(text.match(/KES\s*([\d,]+)/i)?.[1]?.replace(/,/g, "") ?? 0);
   return Number.isFinite(amount) ? amount : 0;
-}
-
-function paymentClearsServiceFee(payment: ServiceFeePayment | null, amount: number) {
-  return !!payment
-    && payment.status === "approved"
-    && Number(payment.amount ?? 0) >= amount;
 }
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -44,6 +52,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const [switchingRole, setSwitchingRole] = useState<Role | null>(null);
   const [topAlerts, setTopAlerts] = useState<AppNotification[]>([]);
   const [serviceFeePayment, setServiceFeePayment] = useState<ServiceFeePayment | null>(null);
+  const [serviceFeePaywall, setServiceFeePaywall] = useState<ServiceFeePaywallState | null>(null);
   const [dismissedTopAlertIds, setDismissedTopAlertIds] = useState<string[]>([]);
   const [viewedTopAlertIds, setViewedTopAlertIds] = useState<string[]>([]);
   const [topAlertDetail, setTopAlertDetail] = useState<AppNotification | null>(null);
@@ -54,7 +63,13 @@ export function Shell({ children }: { children: ReactNode }) {
   const pendingServiceFeeAmount = !!serviceFeePayment && serviceFeePayment.status !== "approved" && serviceFeePayment.status !== "rejected"
     ? Number(serviceFeePayment.amount ?? 0)
     : 0;
-  const accountLocked = !!profile && profile.role !== "admin" && (profile.isLocked || Number(profile.outstandingServiceFee ?? 0) > 0 || pendingServiceFeeAmount > 0);
+  const accountLocked = !!profile && profile.role !== "admin" && (
+    profile.isLocked ||
+    Number(profile.outstandingServiceFee ?? 0) > 0 ||
+    pendingServiceFeeAmount > 0 ||
+    serviceFeePaywall?.accountRestricted === true ||
+    serviceFeePaywall?.shouldShowPaywall === true
+  );
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("copic.uiTheme") === "dark" ? "dark" : "light";
@@ -77,16 +92,21 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!profileId || profileRole !== "worker") {
       setServiceFeePayment(null);
+      setServiceFeePaywall(null);
       return;
     }
     let cancelled = false;
-    void loadServiceFeePayment()
-      .then(payment => {
+    void Promise.all([loadServiceFeePayment(), loadServiceFeePaywallState()])
+      .then(([payment, paywall]) => {
         if (cancelled) return;
         setServiceFeePayment(payment);
+        setServiceFeePaywall(paywall);
       })
       .catch(() => {
-        if (!cancelled) setServiceFeePayment(null);
+        if (!cancelled) {
+          setServiceFeePayment(null);
+          setServiceFeePaywall(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -97,7 +117,7 @@ export function Shell({ children }: { children: ReactNode }) {
     if (!accountLocked) return;
     setDrawerOpen(false);
     setProfileOpen(false);
-    if (pathname !== "/dashboard") router.replace("/dashboard");
+    if (!canLockedWorkerAccess(pathname)) router.replace("/dashboard");
   }, [accountLocked, pathname, router]);
 
   useEffect(() => {
@@ -117,66 +137,42 @@ export function Shell({ children }: { children: ReactNode }) {
     return subscribeNotifications(profileId, items => {
       const serviceFeeAlert = items.find(item => serviceFeeAmountFromAlert(item) > 0);
       if (serviceFeeAlert) {
-        const amount = serviceFeeAmountFromAlert(serviceFeeAlert);
-        const profileHasServiceFeeDebt = !!profile?.isLocked || Number(profile?.outstandingServiceFee ?? 0) > 0 || pendingServiceFeeAmount > 0;
+        const profileHasServiceFeeDebt = !!profile?.isLocked || Number(profile?.outstandingServiceFee ?? 0) > 0 || pendingServiceFeeAmount > 0 || serviceFeePaywall?.accountRestricted === true || serviceFeePaywall?.shouldShowPaywall === true;
         if (!profileHasServiceFeeDebt) {
-          window.sessionStorage.removeItem("temp.forceServiceFee");
-          window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: 0 }));
           void refreshProfile();
           setTopAlerts(items.filter(item => !item.read).slice(0, 8));
           return;
         }
-        void loadServiceFeePayment()
-          .then(payment => {
-            if (paymentClearsServiceFee(payment, amount)) {
-              window.sessionStorage.removeItem("temp.forceServiceFee");
-              window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: 0 }));
-              void refreshProfile();
-              return;
-            }
-            window.sessionStorage.setItem("temp.forceServiceFee", String(amount));
-            window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: amount }));
+        void Promise.all([loadServiceFeePayment(), loadServiceFeePaywallState()])
+          .then(([payment, paywall]) => {
+            setServiceFeePayment(payment);
+            setServiceFeePaywall(paywall);
             void refreshProfile();
-            if (pathname !== "/dashboard") router.replace("/dashboard");
+            if (paywall?.shouldShowPaywall && pathname !== "/dashboard") router.replace("/dashboard");
           })
           .catch(() => {
-            window.sessionStorage.setItem("temp.forceServiceFee", String(amount));
-            window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: amount }));
             if (pathname !== "/dashboard") router.replace("/dashboard");
           });
       }
       setTopAlerts(items.filter(item => !item.read).slice(0, 8));
     }, () => setTopAlerts([]));
-  }, [pathname, pendingServiceFeeAmount, profile?.isLocked, profile?.outstandingServiceFee, profileId, profileRole, refreshProfile, router]);
+  }, [pathname, pendingServiceFeeAmount, profile?.isLocked, profile?.outstandingServiceFee, profileId, profileRole, refreshProfile, router, serviceFeePaywall?.accountRestricted, serviceFeePaywall?.shouldShowPaywall]);
 
   useEffect(() => {
     const serviceFeeAlert = topAlerts.find(item => serviceFeeAmountFromAlert(item) > 0);
     if (serviceFeeAlert) {
-      const amount = serviceFeeAmountFromAlert(serviceFeeAlert);
-      if (Number.isFinite(amount) && amount > 0) {
-        const profileHasServiceFeeDebt = !!profile?.isLocked || Number(profile?.outstandingServiceFee ?? 0) > 0 || pendingServiceFeeAmount > 0;
-        if (!profileHasServiceFeeDebt) {
-          window.sessionStorage.removeItem("temp.forceServiceFee");
-          window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: 0 }));
-          void refreshProfile();
-          return;
-        }
-        void loadServiceFeePayment()
-          .then(payment => {
-            if (paymentClearsServiceFee(payment, amount)) {
-              window.sessionStorage.removeItem("temp.forceServiceFee");
-              window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: 0 }));
-              void refreshProfile();
-              return;
-            }
-            window.sessionStorage.setItem("temp.forceServiceFee", String(amount));
-            window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: amount }));
-          })
-          .catch(() => {
-            window.sessionStorage.setItem("temp.forceServiceFee", String(amount));
-            window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: amount }));
-          });
+      const profileHasServiceFeeDebt = !!profile?.isLocked || Number(profile?.outstandingServiceFee ?? 0) > 0 || pendingServiceFeeAmount > 0 || serviceFeePaywall?.accountRestricted === true || serviceFeePaywall?.shouldShowPaywall === true;
+      if (!profileHasServiceFeeDebt) {
+        void refreshProfile();
+        return;
       }
+      void Promise.all([loadServiceFeePayment(), loadServiceFeePaywallState()])
+        .then(([payment, paywall]) => {
+          setServiceFeePayment(payment);
+          setServiceFeePaywall(paywall);
+          void refreshProfile();
+        })
+        .catch(() => undefined);
       if (pathname !== "/dashboard") router.replace("/dashboard");
     }
     if (topAlerts.some(item =>
@@ -187,12 +183,11 @@ export function Shell({ children }: { children: ReactNode }) {
       item.title === "ID verification rejected"
     )) {
       if (topAlerts.some(item => item.title === "Account unlocked")) {
-        window.sessionStorage.removeItem("temp.forceServiceFee");
-        window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: 0 }));
+        void loadServiceFeePaywallState().then(setServiceFeePaywall).catch(() => undefined);
       }
       void refreshProfile();
     }
-  }, [pathname, pendingServiceFeeAmount, profile?.isLocked, profile?.outstandingServiceFee, refreshProfile, router, topAlerts]);
+  }, [pathname, pendingServiceFeeAmount, profile?.isLocked, profile?.outstandingServiceFee, refreshProfile, router, serviceFeePaywall?.accountRestricted, serviceFeePaywall?.shouldShowPaywall, topAlerts]);
 
   useEffect(() => {
     if (!drawerOpen) return;

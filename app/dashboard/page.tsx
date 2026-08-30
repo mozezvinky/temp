@@ -16,9 +16,9 @@ import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { cancelApplication, cancelLiveApplication, confirmWorkerPaymentReceived, requestApplicationCompletion, respondDirectHireRequest, subscribeApplications } from "@/services/jobs";
 import { loadRatings, rateClient } from "@/services/ratings";
 import { reportCompletedJob } from "@/services/reports";
-import { loadServiceFeePayment, submitServiceFeePayment } from "@/services/service-fee";
+import { loadServiceFeePayment, loadServiceFeePaywallState, submitServiceFeePayment } from "@/services/service-fee";
 import { deleteWorkerSkill, loadWorkerSkills } from "@/services/worker-skills";
-import type { Application, ServiceFeePayment, WorkerSkillProfile } from "@/types";
+import type { Application, ServiceFeePayment, ServiceFeePaywallState, WorkerSkillProfile } from "@/types";
 import { BriefcaseBusiness, Car, CheckCircle2, Clock, MapPin, MessageCircle, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -53,29 +53,31 @@ export default function DashboardPage() {
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState("");
   const [serviceFeePayment, setServiceFeePayment] = useState<ServiceFeePayment | null>(null);
-  const [forcedServiceFee, setForcedServiceFee] = useState(0);
+  const [serviceFeePaywall, setServiceFeePaywall] = useState<ServiceFeePaywallState | null>(null);
   const [submittingFee, setSubmittingFee] = useState(false);
   const [feeScreenshotSelected, setFeeScreenshotSelected] = useState(false);
   const [ratingAggregate, setRatingAggregate] = useState<{ average: number; count: number; breakdown: Record<number, number> }>({ average: 0, count: 0, breakdown: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } });
   const profileId = profile?.id;
   const profileRole = profile?.role;
   const profileOutstandingServiceFee = Number(profile?.outstandingServiceFee ?? 0);
+  const paywallAmountDue = Number(serviceFeePaywall?.amountDue ?? 0);
   const pendingServiceFeeAmount = !!serviceFeePayment && serviceFeePayment.status !== "approved" && serviceFeePayment.status !== "rejected"
     ? Number(serviceFeePayment.amount ?? 0)
     : 0;
-  const currentOutstandingServiceFee = profileOutstandingServiceFee > 0
+  const currentOutstandingServiceFee = paywallAmountDue > 0
+    ? paywallAmountDue
+    : profileOutstandingServiceFee > 0
     ? profileOutstandingServiceFee
     : pendingServiceFeeAmount > 0
       ? pendingServiceFeeAmount
-      : forcedServiceFee;
+      : 0;
   const pendingServiceFeePayment = !!serviceFeePayment
     && serviceFeePayment.status !== "rejected"
     && serviceFeePayment.status !== "approved"
     && Number(serviceFeePayment.amount ?? 0) >= currentOutstandingServiceFee;
-  const serviceFeeApproved = serviceFeePayment?.status === "approved" && profileOutstandingServiceFee <= 0;
-  const profileLocked = !!profile && profile.role !== "admin" && (profile.isLocked || currentOutstandingServiceFee > 0);
-  const serviceFeeClearKey = `${profileOutstandingServiceFee}:${serviceFeePayment?.status ?? ""}`;
-  const canClearForcedServiceFee = serviceFeeClearKey === "0:approved";
+  const serviceFeeStatus = serviceFeePaywall?.status ?? (serviceFeePayment?.status === "rejected" ? "failed" : pendingServiceFeePayment ? "pending" : currentOutstandingServiceFee > 0 ? "due" : "not_due");
+  const serviceFeeApproved = serviceFeeStatus === "paid" || (serviceFeePayment?.status === "approved" && profileOutstandingServiceFee <= 0 && paywallAmountDue <= 0);
+  const profileLocked = !!profile && profile.role !== "admin" && (profile.isLocked || serviceFeePaywall?.accountRestricted || currentOutstandingServiceFee > 0);
 
   useEffect(() => {
     if (profile?.role === "client" && !profileLocked) router.replace("/workers");
@@ -102,18 +104,32 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!profileId || profileRole !== "worker") return;
-    void loadServiceFeePayment().then(setServiceFeePayment).catch(() => setServiceFeePayment(null));
+    let cancelled = false;
+    void Promise.all([loadServiceFeePayment(), loadServiceFeePaywallState()])
+      .then(([payment, paywall]) => {
+        if (cancelled) return;
+        setServiceFeePayment(payment);
+        setServiceFeePaywall(paywall);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setServiceFeePayment(null);
+          setServiceFeePaywall(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [profileId, profileRole]);
 
   useEffect(() => {
-    if (!profileId || profileRole !== "worker" || !serviceFeePayment || ["approved", "rejected"].includes(serviceFeePayment.status)) return;
+    if (!profileId || profileRole !== "worker" || !serviceFeePaywall?.shouldShowPaywall) return;
     const checkPayment = () => {
-      void loadServiceFeePayment()
-        .then(payment => {
+      void Promise.all([loadServiceFeePayment(), loadServiceFeePaywallState()])
+        .then(([payment, paywall]) => {
           setServiceFeePayment(payment);
-          if (payment?.status === "approved") {
-            setForcedServiceFee(0);
-            window.sessionStorage.removeItem("temp.forceServiceFee");
+          setServiceFeePaywall(paywall);
+          if (paywall?.status === "paid" || paywall?.status === "not_due") {
             void refreshProfile();
           }
         })
@@ -121,32 +137,7 @@ export default function DashboardPage() {
     };
     const intervalId = window.setInterval(checkPayment, 5_000);
     return () => window.clearInterval(intervalId);
-  }, [profileId, profileRole, refreshProfile, serviceFeePayment]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const syncForcedServiceFee = (value?: unknown) => {
-      const amount = typeof value === "number" ? value : Number(window.sessionStorage.getItem("temp.forceServiceFee") ?? 0);
-      if (Number.isFinite(amount)) setForcedServiceFee(Math.max(0, amount));
-    };
-    const handleForcedServiceFee = (event: Event) => syncForcedServiceFee((event as CustomEvent<number>).detail);
-    syncForcedServiceFee();
-    window.addEventListener("temp:force-service-fee", handleForcedServiceFee);
-    return () => window.removeEventListener("temp:force-service-fee", handleForcedServiceFee);
-  }, []);
-
-  useEffect(() => {
-    if (!canClearForcedServiceFee) return;
-    setForcedServiceFee(0);
-    window.sessionStorage.removeItem("temp.forceServiceFee");
-  }, [canClearForcedServiceFee]);
-
-  useEffect(() => {
-    if (!profile || profile.role !== "worker") return;
-    if (profile.isLocked || profileOutstandingServiceFee > 0) return;
-    setForcedServiceFee(0);
-    window.sessionStorage.removeItem("temp.forceServiceFee");
-  }, [profile, profileOutstandingServiceFee]);
+  }, [profileId, profileRole, refreshProfile, serviceFeePaywall?.shouldShowPaywall]);
 
   useEffect(() => {
     if (!profileId || profileRole !== "worker") return;
@@ -224,14 +215,14 @@ export default function DashboardPage() {
         screenshot
       });
       setServiceFeePayment(payment);
+      const paywall = await loadServiceFeePaywallState();
+      setServiceFeePaywall(paywall);
       toast.success("Waiting for admin confirmation.");
       await refreshProfile();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to submit payment.";
       if (/no service fee|outstanding service fee/i.test(message)) {
-        setForcedServiceFee(0);
-        window.sessionStorage.removeItem("temp.forceServiceFee");
-        window.dispatchEvent(new CustomEvent("temp:force-service-fee", { detail: 0 }));
+        setServiceFeePaywall(null);
         await refreshProfile();
       }
       toast.error(message);
@@ -267,7 +258,10 @@ export default function DashboardPage() {
   const averageJobValue = doneApplications.length ? totalEarnings / doneApplications.length : 0;
   const completionRate = visibleApplications.length ? Math.round((doneApplications.length / visibleApplications.length) * 100) : 0;
   const demandedServiceFee = serviceFeeApproved ? 0 : currentOutstandingServiceFee;
-  const waitingForAdminConfirmation = pendingServiceFeePayment;
+  const waitingForAdminConfirmation = serviceFeeStatus === "pending" || pendingServiceFeePayment;
+  const paywallGrossAmount = Number(serviceFeePaywall?.grossAmount ?? 0) > 0 ? Number(serviceFeePaywall?.grossAmount ?? 0) : demandedServiceFee * 10;
+  const paywallServiceFeeAmount = Number(serviceFeePaywall?.serviceFeeAmount ?? 0) > 0 ? Number(serviceFeePaywall?.serviceFeeAmount ?? 0) : demandedServiceFee;
+  const paywallWorkerEarnings = Number(serviceFeePaywall?.workerEarnings ?? 0) > 0 ? Number(serviceFeePaywall?.workerEarnings ?? 0) : Math.max(0, paywallGrossAmount - paywallServiceFeeAmount);
   const profilePhoto = profile.photoURL ? {
     photoURL: profile.photoURL,
     photoPositionX: profile.photoPositionX ?? 50,
@@ -284,6 +278,13 @@ export default function DashboardPage() {
           <p className="mt-3 text-sm font-black text-[#4b453e] dark:text-[#CCC6BB]">This is 10% of the client payment for your completed job. Pay this amount to unlock your worker account.</p>
           {serviceFeePayment?.status === "rejected" && <p className="mt-4 rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-800 dark:text-red-100">{serviceFeePayment.rejectionReason ?? "Your last payment was rejected. Please resubmit."}</p>}
           {waitingForAdminConfirmation && <p className="mt-4 rounded-xl border border-sky-300/30 bg-sky-400/10 p-3 text-sm font-black text-sky-900 dark:text-sky-100">Waiting for admin confirmation.</p>}
+          <div className="mt-5 rounded-lg border border-amber-300/40 bg-amber-100/30 p-4 text-sm font-semibold text-[#4b453e] dark:border-amber-200/20 dark:bg-amber-200/10 dark:text-[#FFFBFF]">
+            <p className="font-black">Payment Received</p>
+            <p className="mt-2">You have been paid {kes(paywallGrossAmount)} for this job.</p>
+            <p className="mt-2">Your earnings: {kes(paywallWorkerEarnings)}</p>
+            <p>COPIC service fee: {kes(paywallServiceFeeAmount)}</p>
+            <p className="mt-3 text-base font-black">Amount Due: {kes(demandedServiceFee)}</p>
+          </div>
           <p className="mt-5 text-xs font-bold uppercase tracking-[.18em] text-[#959087]">Payment details</p>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <CopyBox label="Paybill Number" value={SERVICE_FEE_PAYBILL_NUMBER} />
@@ -576,8 +577,6 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
     try {
       const updated = await confirmWorkerPaymentReceived(application);
       onApplicationUpdated({ ...application, ...updated, status: "completed" });
-      const fee = Number((updated as Application & { outstandingServiceFee?: number }).outstandingServiceFee ?? 0);
-      if (fee > 0 && typeof window !== "undefined") window.sessionStorage.setItem("temp.forceServiceFee", String(fee));
       toast.success("Payment received confirmed. Your account is now locked until the service fee is paid.");
       window.location.assign("/dashboard");
     } catch (error) {

@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
       transaction.set(ref, payload);
       transaction.set(userSnap.ref, {
         isLocked: true,
+        outstandingServiceFee: serviceFeeAmount,
         lockReason: "Waiting for admin confirmation",
         updatedAt: FieldValue.serverTimestamp()
       }, { merge: true });

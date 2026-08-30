@@ -56,6 +56,8 @@ export async function PATCH(request: NextRequest) {
       if (!snap.exists) throw new Error("Payment was not found.");
       const payment = snap.data() ?? {};
       const workerRef = db.collection("users").doc(String(payment.workerId));
+      const applicationId = typeof payment.applicationId === "string" ? payment.applicationId : "";
+      const applicationRef = applicationId ? db.collection("applications").doc(applicationId) : null;
       if (action === "approve") {
         const workerSnap = await transaction.get(workerRef);
         const currentOutstanding = Number(workerSnap.data()?.outstandingServiceFee ?? 0);
@@ -67,6 +69,9 @@ export async function PATCH(request: NextRequest) {
           lockReason: remainingOutstanding > 0 ? "Service Fee Payment Required" : null,
           updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
+        if (applicationRef && remainingOutstanding <= 0) {
+          transaction.set(applicationRef, { serviceFeeStatus: "paid", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        }
         notification = {
           userId: String(payment.workerId),
           type: remainingOutstanding > 0 ? "service_fee_partially_approved" : "worker_account_unlocked",
@@ -80,6 +85,7 @@ export async function PATCH(request: NextRequest) {
       } else {
         transaction.set(paymentRef, { status: "rejected", rejectionReason: reason, reviewedAt: FieldValue.serverTimestamp(), reviewedBy: admin.uid }, { merge: true });
         transaction.set(workerRef, { isLocked: true, outstandingServiceFee: Number(payment.amount ?? 0), lockReason: reason, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        if (applicationRef) transaction.set(applicationRef, { serviceFeeStatus: "failed", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         notification = {
           userId: String(payment.workerId),
           type: "service_fee_rejected",
