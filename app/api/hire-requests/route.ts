@@ -4,9 +4,12 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { createLocalDirectHireRequest, getLocalUser, respondLocalDirectHireRequest } from "@/lib/local-sql";
 import { sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatusFromRecords } from "@/lib/worker-verification";
+import type { WorkerSkillProfile } from "@/types";
+import { calculateDirectHirePricing, resolveSkillPricingType, resolveSkillUnit } from "@/utils/direct-hire-pricing";
 import { clientCanPost } from "@/utils/jobRules";
 import { normalizeLocationFields, locationRequiresDescription } from "@/utils/location-fields";
 import { jobLocationLabel } from "@/utils/location-display";
+import { normalizeSkillVerificationStatus } from "@/utils/worker-skills";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -21,7 +24,7 @@ export async function POST(request: NextRequest) {
     const decoded = currentUser.decoded;
     const body = await request.json().catch(() => ({}));
     const input = normalizeRequest(body);
-    if (!input.workerId || !input.title || !input.category || !input.location || !input.locationDetails || !input.startDate || !input.duration || input.payAmount <= 0) {
+    if (!input.workerId || !input.skillId || !input.title || !input.category || !input.location || !input.locationDetails || !input.startDate || !input.duration) {
       return NextResponse.json({ error: "Complete the direct hire request details." }, { status: 400 });
     }
     const locationDetails = input.locationDetails;
@@ -35,13 +38,18 @@ export async function POST(request: NextRequest) {
       if (!clientCanPost(localClient)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
       const allowedWorker = await getWorkerJobEligibility(input.workerId, { title: input.title, category: input.category, requiredSkills: [] });
       if (allowedWorker.decision === "blocked") return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
+      const savedSkill = selectedWorkerSkill(getLocalUser(input.workerId)?.skillProfiles, input.skillId);
+      if (!savedSkill) return NextResponse.json({ error: "Choose a verified worker skill." }, { status: 400 });
+      const pricing = calculateVerifiedPricing(savedSkill, input.quantity);
       const application = createLocalDirectHireRequest({
         id: crypto.randomUUID(),
         jobId: crypto.randomUUID(),
         clientId: localClient.id,
         clientName: localClient.displayName,
         ...input,
-        locationDetails
+        locationDetails,
+        skillName: savedSkill.name,
+        pricing
       });
       return NextResponse.json({ success: true, request: application });
     }
@@ -64,6 +72,9 @@ export async function POST(request: NextRequest) {
     if (!workerSnap.exists || !hasRole(worker, "worker")) return NextResponse.json({ error: "Choose a valid worker." }, { status: 404 });
     const allowedWorker = await getWorkerJobEligibility(input.workerId, { title: input.title, category: input.category, requiredSkills: [] });
     if (allowedWorker.decision === "blocked") return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
+    const savedSkill = selectedWorkerSkill(Array.isArray(worker?.skillProfiles) ? worker.skillProfiles as WorkerSkillProfile[] : [], input.skillId);
+    if (!savedSkill) return NextResponse.json({ error: "Choose a verified worker skill." }, { status: 400 });
+    const pricing = calculateVerifiedPricing(savedSkill, input.quantity);
     const activeSnap = await db.collection("applications").where("workerId", "==", input.workerId).limit(40).get();
     const activeApps = activeSnap.docs.filter(doc => ["accepted", "completion_requested", "payment_sent"].includes(String(doc.data().status)));
     if (activeApps.length) return NextResponse.json({ error: "This worker is occupied on another job right now." }, { status: 400 });
@@ -93,6 +104,13 @@ export async function POST(request: NextRequest) {
       requestStartDate: input.startDate,
       requestDuration: input.duration,
       requestDescription: input.description,
+      requestSkillId: savedSkill.id,
+      requestSkillName: savedSkill.name,
+      requestPricing: pricing,
+      jobAmount: pricing.total,
+      grossAmount: pricing.total,
+      workerEarnings: pricing.subtotal,
+      serviceFeeAmount: pricing.serviceFee,
       status: "pending",
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
@@ -109,16 +127,22 @@ export async function POST(request: NextRequest) {
       location: input.location,
       county: "",
       locationDetails: input.locationDetails,
-      payAmount: input.payAmount,
-      payType: "fixed",
+      payAmount: pricing.total,
+      payType: pricing.pricingType === "timeline" ? "timeline" : "fixed",
       duration: input.duration,
       workersNeeded: 1,
-      requiredSkills: [],
+      quantity: pricing.quantity,
+      unit: pricing.unit,
+      customUnit: null,
+      requiredSkills: [savedSkill.name],
       applicants: [],
       assignedWorkerId: null,
       status: "pending",
-      rateType: "fixed",
-      rateAmount: input.payAmount,
+      rateType: pricing.pricingType,
+      rateAmount: pricing.rateAmount,
+      grossAmount: pricing.total,
+      workerEarnings: pricing.subtotal,
+      serviceFeeAmount: pricing.serviceFee,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
     });
@@ -240,9 +264,10 @@ function normalizeRequest(body: unknown) {
   const locationLabel = locationDetails ? jobLocationLabel({ location: locationDetails.addressText, county: locationDetails.county, locationDetails }) : String(input.location ?? "").trim();
   return {
     workerId: typeof input.workerId === "string" ? input.workerId : "",
+    skillId: typeof input.skillId === "string" ? input.skillId.trim() : "",
     title: typeof input.title === "string" ? input.title.trim() : "",
     category: typeof input.category === "string" ? input.category.trim() : "",
-    payAmount: Number(input.payAmount),
+    quantity: Math.max(1, Math.trunc(Number(input.quantity) || 1)),
     location: locationDetails?.addressText ?? (typeof input.location === "string" ? input.location.trim() : ""),
     locationDetails,
     locationLabel,
@@ -250,6 +275,15 @@ function normalizeRequest(body: unknown) {
     duration: typeof input.duration === "string" ? input.duration.trim() : "",
     description: typeof input.description === "string" ? input.description.trim() : ""
   };
+}
+
+function selectedWorkerSkill(skills: WorkerSkillProfile[] | undefined | null, skillId: string) {
+  return (skills ?? []).find(skill => skill.id === skillId && normalizeSkillVerificationStatus(skill.verificationStatus) === "approved" && Number(skill.chargeAmount ?? 0) > 0) ?? null;
+}
+
+function calculateVerifiedPricing(skill: WorkerSkillProfile, quantity: number) {
+  if (resolveSkillPricingType(skill) === "unit" && !resolveSkillUnit(skill)) throw new AuthRouteError("This worker skill does not have a valid pricing unit.", 400);
+  return calculateDirectHirePricing(skill, quantity);
 }
 
 function activeRoleFromRequest(request: NextRequest) {

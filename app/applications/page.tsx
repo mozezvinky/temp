@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Button } from "@/components/ui/Button";
+import { RequestPricingSummary } from "@/components/direct-hire/RequestPricingSummary";
 import { StarRatingInput } from "@/components/ui/StarRatingInput";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { acceptApplication, cancelApplication, cancelLiveApplication, completeApplication, confirmWorkerPaymentReceived, requestApplicationCompletion, subscribeApplications } from "@/services/jobs";
@@ -187,6 +188,7 @@ export default function ApplicationsPage() {
                   <p><strong className="text-[#111] dark:text-[#FFFBFF]">Location:</strong> {applicationRequestLocationLabel(application)}</p>
                   <p className="mt-1"><strong className="text-[#111] dark:text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
                   <p className="mt-1"><strong className="text-[#111] dark:text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
+                  <RequestPricingSummary application={application} />
                   {application.requestDescription && <p className="mt-2">{application.requestDescription}</p>}
                 </div>
               )}
@@ -418,6 +420,7 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
               <p><strong className="text-[#111] dark:text-[#FFFBFF]">Location:</strong> {applicationRequestLocationLabel(application)}</p>
               <p className="mt-1"><strong className="text-[#111] dark:text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
               <p className="mt-1"><strong className="text-[#111] dark:text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
+              <RequestPricingSummary application={application} />
               {application.requestDescription && <p className="mt-2">{application.requestDescription}</p>}
             </div>
           )}

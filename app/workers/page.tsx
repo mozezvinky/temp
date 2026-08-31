@@ -11,6 +11,7 @@ import { sendDirectHireRequest } from "@/services/jobs";
 import { subscribeWorkers } from "@/services/users";
 import type { Conversation, LocationFields, Message, UserProfile, WorkerSkillProfile } from "@/types";
 import { addPlatformFee, kes } from "@/utils/money";
+import { calculateDirectHirePricing, perUnitText, pluralUnit, quantityLabel, resolveSkillPricingType, resolveSkillUnit } from "@/utils/direct-hire-pricing";
 import { displayJobQuantity } from "@/utils/jobUnits";
 import { defaultKenyaLocation } from "@/lib/location";
 import { jobLocationLabel } from "@/utils/location-display";
@@ -33,6 +34,7 @@ export default function WorkersPage() {
   const [selectedWorker, setSelectedWorker] = useState<UserProfile | null>(null);
   const [hireSkill, setHireSkill] = useState<WorkerSkillProfile | null>(null);
   const [hireLocation, setHireLocation] = useState<LocationFields>(defaultKenyaLocation);
+  const [hireQuantity, setHireQuantity] = useState(1);
   const [sendingHire, setSendingHire] = useState(false);
   const [messageWorker, setMessageWorker] = useState<UserProfile | null>(null);
   const [messageConversation, setMessageConversation] = useState<Conversation | null>(null);
@@ -149,6 +151,7 @@ export default function WorkersPage() {
     setSelectedWorker(worker);
     setHireSkill(skill);
     setHireLocation(defaultKenyaLocation);
+    setHireQuantity(1);
   }
 
   async function submitHireRequest(event: FormEvent<HTMLFormElement>) {
@@ -180,9 +183,10 @@ export default function WorkersPage() {
     try {
       await sendDirectHireRequest({
         workerId: selectedWorker.id,
+        skillId: hireSkill.id,
         title: String(form.get("title") ?? ""),
         category: String(form.get("category") ?? hireSkill.name),
-        payAmount: Number(form.get("payAmount") ?? hireSkill.chargeAmount ?? 0),
+        quantity: hireQuantity,
         location: hireLocation.addressText,
         locationDetails: hireLocation,
         startDate: String(form.get("startDate") ?? ""),
@@ -272,20 +276,14 @@ export default function WorkersPage() {
 
   function clientVisibleRate(skill: WorkerSkillProfile) {
     if (!skill.chargeAmount) return "Rate not set";
-    const amount = kes(addPlatformFee(skill.chargeAmount));
-    if (skill.chargePayType === "unit") {
-      const unit = skill.chargeUnit === "Other" ? skill.chargeCustomUnit : skill.chargeUnit;
-      return unit ? `${amount} per ${unit}` : `${amount} per unit`;
-    }
+    const amount = kes(skill.chargeAmount);
+    if (skill.chargePayType === "unit") return `${amount} ${perUnitText(skill)}`;
     if (skill.chargePayType === "timeline") return `${amount} per timeline`;
     return amount;
   }
 
   function skillPayTypeLabel(skill: WorkerSkillProfile) {
-    if (skill.chargePayType === "unit") {
-      const unit = skill.chargeUnit === "Other" ? skill.chargeCustomUnit : skill.chargeUnit;
-      return unit ? `Pay per ${unit}` : "Pay per unit";
-    }
+    if (skill.chargePayType === "unit") return `Pay ${perUnitText(skill)}`;
     return skill.chargePayType === "timeline" ? "Timeline pay" : "Fixed pay";
   }
 
@@ -424,6 +422,12 @@ export default function WorkersPage() {
               </div>
               {hireSkill && (
                 <form onSubmit={submitHireRequest} className="mt-6 grid gap-4 rounded-xl border border-bone/10 bg-bone/[.04] p-4">
+                  {(() => {
+                    const pricing = calculateDirectHirePricing(hireSkill, hireQuantity);
+                    const pricingType = resolveSkillPricingType(hireSkill);
+                    const unit = resolveSkillUnit(hireSkill);
+                    return (
+                      <>
                   <div>
                     <p className="text-lg font-black text-[#FFFBFF]">Send direct hire request</p>
                     <p className="mt-1 text-sm text-[#CCC6BB]">The worker will see this under Requests and can accept or reject it.</p>
@@ -431,10 +435,38 @@ export default function WorkersPage() {
                   <label className="temp-label">Job title<input name="title" required defaultValue={hireSkill.name} className="temp-input p-3 outline-none" /></label>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="temp-label">Category<input name="category" required defaultValue={hireSkill.chargeCategory ?? hireSkill.name} className="temp-input p-3 outline-none" /></label>
-                    <label className="temp-label">Pay amount<input name="payAmount" required type="number" min="1" defaultValue={hireSkill.chargeAmount ? addPlatformFee(hireSkill.chargeAmount) : ""} className="temp-input p-3 outline-none" /></label>
                     <label className="temp-label">Start date<input name="startDate" required type="date" className="temp-input p-3 outline-none" /></label>
                     <label className="temp-label sm:col-span-2">Duration<input name="duration" required defaultValue={hireSkill.chargeTimeline ? `${hireSkill.chargeTimeline} ${hireSkill.chargeTimelineUnit}` : ""} placeholder="Example: 2 days" className="temp-input p-3 outline-none" /></label>
                     <label className="temp-label sm:col-span-2">Optional job description<textarea name="description" rows={3} className="temp-input p-3 outline-none" placeholder="Explain the work, tools, and expectations." /></label>
+                  </div>
+                  <div className="rounded-xl border border-[#d8d8d8] bg-white p-4 text-sm text-[#4b453e] dark:border-bone/10 dark:bg-[#1F1F20] dark:text-[#CCC6BB]">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[.14em] text-[#6b665f] dark:text-[#959087]">Rate</p>
+                        <p className="mt-1 text-base font-black text-[#111] dark:text-[#FFFBFF]">
+                          {pricingType === "unit" ? `${kes(pricing.rateAmount)} ${perUnitText(hireSkill)}` : kes(pricing.rateAmount)}
+                        </p>
+                      </div>
+                      {pricingType === "unit" && (
+                        <label className="temp-label">
+                          {quantityLabel(hireSkill)}
+                          <div className="mt-2 flex min-h-12 items-center overflow-hidden rounded-xl border border-[#cfd4d8] bg-white dark:border-[#4A463F] dark:bg-[#11120D]">
+                            <button type="button" className="grid h-12 w-12 place-items-center border-r border-[#cfd4d8] text-lg font-black text-[#111] dark:border-[#4A463F] dark:text-[#FFFBFF]" onClick={() => setHireQuantity(value => Math.max(1, value - 1))}>-</button>
+                            <input value={hireQuantity} onChange={event => setHireQuantity(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} type="number" min={1} className="h-12 min-w-0 flex-1 bg-transparent px-3 text-center text-base font-black text-[#111] outline-none dark:text-[#FFFBFF]" aria-label={quantityLabel(hireSkill)} />
+                            <button type="button" className="grid h-12 w-12 place-items-center border-l border-[#cfd4d8] text-lg font-black text-[#111] dark:border-[#4A463F] dark:text-[#FFFBFF]" onClick={() => setHireQuantity(value => value + 1)}>+</button>
+                          </div>
+                        </label>
+                      )}
+                    </div>
+                    <div className="mt-4 grid gap-2">
+                      {pricingType === "unit" && <p className="text-sm font-bold text-[#4b453e] dark:text-[#CCC6BB]">{kes(pricing.rateAmount)} x {hireQuantity} {pluralUnit(unit)} = {kes(pricing.subtotal)}</p>}
+                      <PriceLine label="Work subtotal" value={kes(pricing.subtotal)} />
+                      <PriceLine label="COPIC service fee (10%)" value={kes(pricing.serviceFee)} />
+                      <div className="mt-1 flex items-center justify-between gap-3 rounded-xl bg-[#dff7c5] p-3 text-[#203300] dark:bg-[#9df12d]">
+                        <span className="text-sm font-black uppercase tracking-[.14em]">Total</span>
+                        <strong className="text-xl">{kes(pricing.total)}</strong>
+                      </div>
+                    </div>
                   </div>
                   <div className="grid gap-3">
                     <p className="text-sm font-black text-[#FFFBFF]">Job location</p>
@@ -445,6 +477,9 @@ export default function WorkersPage() {
                     <Button type="submit" disabled={sendingHire}>{sendingHire ? "Sending..." : "Send request"}</Button>
                     <Button type="button" variant="secondary" onClick={() => setHireSkill(null)}>Cancel</Button>
                   </div>
+                      </>
+                    );
+                  })()}
                 </form>
               )}
         </AppModal>
@@ -478,6 +513,15 @@ export default function WorkersPage() {
           </div>
         </AppModal>
       )}
+    </div>
+  );
+}
+
+function PriceLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="font-bold">{label}</span>
+      <strong className="text-[#111] dark:text-[#FFFBFF]">{value}</strong>
     </div>
   );
 }

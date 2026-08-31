@@ -192,7 +192,6 @@ function rolesFor(data: Partial<UserProfile> | null, activeRole?: Role): Role[] 
 function activeRoleFor(data: Partial<UserProfile> | null, roleHint?: Role | null): Role | undefined {
   const roles = rolesFor(data);
   if (roles.includes("admin")) return "admin";
-  if (roleHint === "worker" || roleHint === "client") return roleHint;
   if (roleHint && roles.includes(roleHint)) return roleHint;
   return roles[0];
 }

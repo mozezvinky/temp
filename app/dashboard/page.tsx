@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { AddSkillModal } from "@/components/profile/AddSkillModal";
+import { RequestPricingSummary } from "@/components/direct-hire/RequestPricingSummary";
 import { RatingHistory } from "@/components/ratings/RatingHistory";
 import { StarRatingInput } from "@/components/ui/StarRatingInput";
 import { AppModal } from "@/components/ui/AppModal";
@@ -668,7 +669,10 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
                   <p><strong className="text-[#111] dark:text-[#FFFBFF]">Location:</strong> {directHireRequestLocationLabel(application)}</p>
                   <p><strong className="text-[#111] dark:text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
                   <p><strong className="text-[#111] dark:text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
-                  {application.jobAmount ? (
+                  <RequestPricingSummary application={application} />
+                  {application.requestPricing ? (
+                    <p><strong className="text-[#111] dark:text-[#FFFBFF]">You should receive:</strong> {kes(application.requestPricing.subtotal)}</p>
+                  ) : application.jobAmount ? (
                     <>
                       <p><strong className="text-[#111] dark:text-[#FFFBFF]">You should receive:</strong> {kes(fixedPay.workerEarnings)}</p>
                     </>

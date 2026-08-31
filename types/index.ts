@@ -58,6 +58,19 @@ export interface WorkerSkillProfile {
   createdAt?: Timestamp | null;
 }
 
+export type DirectHirePricingType = "fixed" | "timeline" | "unit";
+
+export interface DirectHirePricingSnapshot {
+  pricingType: DirectHirePricingType;
+  unit?: string | null;
+  rateAmount: number;
+  ratePerUnit?: number | null;
+  quantity?: number | null;
+  subtotal: number;
+  serviceFee: number;
+  total: number;
+}
+
 export type Landmark = {
   name: string;
   placeId: string;
@@ -247,7 +260,7 @@ export interface Job {
   status: JobStatus;
   // Compatibility fields for older job/payment documents.
   durationHours?: number;
-  rateType?: JobPayType;
+  rateType?: JobPayType | "unit";
   rateAmount?: number;
   imageUrls?: string[];
   hiredWorkerId?: string;
@@ -322,6 +335,9 @@ export interface Application {
   requestStartDate?: string;
   requestDuration?: string;
   requestDescription?: string;
+  requestSkillId?: string;
+  requestSkillName?: string;
+  requestPricing?: DirectHirePricingSnapshot;
   coverNote: string;
   status: ApplicationStatus;
   createdAt: Timestamp;

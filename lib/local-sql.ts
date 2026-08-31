@@ -2,7 +2,7 @@ import "server-only";
 
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Application, Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
+import type { Application, DirectHirePricingSnapshot, Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateJobPaymentBreakdown, calculateServiceFee } from "@/utils/money";
 import { workerCanApplyToJob } from "@/utils/jobRules";
 import { jobLocationLabel } from "@/utils/location-display";
@@ -145,6 +145,9 @@ export function localDb() {
       requestStartDate TEXT,
       requestDuration TEXT,
       requestDescription TEXT,
+      requestSkillId TEXT,
+      requestSkillName TEXT,
+      requestPricing TEXT,
       clientRating INTEGER,
       paymentConfirmedAt TEXT,
       grossAmount REAL,
@@ -418,6 +421,9 @@ export function localDb() {
   ensureColumn("applications", "requestStartDate", "TEXT");
   ensureColumn("applications", "requestDuration", "TEXT");
   ensureColumn("applications", "requestDescription", "TEXT");
+  ensureColumn("applications", "requestSkillId", "TEXT");
+  ensureColumn("applications", "requestSkillName", "TEXT");
+  ensureColumn("applications", "requestPricing", "TEXT");
   ensureColumn("applications", "paymentConfirmedAt", "TEXT");
   ensureColumn("applications", "grossAmount", "REAL");
   ensureColumn("applications", "workerEarnings", "REAL");
@@ -899,6 +905,9 @@ function rowToApplication(row: Record<string, unknown>) {
     requestStartDate: typeof row.requestStartDate === "string" ? row.requestStartDate : undefined,
     requestDuration: typeof row.requestDuration === "string" ? row.requestDuration : undefined,
     requestDescription: typeof row.requestDescription === "string" ? row.requestDescription : undefined,
+    requestSkillId: typeof row.requestSkillId === "string" ? row.requestSkillId : undefined,
+    requestSkillName: typeof row.requestSkillName === "string" ? row.requestSkillName : undefined,
+    requestPricing: parseJson<DirectHirePricingSnapshot | undefined>(row.requestPricing, undefined),
     coverNote: String(row.coverNote ?? ""),
     status: String(row.status ?? "pending"),
     createdAt: null,
@@ -963,11 +972,13 @@ export function createLocalDirectHireRequest(input: {
   clientId: string;
   clientName: string;
   workerId: string;
+  skillId: string;
+  skillName: string;
   title: string;
   category: string;
-  payAmount: number;
   location: string;
   locationDetails: LocationFields;
+  pricing: DirectHirePricingSnapshot;
   startDate: string;
   duration: string;
   description?: string;
@@ -987,7 +998,7 @@ export function createLocalDirectHireRequest(input: {
         id, clientId, clientName, createdBy, title, description, category, location, county, locationDetails,
         payAmount, payType, duration, durationHours, durationValue, durationUnit, workersNeeded, quantity, unit, customUnit, paymentMethod, requiredSkills, applicants, assignedWorkerId, status,
         rateType, rateAmount, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'fixed', ?, 0, 1, 'days', 1, NULL, NULL, NULL, 'mpesa', '[]', '[]', NULL, 'pending', 'fixed', ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 'days', 1, ?, ?, NULL, 'mpesa', ?, '[]', NULL, 'pending', ?, ?, ?, ?)
     `).run(
       input.jobId,
       input.clientId,
@@ -999,16 +1010,21 @@ export function createLocalDirectHireRequest(input: {
       input.location,
       input.locationDetails.county,
       jsonString(input.locationDetails),
-      input.payAmount,
+      input.pricing.total,
+      input.pricing.pricingType === "timeline" ? "timeline" : "fixed",
       input.duration,
-      input.payAmount,
+      input.pricing.quantity ?? null,
+      input.pricing.unit ?? null,
+      jsonString([input.skillName]),
+      input.pricing.pricingType,
+      input.pricing.rateAmount,
       createdAt,
       createdAt
     );
     localDb().prepare(`
-      INSERT INTO applications (id, jobId, workerId, clientId, jobTitle, coverNote, status, source, requestLocation, requestLocationDetails, requestStartDate, requestDuration, requestDescription, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', 'direct_hire', ?, ?, ?, ?, ?, ?, ?)
-    `).run(input.id, input.jobId, input.workerId, input.clientId, input.title, "Direct hire request", input.location, jsonString(input.locationDetails), input.startDate, input.duration, input.description ?? "", createdAt, createdAt);
+      INSERT INTO applications (id, jobId, workerId, clientId, jobTitle, coverNote, status, source, requestLocation, requestLocationDetails, requestStartDate, requestDuration, requestDescription, requestSkillId, requestSkillName, requestPricing, grossAmount, workerEarnings, serviceFeeAmount, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', 'direct_hire', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(input.id, input.jobId, input.workerId, input.clientId, input.title, "Direct hire request", input.location, jsonString(input.locationDetails), input.startDate, input.duration, input.description ?? "", input.skillId, input.skillName, jsonString(input.pricing), input.pricing.total, input.pricing.subtotal, input.pricing.serviceFee, createdAt, createdAt);
     localDb().prepare(`
       INSERT OR REPLACE INTO notifications (id, userId, title, body, read, href, createdAt)
       VALUES (?, ?, 'Direct hire request', ?, 0, '/dashboard', ?)
