@@ -1,6 +1,6 @@
 import type { Application } from "@/types";
-import { kes } from "@/utils/money";
 import { pluralUnit } from "@/utils/direct-hire-pricing";
+import { kes } from "@/utils/money";
 
 export function RequestPricingSummary({ application }: { application: Application }) {
   const pricing = application.requestPricing;
@@ -11,15 +11,13 @@ export function RequestPricingSummary({ application }: { application: Applicatio
       {application.requestSkillName && <p><strong className="text-[#111] dark:text-[#FFFBFF]">Skill:</strong> {application.requestSkillName}</p>}
       {pricing.pricingType === "unit" ? (
         <>
-          <p><strong className="text-[#111] dark:text-[#FFFBFF]">Rate:</strong> {kes(pricing.ratePerUnit ?? pricing.rateAmount)} per {unit}</p>
+          <p><strong className="text-[#111] dark:text-[#FFFBFF]">Rate:</strong> {kes(pricing.clientRatePerUnit ?? pricing.total)} per {unit}</p>
           <p><strong className="text-[#111] dark:text-[#FFFBFF]">Number of {pluralUnit(unit)}:</strong> {pricing.quantity ?? 1}</p>
         </>
       ) : (
-        <p><strong className="text-[#111] dark:text-[#FFFBFF]">Rate:</strong> {kes(pricing.rateAmount)}</p>
+        <p><strong className="text-[#111] dark:text-[#FFFBFF]">Rate:</strong> {kes(pricing.total)}</p>
       )}
-      <p><strong className="text-[#111] dark:text-[#FFFBFF]">Work subtotal:</strong> {kes(pricing.subtotal)}</p>
-      <p><strong className="text-[#111] dark:text-[#FFFBFF]">COPIC service fee (10%):</strong> {kes(pricing.serviceFee)}</p>
-      <p className="rounded-lg bg-[#dff7c5] px-3 py-2 font-black text-[#203300] dark:bg-[#9df12d]">Total: {kes(pricing.total)}</p>
+      <p className="rounded-lg bg-[#dff7c5] px-3 py-2 font-black text-[#203300] dark:bg-[#9df12d]">Work Total: {kes(pricing.total)}</p>
     </div>
   );
 }

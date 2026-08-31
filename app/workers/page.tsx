@@ -11,7 +11,7 @@ import { sendDirectHireRequest } from "@/services/jobs";
 import { subscribeWorkers } from "@/services/users";
 import type { Conversation, LocationFields, Message, UserProfile, WorkerSkillProfile } from "@/types";
 import { addPlatformFee, kes } from "@/utils/money";
-import { calculateDirectHirePricing, perUnitText, pluralUnit, quantityLabel, resolveSkillPricingType, resolveSkillUnit } from "@/utils/direct-hire-pricing";
+import { calculateDirectHirePricing, perUnitText, quantityLabel, resolveSkillPricingType } from "@/utils/direct-hire-pricing";
 import { displayJobQuantity } from "@/utils/jobUnits";
 import { defaultKenyaLocation } from "@/lib/location";
 import { jobLocationLabel } from "@/utils/location-display";
@@ -425,7 +425,6 @@ export default function WorkersPage() {
                   {(() => {
                     const pricing = calculateDirectHirePricing(hireSkill, hireQuantity);
                     const pricingType = resolveSkillPricingType(hireSkill);
-                    const unit = resolveSkillUnit(hireSkill);
                     return (
                       <>
                   <div>
@@ -444,7 +443,7 @@ export default function WorkersPage() {
                       <div>
                         <p className="text-xs font-bold uppercase tracking-[.14em] text-[#6b665f] dark:text-[#959087]">Rate</p>
                         <p className="mt-1 text-base font-black text-[#111] dark:text-[#FFFBFF]">
-                          {pricingType === "unit" ? `${kes(pricing.rateAmount)} ${perUnitText(hireSkill)}` : kes(pricing.rateAmount)}
+                          {pricingType === "unit" ? `${kes(pricing.clientRatePerUnit ?? pricing.total)} ${perUnitText(hireSkill)}` : kes(pricing.total)}
                         </p>
                       </div>
                       {pricingType === "unit" && (
@@ -459,11 +458,8 @@ export default function WorkersPage() {
                       )}
                     </div>
                     <div className="mt-4 grid gap-2">
-                      {pricingType === "unit" && <p className="text-sm font-bold text-[#4b453e] dark:text-[#CCC6BB]">{kes(pricing.rateAmount)} x {hireQuantity} {pluralUnit(unit)} = {kes(pricing.subtotal)}</p>}
-                      <PriceLine label="Work subtotal" value={kes(pricing.subtotal)} />
-                      <PriceLine label="COPIC service fee (10%)" value={kes(pricing.serviceFee)} />
                       <div className="mt-1 flex items-center justify-between gap-3 rounded-xl bg-[#dff7c5] p-3 text-[#203300] dark:bg-[#9df12d]">
-                        <span className="text-sm font-black uppercase tracking-[.14em]">Total</span>
+                        <span className="text-sm font-black uppercase tracking-[.14em]">Work Total</span>
                         <strong className="text-xl">{kes(pricing.total)}</strong>
                       </div>
                     </div>
@@ -513,15 +509,6 @@ export default function WorkersPage() {
           </div>
         </AppModal>
       )}
-    </div>
-  );
-}
-
-function PriceLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="font-bold">{label}</span>
-      <strong className="text-[#111] dark:text-[#FFFBFF]">{value}</strong>
     </div>
   );
 }

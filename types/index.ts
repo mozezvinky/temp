@@ -63,9 +63,14 @@ export type DirectHirePricingType = "fixed" | "timeline" | "unit";
 export interface DirectHirePricingSnapshot {
   pricingType: DirectHirePricingType;
   unit?: string | null;
+  workerRatePerUnit?: number | null;
+  clientRatePerUnit?: number | null;
   rateAmount: number;
   ratePerUnit?: number | null;
   quantity?: number | null;
+  workerSubtotal?: number;
+  serviceFeeAmount?: number;
+  clientTotal?: number;
   subtotal: number;
   serviceFee: number;
   total: number;
