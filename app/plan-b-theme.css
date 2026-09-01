@@ -2875,6 +2875,7 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
   border: 2px solid #cfcfcf !important;
   border-radius: 16px !important;
   background: #fff !important;
+  background-color: #fff !important;
   color: var(--copic-text) !important;
 }
 .worker-hire-grid input:focus,
@@ -2884,6 +2885,13 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
 .worker-hire-grid input:active,
 .worker-hire-grid select:active {
   background: #fff !important;
+  background-color: #fff !important;
+}
+.worker-hire-grid input:-webkit-autofill,
+.worker-hire-grid input:-webkit-autofill:hover,
+.worker-hire-grid input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #fff inset !important;
+  -webkit-text-fill-color: var(--copic-text) !important;
 }
 .worker-quantity-control {
   display: grid;
@@ -2900,6 +2908,7 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
 .worker-quantity-control button {
   border: 0;
   background: #fff;
+  background-color: #fff;
   color: var(--copic-text);
   font-size: 1.2rem;
   font-weight: 900;
@@ -2941,6 +2950,21 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
 .worker-hire-location .temp-location-search-input,
 .worker-hire-location textarea {
   background: #fff !important;
+  background-color: #fff !important;
+  color: var(--copic-text) !important;
+}
+.worker-hire-location .temp-location-search-input:focus,
+.worker-hire-location textarea:focus,
+.worker-hire-location .temp-location-search-input:hover,
+.worker-hire-location textarea:hover,
+.worker-hire-location .temp-location-search-input:active,
+.worker-hire-location textarea:active {
+  background: #fff !important;
+  background-color: #fff !important;
+}
+.worker-hire-location .temp-location-search-input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #fff inset !important;
+  -webkit-text-fill-color: var(--copic-text) !important;
 }
 .worker-hire-location.is-location-invalid .temp-location-search-input,
 .worker-hire-location.is-description-invalid textarea {
@@ -2997,6 +3021,16 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
 }
 [data-ui-theme="dark"] .worker-hire-location {
   background: transparent;
+}
+[data-ui-theme="dark"] .worker-hire-grid input,
+[data-ui-theme="dark"] .worker-hire-grid select,
+[data-ui-theme="dark"] .worker-quantity-control,
+[data-ui-theme="dark"] .worker-quantity-control button,
+[data-ui-theme="dark"] .worker-hire-location .temp-location-search-input,
+[data-ui-theme="dark"] .worker-hire-location textarea {
+  background: #fff !important;
+  background-color: #fff !important;
+  color: #111 !important;
 }
 @keyframes workers-caret {
   50% { opacity: 0; }

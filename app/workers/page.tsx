@@ -13,7 +13,6 @@ import { subscribeWorkers } from "@/services/users";
 import type { Application, Conversation, LocationFields, Message, Role, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateDirectHirePricing, pluralUnit, quantityLabel, resolveSkillPricingType, resolveSkillUnit } from "@/utils/direct-hire-pricing";
 import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
-import { unitsForCategory } from "@/utils/jobUnits";
 import { jobLocationLabel } from "@/utils/location-display";
 import { kes } from "@/utils/money";
 import { buildWorkerSearchSuggestions, clientRateParts, normalizeSearchTerm, scoreWorkerMatch, type WorkerSearchMatch, type WorkerSearchSuggestion } from "@/utils/worker-search";
@@ -40,7 +39,7 @@ type HireFieldErrors = Partial<Record<HireFieldErrorKey, string>>;
 
 export default function WorkersPage() {
   const { profile, loading, isAuthorized } = useProtectedRoute(["client", "admin"]);
-  const activeRole: Role | null = profile?.role ?? null;
+  const activeRole = activeRoleForProfile(profile);
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
   const [showRehire, setShowRehire] = useState(false);
@@ -246,13 +245,10 @@ export default function WorkersPage() {
   }
 
   function updateHireQuantity(value: string) {
-    setHireQuantityInput(value.replace(/[^\d]/g, ""));
-    if (normalizeHireQuantity(value) != null) clearHireErrors("quantity");
-  }
-
-  function updateHireUnit(value: string) {
-    setHireUnit(value);
-    if (value.trim()) clearHireErrors("unit");
+    const digits = value.replace(/[^\d]/g, "");
+    const quantity = normalizeHireQuantity(digits) ?? 1;
+    setHireQuantityInput(String(quantity));
+    clearHireErrors("quantity");
   }
 
   function handleSearchKeys(event: KeyboardEvent<HTMLInputElement>) {
@@ -414,7 +410,6 @@ export default function WorkersPage() {
           errors={hireErrors}
           sending={sendingHire}
           onQuantityChange={updateHireQuantity}
-          onUnitChange={updateHireUnit}
           onLocationChange={updateHireLocation}
           onFieldFixed={clearHireErrors}
           onClose={backToWorkers}
@@ -576,7 +571,7 @@ function WorkerResultCard({ match, active, onHire, onMessage }: { match: WorkerS
   );
 }
 
-function HirePanel({ worker, skill, quantity, quantityInput, unit, location, errors, sending, onQuantityChange, onUnitChange, onLocationChange, onFieldFixed, onClose, onSubmit }: {
+function HirePanel({ worker, skill, quantity, quantityInput, unit, location, errors, sending, onQuantityChange, onLocationChange, onFieldFixed, onClose, onSubmit }: {
   worker: UserProfile;
   skill: WorkerSkillProfile;
   quantity: number;
@@ -586,7 +581,6 @@ function HirePanel({ worker, skill, quantity, quantityInput, unit, location, err
   errors: HireFieldErrors;
   sending: boolean;
   onQuantityChange: (value: string) => void;
-  onUnitChange: (value: string) => void;
   onLocationChange: (location: LocationFields) => void;
   onFieldFixed: (...fields: HireFieldErrorKey[]) => void;
   onClose: () => void;
@@ -598,7 +592,6 @@ function HirePanel({ worker, skill, quantity, quantityInput, unit, location, err
   const activeUnit = unit || storedUnit;
   const plural = pluralUnit(activeUnit || storedUnit);
   const rate = clientRateParts(skill, kes);
-  const unitOptions = safeUnitOptions(skill);
   const quantityButtonBase = normalizeHireQuantity(quantityInput) ?? quantity;
   return (
     <section className="worker-hire-panel" aria-label={`Hire ${worker.displayName}`}>
@@ -658,16 +651,15 @@ function HirePanel({ worker, skill, quantity, quantityInput, unit, location, err
           </label>
           <label>
             <span>Unit</span>
-            <select
+            <input
               className={errors.unit ? "is-invalid" : undefined}
+              name="unit"
               value={activeUnit}
-              onChange={event => onUnitChange(event.target.value)}
+              readOnly
               aria-label="Unit priced by worker"
               aria-invalid={!!errors.unit}
               aria-describedby={errors.unit ? "hire-unit-error" : undefined}
-            >
-              {unitOptions.map(option => <option key={option} value={option}>{option}</option>)}
-            </select>
+            />
             <FieldError id="hire-unit-error" message={errors.unit} />
           </label>
         </div>
@@ -716,13 +708,6 @@ function workerSkillProfiles(worker: UserProfile): WorkerSkillProfile[] {
     ratingAverage: worker.ratingAverage ?? 0,
     ratingCount: worker.ratingCount ?? 0
   }));
-}
-
-function safeUnitOptions(skill: WorkerSkillProfile) {
-  const storedUnit = displayUnit(resolveSkillUnit(skill));
-  const related = unitsForCategory(skill.chargeCategory ?? skill.category ?? skill.name).map(displayUnit);
-  const generic = ["hour", "day", "week", "month"];
-  return [storedUnit, ...related, ...generic].filter((unit, index, all) => unit && all.indexOf(unit) === index);
 }
 
 function displayUnit(unit: string) {
@@ -815,6 +800,21 @@ function sortNumber(first: number | null, second: number | null, direction: "asc
 
 function emptyHireLocation(): LocationFields {
   return { ...defaultKenyaLocation, addressText: "", displayLocation: "", latitude: Number.NaN, longitude: Number.NaN };
+}
+
+function activeRoleForProfile(profile: UserProfile | null): Role | null {
+  if (profile?.role === "client" || profile?.role === "worker" || profile?.role === "admin") return profile.role;
+  if (typeof window !== "undefined" && profile) {
+    const userId = profile.uid ?? profile.id;
+    const pendingRole = window.localStorage.getItem(`temp.profile.pendingRole.${userId}`);
+    if (pendingRole === "client" || pendingRole === "worker" || pendingRole === "admin") return pendingRole;
+    const sessionUserId = window.sessionStorage.getItem("temp.profile.uid");
+    const sessionRole = sessionUserId === userId ? window.sessionStorage.getItem("temp.profile.role") : null;
+    if (sessionRole === "client" || sessionRole === "worker" || sessionRole === "admin") return sessionRole;
+    const localRole = window.localStorage.getItem(`temp.profile.role.${userId}`);
+    if (localRole === "client" || localRole === "worker" || localRole === "admin") return localRole;
+  }
+  return profile?.role ?? null;
 }
 
 function isOfflineError(error: Error) {

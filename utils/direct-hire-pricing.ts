@@ -20,6 +20,7 @@ export type DirectHirePricingSnapshot = {
 };
 
 export function resolveSkillPricingType(skill: WorkerSkillProfile): DirectHirePricingType {
+  if (resolveSkillUnit(skill)) return "unit";
   return skill.chargePayType === "unit" || skill.chargePayType === "timeline" ? skill.chargePayType : "fixed";
 }
 
