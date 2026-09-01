@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useAuth } from "@/context/AuthContext";
 import type { WorkerSkillProfile, WorkerSkillVerificationStatus } from "@/types";
+import { perUnitText } from "@/utils/direct-hire-pricing";
 import { kes } from "@/utils/money";
 import { skillVerificationLabel } from "@/utils/worker-skills";
 import { useCallback, useEffect, useState } from "react";
@@ -142,8 +143,7 @@ function formatDate(value: unknown) {
 function skillRate(skill: WorkerSkillProfile) {
   const amount = kes(Number(skill.chargeAmount ?? 0));
   if (skill.chargePayType === "unit") {
-    const unit = skill.chargeUnit === "Other" ? skill.chargeCustomUnit : skill.chargeUnit;
-    return unit ? `${amount} per ${unit}` : `${amount} per unit`;
+    return `${amount} ${perUnitText(skill)}`;
   }
   if (skill.chargePayType === "timeline") return `${amount} per timeline`;
   return amount;

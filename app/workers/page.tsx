@@ -6,46 +6,62 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useLiveVerificationStatus } from "@/hooks/useLiveVerificationStatus";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
-import { sendMessage, subscribeMessages, subscribeUserConversations } from "@/services/chat";
-import { sendDirectHireRequest } from "@/services/jobs";
-import { subscribeWorkers } from "@/services/users";
-import type { Conversation, LocationFields, Message, UserProfile, WorkerSkillProfile } from "@/types";
-import { addPlatformFee, kes } from "@/utils/money";
-import { calculateDirectHirePricing, perUnitText, quantityLabel, resolveSkillPricingType } from "@/utils/direct-hire-pricing";
-import { displayJobQuantity } from "@/utils/jobUnits";
 import { defaultKenyaLocation } from "@/lib/location";
-import { jobLocationLabel } from "@/utils/location-display";
+import { sendMessage, subscribeMessages, subscribeUserConversations } from "@/services/chat";
+import { sendDirectHireRequest, subscribeApplications } from "@/services/jobs";
+import { subscribeWorkers } from "@/services/users";
+import type { Application, Conversation, LocationFields, Message, UserProfile, WorkerSkillProfile } from "@/types";
+import { calculateDirectHirePricing, pluralUnit, quantityLabel, resolveSkillPricingType, resolveSkillUnit, singularUnit } from "@/utils/direct-hire-pricing";
 import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
+import { jobLocationLabel } from "@/utils/location-display";
+import { kes } from "@/utils/money";
+import { clientRateLabel, normalizeSearchTerm, scoreWorkerMatch, type WorkerSearchMatch } from "@/utils/worker-search";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import dynamic from "next/dynamic";
-import { ChevronDown, MapPin, MessageCircle, Search, Send } from "lucide-react";
+import { BriefcaseBusiness, Check, MapPin, MessageCircle, Search, Send, Star } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const MapPicker = dynamic(() => import("@/components/location/MapPicker"), { ssr: false });
+const headline = "Who are you looking to hire?";
 
 export default function WorkersPage() {
   const { profile, loading, isAuthorized } = useProtectedRoute(["client", "admin"]);
   const [search, setSearch] = useState("");
+  const [submittedSearch, setSubmittedSearch] = useState("");
+  const [showRehire, setShowRehire] = useState(false);
   const [availableWorkers, setAvailableWorkers] = useState<UserProfile[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [clientLocation, setClientLocation] = useState<LocationFields | null>(null);
   const [error, setError] = useState("");
-  const [sortModes, setSortModes] = useState({ price: false, rating: true, completed: false });
-  const [sortOpen, setSortOpen] = useState(false);
-  const [selectedWorker, setSelectedWorker] = useState<UserProfile | null>(null);
+  const [hireWorker, setHireWorker] = useState<UserProfile | null>(null);
   const [hireSkill, setHireSkill] = useState<WorkerSkillProfile | null>(null);
-  const [hireLocation, setHireLocation] = useState<LocationFields>(defaultKenyaLocation);
+  const [hireLocation, setHireLocation] = useState<LocationFields>(emptyHireLocation());
   const [hireQuantity, setHireQuantity] = useState(1);
   const [sendingHire, setSendingHire] = useState(false);
+  const [typedHeadline, setTypedHeadline] = useState(headline);
   const [messageWorker, setMessageWorker] = useState<UserProfile | null>(null);
   const [messageConversation, setMessageConversation] = useState<Conversation | null>(null);
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
   const [messageLoading, setMessageLoading] = useState(false);
   const { status: liveVerificationStatus, checking: checkingVerification } = useLiveVerificationStatus(profile?.verificationStatus);
-  const sortOptions = [
-    { value: "price", label: "Price" },
-    { value: "rating", label: "Ratings" },
-    { value: "completed", label: "Completed jobs" }
-  ] as const;
+
+  useEffect(() => {
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      setTypedHeadline(headline);
+      return;
+    }
+    setTypedHeadline("");
+    let index = 0;
+    const timer = window.setInterval(() => {
+      index += 1;
+      setTypedHeadline(headline.slice(0, index));
+      if (index >= headline.length) window.clearInterval(timer);
+    }, 22);
+    return () => window.clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     if (!isAuthorized) return;
     return subscribeWorkers(
@@ -56,6 +72,32 @@ export default function WorkersPage() {
       error => setError(isOfflineError(error) ? connectionPausedMessage() : "Workers could not refresh. Your saved list remains visible.")
     );
   }, [isAuthorized]);
+
+  useEffect(() => {
+    if (!profile?.id || profile.role !== "client") return;
+    return subscribeApplications(profile.id, "client", setApplications, () => setApplications([]));
+  }, [profile?.id, profile?.role]);
+
+  useEffect(() => {
+    if (profile?.location) setClientLocation(profile.location);
+  }, [profile?.location]);
+
+  useEffect(() => {
+    if (clientLocation || typeof navigator === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      position => setClientLocation({
+        ...defaultKenyaLocation,
+        addressText: "Current area",
+        displayLocation: "Current area",
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        locationSource: "current",
+        landmarkResolved: false
+      }),
+      () => undefined,
+      { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
+    );
+  }, [clientLocation]);
 
   useEffect(() => {
     if (!profile || !messageWorker) return;
@@ -80,54 +122,48 @@ export default function WorkersPage() {
     if (!messageConversation) return;
     return subscribeMessages(messageConversation.id, setMessageHistory, () => setMessageHistory([]));
   }, [messageConversation]);
-  const workers = useMemo(() => {
-    const normalized = normalizeSearch(search);
+
+  const results = useMemo(() => {
     const currentUserIds = new Set([profile?.id, profile?.uid].filter(Boolean));
-    const completedJobsForSort = (worker: UserProfile) => {
-      const profiles = worker.skillProfiles?.length
-        ? worker.skillProfiles
-        : (worker.skills ?? []).map(name => ({
-            completedJobs: worker.completedJobs ?? 0,
-            ratingCount: worker.ratingCount ?? 0,
-            name
-          }));
-      const skillCompletedTotal = profiles.reduce((sum, skill) => sum + Number(skill.completedJobs || 0), 0);
-      const largestSkillRatingCount = profiles.reduce((max, skill) => Math.max(max, Number(skill.ratingCount || 0)), 0);
-      return Math.max(Number(worker.completedJobs || 0), Number(worker.ratingCount || 0), skillCompletedTotal, largestSkillRatingCount);
-    };
-    const priceForSort = (worker: UserProfile) => {
-      const profiles = worker.skillProfiles?.length ? worker.skillProfiles : [];
-      const matchingProfiles = normalized
-        ? profiles.filter(skill => searchableText(skill.name, skill.chargeCategory, skill.category).includes(normalized))
-        : profiles;
-      const skillRate = matchingProfiles.find(item => item.chargeAmount)?.chargeAmount ?? profiles.find(item => item.chargeAmount)?.chargeAmount;
-      return Number(skillRate ? addPlatformFee(skillRate) : worker.hourlyRate ? addPlatformFee(worker.hourlyRate) : Number.MAX_SAFE_INTEGER);
-    };
-    const activeSorts = (Object.keys(sortModes) as Array<keyof typeof sortModes>).filter(key => sortModes[key]);
-    return availableWorkers.filter(worker => {
-      if (currentUserIds.has(worker.id) || currentUserIds.has(worker.uid)) return false;
-      const profiles = workerSkillProfiles(worker);
-      if (!profiles.length) return false;
-      const skillNames = profiles.map(skill => skill.name);
-      const matchesSearch = !normalized || searchableText(worker.displayName, worker.bio, ...skillNames, ...profiles.map(skill => skill.chargeCategory ?? "")).includes(normalized);
-      return matchesSearch;
-    }).sort((first, second) => {
-      for (const mode of activeSorts) {
-        const diff = mode === "completed"
-          ? completedJobsForSort(second) - completedJobsForSort(first)
-          : mode === "price"
-            ? priceForSort(first) - priceForSort(second)
-            : Number(second.ratingAverage ?? 0) - Number(first.ratingAverage ?? 0);
-        if (diff !== 0) return diff;
-      }
-      return 0;
+    const query = showRehire ? "" : submittedSearch;
+    const rehireIds = showRehire ? previouslyHiredWorkerIds(applications) : null;
+    const matches = availableWorkers.flatMap(worker => {
+      if (currentUserIds.has(worker.id) || currentUserIds.has(worker.uid)) return [];
+      if (rehireIds && !rehireIds.has(worker.id) && !rehireIds.has(worker.uid)) return [];
+      const skills = workerSkillProfiles(worker);
+      if (!skills.length) return [];
+      const match = showRehire
+        ? bestRehireMatch(worker, skills, applications)
+        : scoreWorkerMatch(worker, skills, query, clientLocation);
+      return match ? [match] : [];
     });
-  }, [availableWorkers, profile?.id, profile?.uid, search, sortModes]);
-  const specificSkillFilterActive = !!search.trim();
-  const selectedSortLabels = sortOptions
-    .filter(option => sortModes[option.value])
-    .map(option => option.label)
-    .join(", ") || "Options";
+    return matches.sort((first, second) => {
+      const recentDiff = (showRehire ? rehireLastHiredAt(applications, second.worker.id) - rehireLastHiredAt(applications, first.worker.id) : 0);
+      return recentDiff || second.score - first.score;
+    });
+  }, [applications, availableWorkers, clientLocation, profile?.id, profile?.uid, showRehire, submittedSearch]);
+
+  const searched = showRehire || !!submittedSearch;
+
+  function runSearch(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const normalized = normalizeSearchTerm(search);
+    if (!normalized) {
+      setSubmittedSearch("");
+      setShowRehire(false);
+      toast.message("Type who you want to hire, for example mama fua, kibarua, or gardener.");
+      return;
+    }
+    setSubmittedSearch(search.trim());
+    setShowRehire(false);
+    setHireSkill(null);
+  }
+
+  function showRehireResults() {
+    setShowRehire(true);
+    setSubmittedSearch("");
+    setHireSkill(null);
+  }
 
   function requestSkill(worker: UserProfile, skill: WorkerSkillProfile) {
     if (profile?.role !== "client") return;
@@ -148,15 +184,15 @@ export default function WorkersPage() {
       toast.error(`${worker.displayName} is occupied on another job right now.`);
       return;
     }
-    setSelectedWorker(worker);
+    setHireWorker(worker);
     setHireSkill(skill);
-    setHireLocation(defaultKenyaLocation);
+    setHireLocation(emptyHireLocation());
     setHireQuantity(1);
   }
 
   async function submitHireRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedWorker || !hireSkill) return;
+    if (!hireWorker || !hireSkill) return;
     if (checkingVerification) {
       toast.message("Checking your verification status. Try again in a moment.");
       return;
@@ -165,7 +201,7 @@ export default function WorkersPage() {
       toast.error("Verify your identity before posting jobs.");
       return;
     }
-    const allowedWorker = workerCanApplyToJob(selectedWorker, { title: hireSkill.name, category: hireSkill.chargeCategory ?? hireSkill.category, requiredSkills: [hireSkill.name] });
+    const allowedWorker = workerCanApplyToJob(hireWorker, { title: hireSkill.name, category: hireSkill.chargeCategory ?? hireSkill.category, requiredSkills: [hireSkill.name] });
     if (!allowedWorker.ok) {
       toast.error(allowedWorker.reason);
       return;
@@ -182,10 +218,10 @@ export default function WorkersPage() {
     setSendingHire(true);
     try {
       await sendDirectHireRequest({
-        workerId: selectedWorker.id,
+        workerId: hireWorker.id,
         skillId: hireSkill.id,
-        title: String(form.get("title") ?? ""),
-        category: String(form.get("category") ?? hireSkill.name),
+        title: String(form.get("title") ?? hireSkill.name),
+        category: String(form.get("category") ?? hireSkill.chargeCategory ?? hireSkill.name),
         quantity: hireQuantity,
         location: hireLocation.addressText,
         locationDetails: hireLocation,
@@ -193,8 +229,9 @@ export default function WorkersPage() {
         duration: String(form.get("duration") ?? ""),
         description: String(form.get("description") ?? "")
       });
-      toast.success(`Hire request sent to ${selectedWorker.displayName}.`);
+      toast.success(`Hire request sent to ${hireWorker.displayName}.`);
       setHireSkill(null);
+      setHireWorker(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to send hire request.");
     } finally {
@@ -216,270 +253,63 @@ export default function WorkersPage() {
     }
   }
 
-  function workerSkillProfiles(worker: UserProfile): WorkerSkillProfile[] {
-    if (worker.skillProfiles?.length) return worker.skillProfiles;
-    return (worker.skills ?? []).map((name, index) => ({
-      id: `legacy-${worker.id}-${index}-${name}`,
-      name,
-      category: "services_trades",
-      level: "independent",
-      proofType: "reference",
-      completedJobs: worker.completedJobs ?? 0,
-      ratingAverage: worker.ratingAverage ?? 0,
-      ratingCount: worker.ratingCount ?? 0
-    }));
-  }
-
-  function skillMatches(skill: WorkerSkillProfile, value: string) {
-    const normalized = normalizeSearch(value);
-    if (!normalized || normalized === "all") return true;
-    return searchableText(skill.name, skill.chargeCategory, skill.category).includes(normalized);
-  }
-
-  function displayedSkillProfiles(worker: UserProfile) {
-    const profiles = workerSkillProfiles(worker);
-    let filtered = profiles;
-    const normalized = normalizeSearch(search);
-    if (normalized) filtered = filtered.filter(skill => skillMatches(skill, normalized));
-    return filtered;
-  }
-
-  function workerCompletedJobs(worker: UserProfile) {
-    const profiles = workerSkillProfiles(worker);
-    const skillCompletedTotal = profiles.reduce((sum, skill) => sum + Number(skill.completedJobs || 0), 0);
-    const largestSkillRatingCount = profiles.reduce((max, skill) => Math.max(max, Number(skill.ratingCount || 0)), 0);
-    return Math.max(Number(worker.completedJobs || 0), Number(worker.ratingCount || 0), skillCompletedTotal, largestSkillRatingCount);
-  }
-
-  function visibleSkillStats(worker: UserProfile) {
-    const specificFilterActive = !!search.trim();
-    const profile = specificFilterActive ? displayedSkillProfiles(worker)[0] : undefined;
-    return {
-      name: profile?.name,
-      jobs: profile ? profile.completedJobs || profile.ratingCount || workerCompletedJobs(worker) : workerCompletedJobs(worker),
-      rating: profile ? profile.ratingAverage || worker.ratingAverage || 0 : worker.ratingAverage ?? 0,
-      count: profile ? profile.ratingCount || worker.ratingCount || 0 : worker.ratingCount ?? 0
-    };
-  }
-
-  function profileCompletedJobs(worker: UserProfile, skill: WorkerSkillProfile) {
-    return skill.completedJobs || skill.ratingCount || workerCompletedJobs(worker);
-  }
-
-  function profileRating(worker: UserProfile, skill: WorkerSkillProfile) {
-    return skill.ratingAverage || worker.ratingAverage || 0;
-  }
-
-  function profileRatingCount(worker: UserProfile, skill: WorkerSkillProfile) {
-    return skill.ratingCount || worker.ratingCount || 0;
-  }
-
-  function clientVisibleRate(skill: WorkerSkillProfile) {
-    if (!skill.chargeAmount) return "Rate not set";
-    const amount = kes(skill.chargeAmount);
-    if (skill.chargePayType === "unit") return `${amount} ${perUnitText(skill)}`;
-    if (skill.chargePayType === "timeline") return `${amount} per timeline`;
-    return amount;
-  }
-
-  function skillPayTypeLabel(skill: WorkerSkillProfile) {
-    if (skill.chargePayType === "unit") return `Pay ${perUnitText(skill)}`;
-    return skill.chargePayType === "timeline" ? "Timeline pay" : "Fixed pay";
-  }
-
-  function ratingText(value: number, count?: number) {
-    return `${Number(value).toFixed(1)} star rating${typeof count === "number" ? ` (${count})` : ""}`;
-  }
-
-  function workerLocation(worker: UserProfile) {
-    return worker.location?.town || worker.location?.county
-      ? [worker.location?.town, worker.location?.county].filter(Boolean).join(", ")
-      : "Location not set";
-  }
-
   if (loading || !isAuthorized) return <LoadingSpinner label="Checking client access" />;
 
   return (
-    <div className="marketplace-page space-y-5">
-      <div className="marketplace-filterbar">
-        <label className="marketplace-search">
-          <Search size={17} />
-          <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search worker, skill, or category" />
-        </label>
-        <div className="marketplace-sort-wrap">
-        <button type="button" className="marketplace-sort" aria-haspopup="menu" aria-expanded={sortOpen} onClick={() => setSortOpen(open => !open)}>
-          <span>Sort By</span>
-          <strong>{selectedSortLabels}</strong>
-          <ChevronDown size={16} className={sortOpen ? "rotate-180 transition" : "transition"} />
-        </button>
-        {sortOpen && (
-          <div className="marketplace-sort-menu" role="menu">
-            {sortOptions.map(option => (
-              <label
-                key={option.value}
-                className={`marketplace-checkbox-option ${sortModes[option.value] ? "is-active" : ""}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={sortModes[option.value]}
-                  onChange={() => setSortModes(current => ({ ...current, [option.value]: !current[option.value] }))}
-                />
-                {option.label}
-              </label>
-            ))}
+    <div className="workers-search-page">
+      <section className={`workers-search-hero ${searched ? "is-compact" : ""}`}>
+        <h1 aria-label={headline}><span aria-hidden="true">{typedHeadline}</span><span className="workers-type-caret" aria-hidden="true" /></h1>
+        <form className="workers-search-box" onSubmit={runSearch}>
+          <label className="workers-search-input">
+            <Search size={21} />
+            <input value={search} onChange={event => setSearch(event.target.value)} placeholder="mama fua, cleaner, kibarua, gardener..." />
+          </label>
+          <div className="workers-search-actions">
+            <Button type="button" variant="secondary" onClick={showRehireResults}>Rehire</Button>
+            <Button type="submit" className="workers-search-submit">Search</Button>
           </div>
-        )}
-        </div>
-      </div>
-      {error && <p className="rounded-xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-200">{error}</p>}
-      <div className="marketplace-heading">
-        <span>Workers</span>
-        <span>Rating</span>
-        <span>{specificSkillFilterActive ? "Skill / Rate" : "Profile"}</span>
-        <span>Location</span>
-        <span aria-hidden="true" />
-      </div>
-      <div className="marketplace-list">
-        {workers.length ? workers.map(worker => {
-          const skill = visibleSkillStats(worker);
-          const shownSkills = displayedSkillProfiles(worker);
-          return <article key={worker.id} className={`marketplace-row worker-directory-row ${workers[0]?.id === worker.id ? "is-promoted" : ""}`}>
-            <div className="marketplace-person">
-                <span
-                  className="marketplace-worker-avatar grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#2A2A2B] font-black text-[#FFFBF4]"
-                >
-                  {worker.photoURL ? <img src={worker.photoURL} alt={worker.displayName} className="h-full w-full object-cover" style={{ objectPosition: `${worker.photoPositionX ?? 50}% ${worker.photoPositionY ?? 50}%`, transform: `scale(${worker.photoZoom ?? 1})`, transformOrigin: `${worker.photoPositionX ?? 50}% ${worker.photoPositionY ?? 50}%` }} /> : worker.displayName.charAt(0).toUpperCase()}
-                </span>
-                <div className="marketplace-person-body">
-                  <div className="marketplace-worker-name-line">
-                    <button type="button" className="marketplace-worker-name-button" onClick={() => setMessageWorker(worker)}>{worker.displayName}</button>
-                    <div className="marketplace-worker-chips">
-                      <span className={`worker-info-chip ${normalizeVerificationStatus(worker.verificationStatus) === "approved" ? "is-neutral" : "is-warning"}`}>{normalizeVerificationStatus(worker.verificationStatus) === "approved" ? "Verified" : "Unverified"}</span>
-                      {worker.isOccupied && <span className="worker-info-chip is-neutral">Occupied</span>}
-                      <span className="worker-info-chip is-neutral">Completed jobs {workerCompletedJobs(worker)}</span>
-                    </div>
-                  </div>
-                </div>
+        </form>
+      </section>
+
+      {error && <p className="rounded-xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-700 dark:text-red-200">{error}</p>}
+
+      {searched ? (
+        <section className="workers-results-shell">
+          <div className="workers-results-head">
+            <div>
+              <p className="workers-results-kicker">{showRehire ? "Previous hires" : "Search results"}</p>
+              <h2>{showRehire ? "Workers you have hired before" : submittedSearch}</h2>
             </div>
-            <div className="worker-card-stats">
-              <div className="worker-card-stat"><strong>{Number(skill.rating).toFixed(1)}</strong><span>{skill.count} review{skill.count === 1 ? "" : "s"}</span></div>
-              <div className="worker-card-stat"><strong>{shownSkills.length}</strong><span>skill{shownSkills.length === 1 ? "" : "s"}</span></div>
-              <div className="worker-card-stat worker-card-stat-location"><strong><MapPin size={14} /> {workerLocation(worker)}</strong><span>Location</span></div>
+            <p>{results.length} result{results.length === 1 ? "" : "s"}</p>
+          </div>
+          {results.length ? (
+            <div className="workers-result-grid">
+              {results.map(match => <WorkerResultCard key={`${match.worker.id}-${match.skill.id}`} match={match} active={hireWorker?.id === match.worker.id && hireSkill?.id === match.skill.id} onHire={() => requestSkill(match.worker, match.skill)} onMessage={() => setMessageWorker(match.worker)} />)}
             </div>
-            <div className="marketplace-trade">
-              <Button onClick={() => setSelectedWorker(worker)}>View</Button>
-            </div>
-          </article>;
-        }) : <EmptyState title="No workers found" body="Workers with matching skills and qualifications will appear here." />}
-      </div>
-      {selectedWorker && (
-        <AppModal eyebrow="Worker profile" title={selectedWorker.displayName} onClose={() => { setSelectedWorker(null); setHireSkill(null); }}>
-              <div className="worker-profile-modal-head">
-                <span
-                  className="marketplace-worker-avatar grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#2A2A2B] font-black text-[#FFFBF4]"
-                >
-                  {selectedWorker.photoURL ? <img src={selectedWorker.photoURL} alt={selectedWorker.displayName} className="h-full w-full object-cover" style={{ objectPosition: `${selectedWorker.photoPositionX ?? 50}% ${selectedWorker.photoPositionY ?? 50}%`, transform: `scale(${selectedWorker.photoZoom ?? 1})`, transformOrigin: `${selectedWorker.photoPositionX ?? 50}% ${selectedWorker.photoPositionY ?? 50}%` }} /> : selectedWorker.displayName.charAt(0).toUpperCase()}
-                </span>
-                <div>
-                  <p className="text-sm text-[#CCC6BB]">{selectedWorker.bio ?? "Worker profile"}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className={`worker-info-chip ${normalizeVerificationStatus(selectedWorker.verificationStatus) === "approved" ? "is-neutral" : "is-warning"}`}>{normalizeVerificationStatus(selectedWorker.verificationStatus) === "approved" ? "Verified" : "Unverified"}</span>
-                    <span className="worker-info-chip is-neutral">{selectedWorker.isOccupied ? "Occupied" : "Available"}</span>
-                    <span className="worker-info-chip is-neutral">{workerLocation(selectedWorker)}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <div className="job-info-box rounded-md p-4"><p className="text-xs text-[#959087]">Rating</p><p className="mt-1 font-black text-[#FFFBFF]">{ratingText(selectedWorker.ratingAverage ?? 0, selectedWorker.ratingCount ?? 0)}</p></div>
-                <div className="job-info-box rounded-md p-4"><p className="text-xs text-[#959087]">Completed jobs</p><p className="mt-1 font-black text-[#FFFBFF]">{workerCompletedJobs(selectedWorker)}</p></div>
-                <div className="job-info-box rounded-md p-4"><p className="text-xs text-[#959087]">Status</p><p className="mt-1 font-black text-[#FFFBFF]">{selectedWorker.isOccupied ? "Occupied" : "Available"}</p></div>
-              </div>
-              <div className="mt-5 grid gap-3">
-                {displayedSkillProfiles(selectedWorker).map(skillProfile => {
-                  const quantity = displayJobQuantity(skillProfile.chargeQuantity, skillProfile.chargeUnit, skillProfile.chargeCustomUnit);
-                  return (
-                    <div key={`profile-${skillProfile.id}`} className="job-info-box worker-profile-skill-card rounded-md p-4">
-                      <div className="worker-profile-skill-layout">
-                        <div className="worker-profile-skill-main">
-                          <p className="text-sm font-black text-[#FFFBFF]">{skillProfile.name}</p>
-                          <p className="mt-1 text-xs font-bold text-[#959087]">{profileCompletedJobs(selectedWorker, skillProfile)} completed jobs - {ratingText(profileRating(selectedWorker, skillProfile), profileRatingCount(selectedWorker, skillProfile))}</p>
-                        </div>
-                        <div className="worker-profile-skill-actions">
-                          <span className="design-chip worker-profile-skill-price px-2.5 py-1 text-xs font-black">{clientVisibleRate(skillProfile)}</span>
-                          {selectedWorker.isOccupied
-                            ? <span className="worker-skill-occupied-chip">Occupied</span>
-                            : <Button type="button" disabled={checkingVerification} onClick={() => requestSkill(selectedWorker, skillProfile)} className="min-h-9 px-3 py-1.5 text-xs">{checkingVerification ? "Checking..." : "Hire"}</Button>}
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-[#CCC6BB]">
-                        <span className="design-chip px-2 py-1">{skillPayTypeLabel(skillProfile)}</span>
-                        {quantity && <span className="design-chip px-2 py-1">{quantity}</span>}
-                        {skillProfile.chargeTimeline && <span className="design-chip px-2 py-1">{skillProfile.chargeTimeline} {skillProfile.chargeTimelineUnit}</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {hireSkill && (
-                <form onSubmit={submitHireRequest} className="mt-6 grid gap-4 rounded-xl border border-bone/10 bg-bone/[.04] p-4">
-                  {(() => {
-                    const pricing = calculateDirectHirePricing(hireSkill, hireQuantity);
-                    const pricingType = resolveSkillPricingType(hireSkill);
-                    return (
-                      <>
-                  <div>
-                    <p className="text-lg font-black text-[#FFFBFF]">Send direct hire request</p>
-                    <p className="mt-1 text-sm text-[#CCC6BB]">The worker will see this under Requests and can accept or reject it.</p>
-                  </div>
-                  <label className="temp-label">Job title<input name="title" required defaultValue={hireSkill.name} className="temp-input p-3 outline-none" /></label>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="temp-label">Category<input name="category" required defaultValue={hireSkill.chargeCategory ?? hireSkill.name} className="temp-input p-3 outline-none" /></label>
-                    <label className="temp-label">Start date<input name="startDate" required type="date" className="temp-input p-3 outline-none" /></label>
-                    <label className="temp-label sm:col-span-2">Duration<input name="duration" required defaultValue={hireSkill.chargeTimeline ? `${hireSkill.chargeTimeline} ${hireSkill.chargeTimelineUnit}` : ""} placeholder="Example: 2 days" className="temp-input p-3 outline-none" /></label>
-                    <label className="temp-label sm:col-span-2">Optional job description<textarea name="description" rows={3} className="temp-input p-3 outline-none" placeholder="Explain the work, tools, and expectations." /></label>
-                  </div>
-                  <div className="rounded-xl border border-[#d8d8d8] bg-white p-4 text-sm text-[#4b453e] dark:border-bone/10 dark:bg-[#1F1F20] dark:text-[#CCC6BB]">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-[.14em] text-[#6b665f] dark:text-[#959087]">Rate</p>
-                        <p className="mt-1 text-base font-black text-[#111] dark:text-[#FFFBFF]">
-                          {pricingType === "unit" ? `${kes(pricing.clientRatePerUnit ?? pricing.total)} ${perUnitText(hireSkill)}` : kes(pricing.total)}
-                        </p>
-                      </div>
-                      {pricingType === "unit" && (
-                        <label className="temp-label">
-                          {quantityLabel(hireSkill)}
-                          <div className="mt-2 flex min-h-12 items-center overflow-hidden rounded-xl border border-[#cfd4d8] bg-white dark:border-[#4A463F] dark:bg-[#11120D]">
-                            <button type="button" className="grid h-12 w-12 place-items-center border-r border-[#cfd4d8] text-lg font-black text-[#111] dark:border-[#4A463F] dark:text-[#FFFBFF]" onClick={() => setHireQuantity(value => Math.max(1, value - 1))}>-</button>
-                            <input value={hireQuantity} onChange={event => setHireQuantity(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} type="number" min={1} className="h-12 min-w-0 flex-1 bg-transparent px-3 text-center text-base font-black text-[#111] outline-none dark:text-[#FFFBFF]" aria-label={quantityLabel(hireSkill)} />
-                            <button type="button" className="grid h-12 w-12 place-items-center border-l border-[#cfd4d8] text-lg font-black text-[#111] dark:border-[#4A463F] dark:text-[#FFFBFF]" onClick={() => setHireQuantity(value => value + 1)}>+</button>
-                          </div>
-                        </label>
-                      )}
-                    </div>
-                    <div className="mt-4 grid gap-2">
-                      <div className="mt-1 flex items-center justify-between gap-3 rounded-xl bg-[#dff7c5] p-3 text-[#203300] dark:bg-[#9df12d]">
-                        <span className="text-sm font-black uppercase tracking-[.14em]">Work Total</span>
-                        <strong className="text-xl">{kes(pricing.total)}</strong>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid gap-3">
-                    <p className="text-sm font-black text-[#FFFBFF]">Job location</p>
-                    <MapPicker value={hireLocation} onChange={setHireLocation} />
-                    {hireLocation.addressText && <p className="rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">Selected: {jobLocationLabel({ location: hireLocation.addressText, county: hireLocation.county, locationDetails: hireLocation })}</p>}
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    <Button type="submit" disabled={sendingHire}>{sendingHire ? "Sending..." : "Send request"}</Button>
-                    <Button type="button" variant="secondary" onClick={() => setHireSkill(null)}>Cancel</Button>
-                  </div>
-                      </>
-                    );
-                  })()}
-                </form>
-              )}
-        </AppModal>
+          ) : (
+            <EmptyState title={showRehire ? "No previous hires yet" : "No matching workers found"} body={showRehire ? "Completed or accepted workers you hired will appear here." : "Try a related term like cleaner, mama fua, kibarua, gardener, or errands."} />
+          )}
+        </section>
+      ) : (
+        <section className="workers-suggestion-strip" aria-label="Suggested searches">
+          {["mama fua", "kibarua", "gardener", "errands"].map(term => <button key={term} type="button" onClick={() => { setSearch(term); setSubmittedSearch(term); }}>{term}</button>)}
+        </section>
       )}
+
+      {hireWorker && hireSkill && (
+        <HirePanel
+          worker={hireWorker}
+          skill={hireSkill}
+          quantity={hireQuantity}
+          location={hireLocation}
+          sending={sendingHire}
+          onQuantityChange={setHireQuantity}
+          onLocationChange={setHireLocation}
+          onClose={() => { setHireWorker(null); setHireSkill(null); }}
+          onSubmit={submitHireRequest}
+        />
+      )}
+
       {messageWorker && (
         <AppModal eyebrow="Messages" title={messageWorker.displayName} onClose={() => { setMessageWorker(null); setMessageConversation(null); setMessageHistory([]); }} maxWidth="max-w-lg">
           <div className="worker-message-modal">
@@ -513,12 +343,147 @@ export default function WorkersPage() {
   );
 }
 
-function normalizeSearch(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+function WorkerResultCard({ match, active, onHire, onMessage }: { match: WorkerSearchMatch; active: boolean; onHire: () => void; onMessage: () => void }) {
+  const { worker, skill } = match;
+  const completed = Math.max(Number(worker.completedJobs || 0), Number(skill.completedJobs || 0), Number(worker.ratingCount || 0), Number(skill.ratingCount || 0));
+  const rating = Number(skill.ratingAverage || worker.ratingAverage || 0);
+  return (
+    <article className={`worker-result-card ${active ? "is-active" : ""}`}>
+      <button type="button" className="worker-result-avatar" onClick={onMessage} aria-label={`Message ${worker.displayName}`}>
+        {worker.photoURL ? <img src={worker.photoURL} alt={worker.displayName} style={{ objectPosition: `${worker.photoPositionX ?? 50}% ${worker.photoPositionY ?? 50}%`, transform: `scale(${worker.photoZoom ?? 1})`, transformOrigin: `${worker.photoPositionX ?? 50}% ${worker.photoPositionY ?? 50}%` }} /> : worker.displayName.charAt(0).toUpperCase()}
+      </button>
+      <div className="worker-result-main">
+        <div className="worker-result-title">
+          <button type="button" onClick={onMessage}>{worker.displayName}</button>
+          {normalizeVerificationStatus(worker.verificationStatus) === "approved" && <span aria-label="Verified worker"><Check size={15} /></span>}
+        </div>
+        <p>{skill.name}</p>
+        <div className="worker-result-meta">
+          <span><Star size={15} /> {rating.toFixed(1)}</span>
+          <span><BriefcaseBusiness size={15} /> {completed} Jobs completed</span>
+        </div>
+      </div>
+      <div className="worker-result-action">
+        <strong>{clientRateLabel(skill, kes)}</strong>
+        <Button type="button" onClick={onHire} className="worker-hire-button">Hire</Button>
+      </div>
+    </article>
+  );
 }
 
-function searchableText(...parts: Array<string | undefined | null>) {
-  return normalizeSearch(parts.filter(Boolean).join(" "));
+function HirePanel({ worker, skill, quantity, location, sending, onQuantityChange, onLocationChange, onClose, onSubmit }: {
+  worker: UserProfile;
+  skill: WorkerSkillProfile;
+  quantity: number;
+  location: LocationFields;
+  sending: boolean;
+  onQuantityChange: (value: number) => void;
+  onLocationChange: (location: LocationFields) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const pricing = calculateDirectHirePricing(skill, quantity);
+  const pricingType = resolveSkillPricingType(skill);
+  const unit = singularUnit(resolveSkillUnit(skill));
+  const plural = pluralUnit(unit);
+  return (
+    <section className="worker-hire-panel" aria-label={`Hire ${worker.displayName}`}>
+      <form onSubmit={onSubmit}>
+        <div className="worker-hire-panel-head">
+          <div>
+            <p>Request</p>
+            <h2>{worker.displayName}</h2>
+            <span>{skill.name}</span>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+        <input type="hidden" name="title" value={skill.name} />
+        <input type="hidden" name="category" value={skill.chargeCategory ?? skill.name} />
+        <div className="worker-hire-grid">
+          {pricingType === "unit" ? (
+            <>
+              <label>
+                <span>{quantityLabel(skill)}</span>
+                <div className="worker-quantity-control">
+                  <button type="button" onClick={() => onQuantityChange(Math.max(1, quantity - 1))}>-</button>
+                  <input value={quantity} onChange={event => onQuantityChange(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} type="number" min={1} aria-label={`Number of ${plural}`} />
+                  <button type="button" onClick={() => onQuantityChange(quantity + 1)}>+</button>
+                </div>
+              </label>
+              <label>
+                <span>Unit</span>
+                <input value={unit} readOnly />
+              </label>
+            </>
+          ) : null}
+          <label>
+            <span>Start date</span>
+            <input name="startDate" required type="date" />
+          </label>
+          <label>
+            <span>Duration</span>
+            <input name="duration" required defaultValue={skill.chargeTimeline ? `${skill.chargeTimeline} ${skill.chargeTimelineUnit}` : ""} placeholder="Example: 2 days" />
+          </label>
+        </div>
+        <div className="worker-hire-location">
+          <MapPicker value={location} onChange={onLocationChange} showMap={false} />
+          <input type="hidden" name="description" value={location.locationDescription ?? ""} />
+          {location.addressText && <p><MapPin size={15} /> {jobLocationLabel({ location: location.addressText, county: location.county, locationDetails: location })}</p>}
+        </div>
+        <div className="worker-hire-total">
+          <span>Total</span>
+          <strong>{kes(pricing.total)}</strong>
+          <Button type="submit" disabled={sending}>{sending ? "Hiring..." : "Hire"}</Button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function workerSkillProfiles(worker: UserProfile): WorkerSkillProfile[] {
+  if (worker.skillProfiles?.length) return worker.skillProfiles;
+  return (worker.skills ?? []).map((name, index) => ({
+    id: `legacy-${worker.id}-${index}-${name}`,
+    name,
+    category: "services_trades",
+    level: "independent",
+    proofType: "reference",
+    completedJobs: worker.completedJobs ?? 0,
+    ratingAverage: worker.ratingAverage ?? 0,
+    ratingCount: worker.ratingCount ?? 0
+  }));
+}
+
+function bestRehireMatch(worker: UserProfile, skills: WorkerSkillProfile[], applications: Application[]): WorkerSearchMatch | null {
+  const skill = skills[0];
+  if (!skill) return null;
+  const count = applications.filter(item => sameWorker(item.workerId, worker.id) || sameWorker(item.workerId, worker.uid)).length;
+  return { worker, skill, relevance: 80 + count * 12, score: 80 + count * 12 + Number(worker.ratingAverage ?? 0) * 3, distanceKm: null };
+}
+
+function previouslyHiredWorkerIds(applications: Application[]) {
+  const statuses = new Set(["accepted", "completion_requested", "payment_sent", "completed"]);
+  return new Set(applications.filter(item => statuses.has(item.status)).map(item => item.workerId).filter(Boolean));
+}
+
+function rehireLastHiredAt(applications: Application[], workerId: string) {
+  return Math.max(0, ...applications.filter(item => sameWorker(item.workerId, workerId)).map(item => timestampMillis(item.updatedAt ?? item.createdAt)));
+}
+
+function timestampMillis(value: unknown) {
+  if (typeof value === "string") return Date.parse(value) || 0;
+  if (!value || typeof value !== "object") return 0;
+  if ("toMillis" in value && typeof (value as { toMillis: () => number }).toMillis === "function") return (value as { toMillis: () => number }).toMillis();
+  if ("seconds" in value && typeof (value as { seconds: number }).seconds === "number") return (value as { seconds: number }).seconds * 1000;
+  return 0;
+}
+
+function sameWorker(first?: string | null, second?: string | null) {
+  return !!first && !!second && first === second;
+}
+
+function emptyHireLocation(): LocationFields {
+  return { ...defaultKenyaLocation, addressText: "", displayLocation: "", latitude: Number.NaN, longitude: Number.NaN };
 }
 
 function isOfflineError(error: Error) {

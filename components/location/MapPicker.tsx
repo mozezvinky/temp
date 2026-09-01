@@ -16,7 +16,7 @@ type SearchResult = {
   details: Partial<LocationFields>;
 };
 
-export default function MapPicker({ value, onChange }: { value: LocationFields; onChange: (location: LocationFields) => void }) {
+export default function MapPicker({ value, onChange, showMap = true }: { value: LocationFields; onChange: (location: LocationFields) => void; showMap?: boolean }) {
   useEffect(() => {
     void import("mapbox-gl/dist/mapbox-gl.css");
   }, []);
@@ -377,7 +377,7 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
       {requiresLocationDescription && <p className="text-xs font-bold text-amber-100">No nearby landmark was found, so workers will see this description instead.</p>}
       {locationNotice && <p className="temp-location-notice rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">{locationNotice}</p>}
       {locationError && <p className="temp-location-error rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{locationError}</p>}
-      {token ? (
+      {showMap && token ? (
         <div className="h-64 overflow-hidden rounded-xl border border-[#4A463F] md:h-72">
           <Map
             key="temp-location-map"
@@ -422,12 +422,12 @@ export default function MapPicker({ value, onChange }: { value: LocationFields; 
             )}
           </Map>
         </div>
-      ) : (
+      ) : showMap ? (
         <div className="flex items-center gap-2 rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-4 text-sm text-[#CCC6BB]">
           <Crosshair size={17} /> Location selection is temporarily unavailable.
         </div>
-      )}
-      <p className="text-xs text-[#959087]">Exact pin is saved internally for matching, maps, and directions.</p>
+      ) : null}
+      <p className="text-xs text-[#959087]">Exact location is saved internally for matching and directions.</p>
     </div>
   );
 }

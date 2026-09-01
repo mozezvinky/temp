@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { jobCategoryOptions } from "@/lib/jobCategories";
 import { saveWorkerSkill } from "@/services/worker-skills";
 import type { WorkerSkillCategory, WorkerSkillLevel, WorkerSkillProofType, WorkerSkillProfile } from "@/types";
+import { payPerUnitLabel } from "@/utils/direct-hire-pricing";
 import { durationUnits, type DurationUnit } from "@/utils/duration";
 import { unitsForCategory } from "@/utils/jobUnits";
 import { FormEvent, useMemo, useState } from "react";
@@ -24,10 +25,12 @@ export function AddSkillModal({ onClose, onSaved, skill }: { onClose: () => void
   const [description, setDescription] = useState(skill?.description ?? "");
   const [chargeCategory, setChargeCategory] = useState(skill?.chargeCategory ?? "");
   const [chargeUnit, setChargeUnit] = useState(skill?.chargeUnit ?? "");
+  const [chargeCustomUnit, setChargeCustomUnit] = useState(skill?.chargeCustomUnit ?? "");
   const [chargePayType, setChargePayType] = useState<"fixed" | "timeline" | "unit">(skill?.chargePayType ?? "fixed");
   const [chargeTimelineUnit, setChargeTimelineUnit] = useState<DurationUnit>(skill?.chargeTimelineUnit ?? "hours");
   const [saving, setSaving] = useState(false);
   const unitOptions = useMemo(() => unitsForCategory(chargeCategory || name), [chargeCategory, name]);
+  const unitPayLabel = payPerUnitLabel(chargeUnit, chargeCustomUnit);
   const filtered = useMemo(() => Object.entries(suggestions).flatMap(([group, items]) =>
     items.filter(item => !name || item.toLowerCase().includes(name.toLowerCase())).map(item => ({ group: group as WorkerSkillCategory, item }))
   ).slice(0, 8), [name]);
@@ -54,7 +57,7 @@ export function AddSkillModal({ onClose, onSaved, skill }: { onClose: () => void
       chargeCategory: chargeCategory || name,
       chargeQuantity: Number(form.get("chargeQuantity")) || null,
       chargeUnit: chargeUnit || null,
-      chargeCustomUnit: String(form.get("chargeCustomUnit") ?? "").trim() || null,
+      chargeCustomUnit: chargeCustomUnit.trim() || null,
       chargeTimeline: Number(form.get("chargeTimeline")) || null,
       chargeTimelineUnit,
       chargePayType
@@ -75,7 +78,7 @@ export function AddSkillModal({ onClose, onSaved, skill }: { onClose: () => void
         chargeCategory: chargeCategory || name,
         chargeQuantity: Number(form.get("chargeQuantity")) || null,
         chargeUnit,
-        chargeCustomUnit: String(form.get("chargeCustomUnit") ?? "").trim(),
+        chargeCustomUnit: chargeCustomUnit.trim(),
         chargeTimeline: Number(form.get("chargeTimeline")) || null,
         chargeTimelineUnit,
         chargePayType
@@ -117,10 +120,11 @@ export function AddSkillModal({ onClose, onSaved, skill }: { onClose: () => void
               <label className="temp-label">Category<select value={chargeCategory} onChange={event => setChargeCategory(event.target.value)} required className="temp-input p-3 outline-none"><option value="">Select category</option>{jobCategoryOptions.map((option, index) => <option key={`${option}-${index}`} value={option}>{option}</option>)}</select></label>
               <label className="temp-label">Quantity optional<input name="chargeQuantity" type="number" min={1} defaultValue={skill?.chargeQuantity ?? ""} placeholder="e.g. 1" className="temp-input p-3 outline-none" /></label>
               <label className="temp-label">{chargePayType === "unit" ? "Unit" : "Unit optional"}<select value={chargeUnit ?? ""} onChange={event => setChargeUnit(event.target.value)} required={chargePayType === "unit"} className="temp-input p-3 outline-none"><option value="">No unit</option>{unitOptions.map(unit => <option key={unit} value={unit}>{unit}</option>)}</select></label>
-              {chargeUnit === "Other" && <label className="temp-label sm:col-span-2">Custom unit<input name="chargeCustomUnit" defaultValue={skill?.chargeCustomUnit ?? ""} placeholder="e.g. room, parcel, acre" className="temp-input p-3 outline-none" /></label>}
+              {chargeUnit === "Other" && <label className="temp-label sm:col-span-2">Custom unit<input name="chargeCustomUnit" value={chargeCustomUnit} onChange={event => setChargeCustomUnit(event.target.value)} placeholder="e.g. laundry rack, parcel, acre" className="temp-input p-3 outline-none" /></label>}
               <label className="temp-label">Work timeline<input name="chargeTimeline" type="number" min={1} defaultValue={skill?.chargeTimeline ?? ""} placeholder="Work timeline" className="temp-input p-3 outline-none" /></label>
               <label className="temp-label">Timeline unit<select value={chargeTimelineUnit} onChange={event => setChargeTimelineUnit(event.target.value as DurationUnit)} className="temp-input p-3 outline-none">{durationUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}</select></label>
-              <label className="temp-label sm:col-span-2">Pay type<select value={chargePayType} onChange={event => setChargePayType(event.target.value as "fixed" | "timeline" | "unit")} className="temp-input p-3 outline-none"><option value="fixed">Fixed pay</option><option value="unit">Pay per unit, e.g. per room</option><option value="timeline">Pay per timeline</option></select></label>
+              <label className="temp-label sm:col-span-2">Pay type<select value={chargePayType} onChange={event => setChargePayType(event.target.value as "fixed" | "timeline" | "unit")} className="temp-input p-3 outline-none"><option value="fixed">Fixed pay</option><option value="unit">{unitPayLabel}</option><option value="timeline">Timeline pay</option></select></label>
+              {chargePayType === "unit" && <p className="rounded-xl border border-[#d8d8d8] bg-white p-3 text-sm font-black text-[#111] dark:border-[#4A463F] dark:bg-[#1F1F20] dark:text-[#FFFBFF] sm:col-span-2">{unitPayLabel}</p>}
             </div>
           </div>
           <Button type="submit" disabled={saving}>{saving ? "Saving..." : skill ? "Save skill" : "Add skill"}</Button>
