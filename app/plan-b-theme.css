@@ -1312,11 +1312,11 @@ textarea,
   transform: translateY(-50%);
   overflow-y: auto;
   overscroll-behavior: contain;
-  border: 1px solid rgba(255, 255, 255, .12);
+  border: 1px solid var(--copic-border);
   border-radius: 8px;
-  background: #171717;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, .38);
-  color: #fffaf1;
+  background: var(--copic-surface);
+  box-shadow: var(--copic-raised-shadow);
+  color: var(--copic-text);
   padding: 14px;
 }
 
@@ -1335,7 +1335,7 @@ textarea,
 
 .copic-activity-panel-head p {
   margin: 0;
-  color: #9a9489;
+  color: var(--copic-muted);
   font-size: .72rem;
   font-weight: 900;
   text-transform: uppercase;
@@ -1343,6 +1343,7 @@ textarea,
 
 .copic-activity-panel-head h2 {
   margin: 2px 0 0;
+  color: var(--copic-text);
   font-size: 1.05rem;
   font-weight: 1000;
 }
@@ -1352,9 +1353,10 @@ textarea,
   width: 34px;
   height: 34px;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, .12);
+  border: 1px solid var(--copic-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, .06);
+  background: var(--copic-surface-low);
+  color: var(--copic-text);
 }
 
 .copic-activity-tabs {
@@ -1379,7 +1381,7 @@ textarea,
 
 .copic-activity-section h3 {
   margin: 0 0 8px;
-  color: #d8d1c5;
+  color: var(--copic-muted);
   font-size: .82rem;
   font-weight: 1000;
   text-transform: uppercase;
@@ -1387,9 +1389,9 @@ textarea,
 
 .copic-activity-card {
   display: block;
-  border: 1px solid rgba(255, 255, 255, .1);
+  border: 1px solid var(--copic-border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, .055);
+  background: var(--copic-surface-low);
   color: inherit;
   padding: 12px;
   text-decoration: none;
@@ -1433,6 +1435,7 @@ textarea,
 
 .copic-activity-title {
   margin: 10px 0 0;
+  color: var(--copic-text);
   font-size: .96rem;
   font-weight: 1000;
 }
@@ -1440,7 +1443,7 @@ textarea,
 .copic-activity-meta,
 .copic-activity-detail {
   margin-top: 6px;
-  color: #cfc7ba;
+  color: var(--copic-muted);
   font-size: .84rem;
 }
 
@@ -1456,7 +1459,13 @@ textarea,
 }
 
 .copic-activity-actions button,
-.copic-activity-empty button {
+.copic-activity-empty button,
+.copic-activity-icon-action,
+.copic-activity-modal-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   min-height: 38px;
   border: 0;
   border-radius: 8px;
@@ -1465,20 +1474,165 @@ textarea,
   font-size: .84rem;
   font-weight: 1000;
   padding: 8px 12px;
+  text-decoration: none;
 }
 
-.copic-activity-actions button:last-child {
-  background: rgba(255, 255, 255, .1);
-  color: #fffaf1;
+.copic-activity-actions button:disabled,
+.copic-activity-modal-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .66;
+}
+
+.copic-activity-icon-action {
+  border: 1px solid var(--copic-border);
+  background: var(--copic-surface);
+  color: var(--copic-text);
+}
+
+.copic-activity-success-action {
+  background: #16a34a !important;
+  color: #fff !important;
+}
+
+.copic-activity-danger-action {
+  background: rgba(220, 38, 38, .13) !important;
+  color: #b91c1c !important;
+  border: 1px solid rgba(220, 38, 38, .35) !important;
+}
+
+[data-ui-theme="dark"] .copic-activity-danger-action {
+  color: #fecaca !important;
 }
 
 .copic-activity-empty {
   margin: 0;
-  border: 1px dashed rgba(255, 255, 255, .14);
+  border: 1px dashed var(--copic-border);
   border-radius: 8px;
-  color: #d8d1c5;
+  color: var(--copic-muted);
   font-weight: 800;
   padding: 18px;
+}
+
+.copic-activity-state-note {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  border: 1px solid rgba(245, 158, 11, .32);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, .12);
+  color: #92400e;
+  font-size: .78rem;
+  font-weight: 900;
+  padding: 8px 10px;
+}
+
+[data-ui-theme="dark"] .copic-activity-state-note {
+  color: #fde68a;
+}
+
+.copic-activity-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, .66);
+  padding: 16px;
+}
+
+.copic-activity-modal {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  border: 1px solid var(--copic-border);
+  border-radius: 8px;
+  background: var(--copic-surface);
+  color: var(--copic-text);
+  padding: 18px;
+  box-shadow: var(--copic-raised-shadow);
+}
+
+.copic-activity-modal h3 {
+  margin: 0;
+  color: var(--copic-text);
+  font-size: 1.2rem;
+  font-weight: 1000;
+}
+
+.copic-activity-modal p,
+.copic-activity-modal label {
+  color: var(--copic-muted);
+  font-size: .9rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.copic-activity-modal p {
+  margin-top: 10px;
+}
+
+.copic-activity-warning {
+  border: 1px solid rgba(245, 158, 11, .35);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, .12);
+  color: #92400e !important;
+  padding: 10px;
+}
+
+[data-ui-theme="dark"] .copic-activity-warning {
+  color: #fde68a !important;
+}
+
+.copic-activity-payment-summary {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  border: 1px solid var(--copic-border);
+  border-radius: 8px;
+  background: var(--copic-surface-low);
+  padding: 12px;
+}
+
+.copic-activity-payment-summary p {
+  margin: 0;
+}
+
+.copic-activity-payment-summary strong {
+  color: var(--copic-text);
+}
+
+.copic-activity-modal-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.copic-activity-modal-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.copic-activity-modal-form textarea,
+.copic-activity-modal-form input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--copic-border);
+  border-radius: 8px;
+  background: var(--copic-surface);
+  color: var(--copic-text);
+  padding: 10px;
+}
+
+.copic-activity-modal-form textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.copic-activity-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 @keyframes copic-activity-nudge {

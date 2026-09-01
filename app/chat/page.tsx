@@ -24,8 +24,12 @@ export default function ChatPage() {
     if (!profile) return;
     return subscribeUserConversations(profile.id, items => {
       const available = items.filter(item => !item.locked);
+      const requestedConversationId = new URLSearchParams(window.location.search).get("conversation") ?? "";
       setConversations(available);
-      setSelectedId(current => available.some(item => item.id === current) ? current : available[0]?.id || "");
+      setSelectedId(current => {
+        if (requestedConversationId && available.some(item => item.id === requestedConversationId)) return requestedConversationId;
+        return available.some(item => item.id === current) ? current : available[0]?.id || "";
+      });
       setLoading(false);
     }, () => setLoading(false));
   }, [profile]);
