@@ -33,7 +33,9 @@ export async function POST(request: NextRequest) {
 
     if (isSqlBackend()) {
       const client = currentUser.profile ?? getLocalUser(decoded.uid);
-      if (!canUseClientMode(client, currentUser.role, activeMode)) return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
+      const canClientHire = canUseClientMode(client, currentUser.role, activeMode);
+      if (!client) return NextResponse.json({ error: "Complete your COPIC profile before sending hire requests." }, { status: 403 });
+      if (!canClientHire) return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
       const localClient = client as NonNullable<typeof client>;
       if (!clientCanPost(localClient)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
       const allowedWorker = await getWorkerJobEligibility(input.workerId, { title: input.title, category: input.category, requiredSkills: [] });
@@ -62,7 +64,9 @@ export async function POST(request: NextRequest) {
     ]);
     const client = clientSnap.data();
     const worker = workerSnap.data();
-    if (!clientSnap.exists || !canUseClientMode(client, currentUser.role, activeMode)) return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
+    const canClientHire = canUseClientMode(client, currentUser.role, activeMode);
+    if (!clientSnap.exists) return NextResponse.json({ error: "Complete your COPIC profile before sending hire requests." }, { status: 403 });
+    if (!canClientHire) return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
     const clientVerificationStatus = normalizeVerificationStatus(clientVerificationSnap.data()?.identityVerificationStatus ?? clientVerificationSnap.data()?.status);
     const effectiveClient: Record<string, unknown> = {
       ...client,
@@ -298,9 +302,9 @@ function hasRole(profile: unknown, role: "client" | "worker") {
 }
 
 function canUseClientMode(profile: unknown, resolvedRole: string | undefined, activeMode: string | null) {
-  const selectedRole = activeMode ?? resolvedRole;
-  if (selectedRole !== "client") return false;
-  return hasRole(profile, "client") || hasRole(profile, "worker");
+  if (activeMode === "worker") return false;
+  if (activeMode === "client") return hasRole(profile, "client") || hasRole(profile, "worker");
+  return resolvedRole === "client" || hasRole(profile, "client");
 }
 
 class AuthRouteError extends Error {

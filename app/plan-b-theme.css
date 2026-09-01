@@ -2874,8 +2874,16 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
   min-height: 50px;
   border: 2px solid #cfcfcf !important;
   border-radius: 16px !important;
-  background: var(--copic-surface-low) !important;
+  background: #fff !important;
   color: var(--copic-text) !important;
+}
+.worker-hire-grid input:focus,
+.worker-hire-grid select:focus,
+.worker-hire-grid input:hover,
+.worker-hire-grid select:hover,
+.worker-hire-grid input:active,
+.worker-hire-grid select:active {
+  background: #fff !important;
 }
 .worker-quantity-control {
   display: grid;
@@ -2891,10 +2899,22 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
 }
 .worker-quantity-control button {
   border: 0;
-  background: transparent;
+  background: #fff;
   color: var(--copic-text);
   font-size: 1.2rem;
   font-weight: 900;
+}
+.worker-hire-grid input.is-invalid,
+.worker-hire-grid select.is-invalid,
+.worker-quantity-control.is-invalid {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgb(220 38 38 / 12%) !important;
+}
+.worker-hire-error {
+  color: #dc2626;
+  font-size: .78rem;
+  font-weight: 850;
+  line-height: 1.2;
 }
 .worker-hire-location {
   display: grid;
@@ -2917,6 +2937,15 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
 }
 .worker-hire-location textarea {
   min-height: 70px !important;
+}
+.worker-hire-location .temp-location-search-input,
+.worker-hire-location textarea {
+  background: #fff !important;
+}
+.worker-hire-location.is-location-invalid .temp-location-search-input,
+.worker-hire-location.is-description-invalid textarea {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgb(220 38 38 / 12%) !important;
 }
 .worker-hire-location > p {
   display: flex;

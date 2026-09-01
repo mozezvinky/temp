@@ -10,7 +10,7 @@ import { defaultKenyaLocation } from "@/lib/location";
 import { sendMessage, subscribeMessages, subscribeUserConversations } from "@/services/chat";
 import { sendDirectHireRequest, subscribeApplications } from "@/services/jobs";
 import { subscribeWorkers } from "@/services/users";
-import type { Application, Conversation, LocationFields, Message, UserProfile, WorkerSkillProfile } from "@/types";
+import type { Application, Conversation, LocationFields, Message, Role, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateDirectHirePricing, pluralUnit, quantityLabel, resolveSkillPricingType, resolveSkillUnit } from "@/utils/direct-hire-pricing";
 import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
 import { unitsForCategory } from "@/utils/jobUnits";
@@ -35,10 +35,12 @@ const sortOptions = [
   { value: "priceHigh", label: "Highest price" }
 ] as const;
 type SortMode = typeof sortOptions[number]["value"];
+type HireFieldErrorKey = "startDate" | "quantity" | "unit" | "location" | "locationDescription";
+type HireFieldErrors = Partial<Record<HireFieldErrorKey, string>>;
 
 export default function WorkersPage() {
   const { profile, loading, isAuthorized } = useProtectedRoute(["client", "admin"]);
-  const activeRole = activeRoleForProfile(profile);
+  const activeRole: Role | null = profile?.role ?? null;
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
   const [showRehire, setShowRehire] = useState(false);
@@ -49,8 +51,9 @@ export default function WorkersPage() {
   const [hireWorker, setHireWorker] = useState<UserProfile | null>(null);
   const [hireSkill, setHireSkill] = useState<WorkerSkillProfile | null>(null);
   const [hireLocation, setHireLocation] = useState<LocationFields>(emptyHireLocation());
-  const [hireQuantity, setHireQuantity] = useState(1);
+  const [hireQuantityInput, setHireQuantityInput] = useState("1");
   const [hireUnit, setHireUnit] = useState("");
+  const [hireErrors, setHireErrors] = useState<HireFieldErrors>({});
   const [sendingHire, setSendingHire] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("recommended");
   const [sortOpen, setSortOpen] = useState(false);
@@ -189,6 +192,7 @@ export default function WorkersPage() {
 
   const searched = showRehire || !!submittedSearch;
   const hireView = !!hireWorker && !!hireSkill;
+  const hireQuantity = normalizeHireQuantity(hireQuantityInput) ?? 1;
   const sortLabel = sortOptions.find(option => option.value === sortMode)?.label ?? "Recommended";
 
   function runSearch(event?: FormEvent<HTMLFormElement>) {
@@ -205,6 +209,7 @@ export default function WorkersPage() {
     setSuggestionsOpen(false);
     setHireSkill(null);
     setHireWorker(null);
+    setHireErrors({});
   }
 
   function showRehireResults() {
@@ -213,6 +218,7 @@ export default function WorkersPage() {
     setSuggestionsOpen(false);
     setHireSkill(null);
     setHireWorker(null);
+    setHireErrors({});
   }
 
   function chooseSuggestion(suggestion: WorkerSearchSuggestion) {
@@ -222,6 +228,31 @@ export default function WorkersPage() {
     setSuggestionsOpen(false);
     setHireSkill(null);
     setHireWorker(null);
+    setHireErrors({});
+  }
+
+  function clearHireErrors(...fields: HireFieldErrorKey[]) {
+    setHireErrors(current => {
+      if (!fields.some(field => current[field])) return current;
+      const next = { ...current };
+      fields.forEach(field => delete next[field]);
+      return next;
+    });
+  }
+
+  function updateHireLocation(location: LocationFields) {
+    setHireLocation(location);
+    clearHireErrors("location", "locationDescription");
+  }
+
+  function updateHireQuantity(value: string) {
+    setHireQuantityInput(value.replace(/[^\d]/g, ""));
+    if (normalizeHireQuantity(value) != null) clearHireErrors("quantity");
+  }
+
+  function updateHireUnit(value: string) {
+    setHireUnit(value);
+    if (value.trim()) clearHireErrors("unit");
   }
 
   function handleSearchKeys(event: KeyboardEvent<HTMLInputElement>) {
@@ -272,8 +303,9 @@ export default function WorkersPage() {
     setHireWorker(worker);
     setHireSkill(skill);
     setHireLocation(emptyHireLocation());
-    setHireQuantity(1);
+    setHireQuantityInput("1");
     setHireUnit(displayUnit(resolveSkillUnit(skill)));
+    setHireErrors({});
   }
 
   function backToWorkers() {
@@ -297,6 +329,21 @@ export default function WorkersPage() {
       toast.error("Verify your identity before posting jobs.");
       return;
     }
+    const form = new FormData(event.currentTarget);
+    const startDate = String(form.get("startDate") ?? "").trim();
+    const quantity = normalizeHireQuantity(hireQuantityInput);
+    const fieldErrors = validateHireFields({
+      startDate,
+      quantityInput: hireQuantityInput,
+      quantity,
+      unit: hireUnit,
+      location: hireLocation
+    });
+    setHireErrors(fieldErrors);
+    if (Object.keys(fieldErrors).length) {
+      toast.error("Please fix the highlighted fields.");
+      return;
+    }
     const allowedWorker = workerCanApplyToJob(hireWorker, { title: hireSkill.name, category: hireSkill.chargeCategory ?? hireSkill.category, requiredSkills: [hireSkill.name] });
     if (!allowedWorker.ok) {
       toast.error(allowedWorker.reason);
@@ -307,10 +354,9 @@ export default function WorkersPage() {
       return;
     }
     if (hireLocation.locationSource === "current" && hireLocation.landmarkResolved === false && !hireLocation.locationDescription?.trim()) {
-      toast.error("Add a location description because no nearby landmark was found.");
+      setHireErrors({ locationDescription: "Please add location details because no nearby landmark was found" });
       return;
     }
-    const form = new FormData(event.currentTarget);
     setSendingHire(true);
     try {
       await sendDirectHireRequest({
@@ -318,13 +364,13 @@ export default function WorkersPage() {
         skillId: hireSkill.id,
         title: String(form.get("title") ?? hireSkill.name),
         category: String(form.get("category") ?? hireSkill.chargeCategory ?? hireSkill.name),
-        quantity: hireQuantity,
+        quantity: quantity ?? 1,
         location: hireLocation.addressText,
         locationDetails: hireLocation,
         startDate: String(form.get("startDate") ?? ""),
         duration: String(form.get("duration") ?? ""),
         description: String(form.get("description") ?? "")
-      });
+      }, activeRole);
       toast.success(`Hire request sent to ${hireWorker.displayName}.`);
       setHireSkill(null);
       setHireWorker(null);
@@ -362,12 +408,15 @@ export default function WorkersPage() {
           worker={hireWorker}
           skill={hireSkill}
           quantity={hireQuantity}
+          quantityInput={hireQuantityInput}
           unit={hireUnit}
           location={hireLocation}
+          errors={hireErrors}
           sending={sendingHire}
-          onQuantityChange={setHireQuantity}
-          onUnitChange={setHireUnit}
-          onLocationChange={setHireLocation}
+          onQuantityChange={updateHireQuantity}
+          onUnitChange={updateHireUnit}
+          onLocationChange={updateHireLocation}
+          onFieldFixed={clearHireErrors}
           onClose={backToWorkers}
           onSubmit={submitHireRequest}
         />
@@ -527,16 +576,19 @@ function WorkerResultCard({ match, active, onHire, onMessage }: { match: WorkerS
   );
 }
 
-function HirePanel({ worker, skill, quantity, unit, location, sending, onQuantityChange, onUnitChange, onLocationChange, onClose, onSubmit }: {
+function HirePanel({ worker, skill, quantity, quantityInput, unit, location, errors, sending, onQuantityChange, onUnitChange, onLocationChange, onFieldFixed, onClose, onSubmit }: {
   worker: UserProfile;
   skill: WorkerSkillProfile;
   quantity: number;
+  quantityInput: string;
   unit: string;
   location: LocationFields;
+  errors: HireFieldErrors;
   sending: boolean;
-  onQuantityChange: (value: number) => void;
+  onQuantityChange: (value: string) => void;
   onUnitChange: (value: string) => void;
   onLocationChange: (location: LocationFields) => void;
+  onFieldFixed: (...fields: HireFieldErrorKey[]) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -547,9 +599,10 @@ function HirePanel({ worker, skill, quantity, unit, location, sending, onQuantit
   const plural = pluralUnit(activeUnit || storedUnit);
   const rate = clientRateParts(skill, kes);
   const unitOptions = safeUnitOptions(skill);
+  const quantityButtonBase = normalizeHireQuantity(quantityInput) ?? quantity;
   return (
     <section className="worker-hire-panel" aria-label={`Hire ${worker.displayName}`}>
-      <form onSubmit={onSubmit}>
+      <form onSubmit={onSubmit} noValidate>
         <div className="worker-hire-panel-head">
           <div>
             <p>Request</p>
@@ -574,25 +627,54 @@ function HirePanel({ worker, skill, quantity, unit, location, sending, onQuantit
         <div className="worker-hire-grid">
           <label className="worker-start-date-field">
             <span>Start date</span>
-            <input name="startDate" required type="date" />
+            <input
+              className={errors.startDate ? "is-invalid" : undefined}
+              name="startDate"
+              type="date"
+              aria-invalid={!!errors.startDate}
+              aria-describedby={errors.startDate ? "hire-start-date-error" : undefined}
+              onChange={() => onFieldFixed("startDate")}
+            />
+            <FieldError id="hire-start-date-error" message={errors.startDate} />
           </label>
           <label>
             <span>{pricingType === "unit" ? quantityLabel(skill) : "Quantity"}</span>
-            <div className="worker-quantity-control">
-              <button type="button" onClick={() => onQuantityChange(Math.max(1, quantity - 1))}>-</button>
-              <input value={quantity} onChange={event => onQuantityChange(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} type="number" min={1} inputMode="numeric" aria-label={`Number of ${plural}`} />
-              <button type="button" onClick={() => onQuantityChange(quantity + 1)}>+</button>
+            <div className={`worker-quantity-control ${errors.quantity ? "is-invalid" : ""}`}>
+              <button type="button" onClick={() => onQuantityChange(String(Math.max(1, quantityButtonBase - 1)))}>-</button>
+              <input
+                name="quantity"
+                value={quantityInput}
+                onChange={event => onQuantityChange(event.target.value)}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                aria-label={`Number of ${plural}`}
+                aria-invalid={!!errors.quantity}
+                aria-describedby={errors.quantity ? "hire-quantity-error" : undefined}
+              />
+              <button type="button" onClick={() => onQuantityChange(String(quantityButtonBase + 1))}>+</button>
             </div>
+            <FieldError id="hire-quantity-error" message={errors.quantity} />
           </label>
           <label>
             <span>Unit</span>
-            <select value={activeUnit} onChange={event => onUnitChange(event.target.value)} aria-label="Unit priced by worker">
+            <select
+              className={errors.unit ? "is-invalid" : undefined}
+              value={activeUnit}
+              onChange={event => onUnitChange(event.target.value)}
+              aria-label="Unit priced by worker"
+              aria-invalid={!!errors.unit}
+              aria-describedby={errors.unit ? "hire-unit-error" : undefined}
+            >
               {unitOptions.map(option => <option key={option} value={option}>{option}</option>)}
             </select>
+            <FieldError id="hire-unit-error" message={errors.unit} />
           </label>
         </div>
-        <div className="worker-hire-location">
+        <div className={`worker-hire-location ${errors.location ? "is-location-invalid" : ""} ${errors.locationDescription ? "is-description-invalid" : ""}`}>
           <MapPicker value={location} onChange={onLocationChange} showMap={false} resetOnCustom />
+          <FieldError id="hire-location-error" message={errors.location} />
+          <FieldError id="hire-location-description-error" message={errors.locationDescription} />
           <input type="hidden" name="description" value={location.locationDescription ?? ""} />
           {location.addressText && <p><MapPin size={15} /> {jobLocationLabel({ location: location.addressText, county: location.county, locationDetails: location })}</p>}
         </div>
@@ -604,6 +686,11 @@ function HirePanel({ worker, skill, quantity, unit, location, sending, onQuantit
       </form>
     </section>
   );
+}
+
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null;
+  return <span id={id} className="worker-hire-error">{message}</span>;
 }
 
 function SuggestionText({ value, query }: { value: string; query: string }) {
@@ -640,6 +727,37 @@ function safeUnitOptions(skill: WorkerSkillProfile) {
 
 function displayUnit(unit: string) {
   return unit.trim().toLowerCase() || "unit";
+}
+
+function normalizeHireQuantity(value: string) {
+  if (!value.trim()) return null;
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity) || quantity < 1) return null;
+  return Math.trunc(quantity);
+}
+
+function validateHireFields({ startDate, quantityInput, quantity, unit, location }: {
+  startDate: string;
+  quantityInput: string;
+  quantity: number | null;
+  unit: string;
+  location: LocationFields;
+}) {
+  const errors: HireFieldErrors = {};
+  if (!startDate) errors.startDate = "Please select a start date";
+  if (!quantityInput.trim() || quantity == null) errors.quantity = "Please enter a valid quantity";
+  if (!unit.trim()) errors.unit = "Please select a unit";
+  if (!location.addressText || !Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) {
+    errors.location = "Please select a location";
+  }
+  if (locationRequiresExtraDescription(location)) {
+    errors.locationDescription = "Please add location details because no nearby landmark was found";
+  }
+  return errors;
+}
+
+function locationRequiresExtraDescription(location: LocationFields) {
+  return location.locationSource === "current" && location.landmarkResolved === false && !location.locationDescription?.trim();
 }
 
 function directHireDuration(skill: WorkerSkillProfile, quantity: number) {
@@ -697,18 +815,6 @@ function sortNumber(first: number | null, second: number | null, direction: "asc
 
 function emptyHireLocation(): LocationFields {
   return { ...defaultKenyaLocation, addressText: "", displayLocation: "", latitude: Number.NaN, longitude: Number.NaN };
-}
-
-function activeRoleForProfile(profile: UserProfile | null) {
-  if (typeof window !== "undefined" && profile) {
-    const userId = profile.uid ?? profile.id;
-    const sessionUserId = window.sessionStorage.getItem("temp.profile.uid");
-    const sessionRole = sessionUserId === userId ? window.sessionStorage.getItem("temp.profile.role") : null;
-    if (sessionRole === "client" || sessionRole === "worker" || sessionRole === "admin") return sessionRole;
-    const localRole = window.localStorage.getItem(`temp.profile.role.${userId}`);
-    if (localRole === "client" || localRole === "worker" || localRole === "admin") return localRole;
-  }
-  return profile?.role ?? null;
 }
 
 function isOfflineError(error: Error) {
