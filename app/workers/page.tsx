@@ -691,9 +691,13 @@ function workerSkillProfiles(worker: UserProfile): WorkerSkillProfile[] {
     category: "services_trades",
     level: "independent",
     proofType: "reference",
+    chargeAmount: Number(worker.hourlyRate ?? 0) > 0 ? Number(worker.hourlyRate) : undefined,
+    chargeCategory: name,
+    chargePayType: "fixed",
     completedJobs: worker.completedJobs ?? 0,
     ratingAverage: worker.ratingAverage ?? 0,
-    ratingCount: worker.ratingCount ?? 0
+    ratingCount: worker.ratingCount ?? 0,
+    verificationStatus: "approved"
   }));
 }
 

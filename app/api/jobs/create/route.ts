@@ -5,7 +5,7 @@ import { createLocalJob, markLocalEmailVerified } from "@/lib/local-sql";
 import { jobSchema } from "@/utils/validation";
 import { clientCanPost } from "@/utils/jobRules";
 import { normalizeVerificationStatus } from "@/utils/verification";
-import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/timeline-payments";
 import { FieldValue } from "firebase-admin/firestore";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
@@ -100,9 +100,7 @@ export async function POST(request: NextRequest) {
     const jobRef = db.collection("jobs").doc();
     const activityRef = db.collection("activities").doc();
     const data = parsed.data;
-    const timelineSummary = isPayPerTimeline(data.payType)
-      ? timelinePaymentSummary(Number(data.clientPayPerTimeline ?? data.payAmount), Number(data.timelineCount ?? data.durationValue ?? 1))
-      : null;
+    const timelineSummary = isPayPerTimeline(data.payType) ? timelinePaymentSummaryFromRecord(data as typeof data & TimelineJobData, Number(data.durationValue ?? 1)) : null;
     const batch = db.batch();
     batch.set(jobRef, {
       id: jobRef.id,

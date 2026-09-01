@@ -146,7 +146,7 @@ export default function ApplicationsPage() {
   }
 
   function pendingPaymentAmount(application: Application) {
-    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).workerEarnings;
+    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).total;
     return applicationTimelinePay(application).submittedWorkerAmount;
   }
 
@@ -408,7 +408,9 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
               )}
               {!isPayPerTimeline(application.jobPayType) && Number(application.jobAmount ?? 0) > 0 && ["accepted", "completion_requested", "payment_sent", "completed"].includes(application.status) && (
                 <div className="mt-3 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
-                  <p className="text-base font-black text-[#FFFBFF]">You should receive: {kes(fixedPay.workerEarnings)}</p>
+                  <p className="text-base font-black text-[#FFFBFF]">You should receive: {kes(fixedPay.total)}</p>
+                  <p className="mt-1">Your earnings: {kes(fixedPay.workerEarnings)}</p>
+                  <p className="mt-1">COPIC fee: {kes(fixedPay.serviceFee)}</p>
                 </div>
               )}
             </div>

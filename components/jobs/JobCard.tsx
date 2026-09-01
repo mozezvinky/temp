@@ -3,7 +3,7 @@
 import type { Job } from "@/types";
 import { kes } from "@/utils/money";
 import { workerVisiblePay } from "@/utils/pricing";
-import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/timeline-payments";
 import { displayJobQuantity } from "@/utils/jobUnits";
 import { perDurationUnit } from "@/utils/duration";
 import { jobLocationLabel } from "@/utils/location-display";
@@ -14,8 +14,8 @@ export function JobCard({ job, workerView = false, menuSlot, infoActionSlot }: {
   const remainingWorkers = Math.max(0, (job.workersNeeded ?? 1) - (job.acceptedCount ?? 0));
   const timelinePay = isPayPerTimeline(job.payType);
   const timelineCount = Math.max(1, Math.trunc(Number(job.timelineCount ?? job.durationValue ?? 1) || 1));
-  const clientPayPerTimeline = Number(job.clientPayPerTimeline ?? job.payAmount ?? job.rateAmount ?? 0);
-  const timelineBreakdown = timelinePaymentSummary(clientPayPerTimeline, timelineCount);
+  const timelineBreakdown = timelinePaymentSummaryFromRecord(job, timelineCount);
+  const clientPayPerTimeline = timelineBreakdown.clientPayPerTimeline;
   const workerPayPerTimeline = timelineBreakdown.workerPayPerTimeline;
   const timelineUnitPay = workerView ? workerPayPerTimeline : clientPayPerTimeline;
   const timelineTotalPay = workerView

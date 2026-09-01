@@ -291,7 +291,9 @@ function LiveJobCard({ application, role, onChanged, onOpen }: { application: Ap
       )}
       {role === "worker" && !isPayPerTimeline(application.jobPayType) && Number(application.jobAmount ?? 0) > 0 && (
         <div className="copic-activity-detail">
-          <p>You should receive: {kes(fixedPay.workerEarnings)}</p>
+          <p>You should receive: {kes(fixedPay.total)}</p>
+          <p>Your earnings: {kes(fixedPay.workerEarnings)}</p>
+          <p>COPIC fee: {kes(fixedPay.serviceFee)}</p>
         </div>
       )}
       <div className="copic-activity-actions">
@@ -450,7 +452,7 @@ function pendingPaymentLabel(application: Application) {
 }
 
 function pendingPaymentAmount(application: Application) {
-  if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).workerEarnings;
+  if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).total;
   return applicationTimelinePay(application).submittedWorkerAmount;
 }
 

@@ -22,7 +22,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { Application, Job } from "@/types";
 import { durationLabel, durationToHours, durationUnits, perDurationUnit, type DurationUnit } from "@/utils/duration";
-import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/timeline-payments";
 import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 import { completedJobId } from "@/utils/completed-job-id";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
@@ -160,7 +160,7 @@ export default function FindWorkPage() {
   }
 
   function pendingPaymentAmount(application: Application) {
-    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).workerEarnings;
+    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).total;
     return applicationTimelinePay(application).submittedWorkerAmount;
   }
 
@@ -260,8 +260,7 @@ export default function FindWorkPage() {
   const selectedPaymentApplications = applications.filter(application => selectedApplicationIds.includes(application.id));
   const progressTimelineCount = Math.max(1, Math.trunc(Number(progressJob?.timelineCount ?? 1) || 1));
   const progressPaidTimelineCount = Math.min(progressTimelineCount, Math.max(0, Math.trunc(Number(progressJob?.paidTimelineCount ?? 0) || 0)));
-  const progressClientPayPerTimeline = Number(progressJob?.clientPayPerTimeline ?? progressJob?.payAmount ?? progressJob?.rateAmount ?? 0);
-  const progressTimelineSummary = timelinePaymentSummary(progressClientPayPerTimeline, progressTimelineCount);
+  const progressTimelineSummary = timelinePaymentSummaryFromRecord(progressJob ?? {}, progressTimelineCount);
   const progressWorkerPayPerTimeline = progressTimelineSummary.workerPayPerTimeline;
   const progressRemainingWorkerAmount = progressWorkerPayPerTimeline * Math.max(0, progressTimelineCount - progressPaidTimelineCount);
   const progressPaymentUnitLabel = perDurationUnit(progressJob?.durationUnit);

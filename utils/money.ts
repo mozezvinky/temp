@@ -11,25 +11,39 @@ export function roundCurrencyAmount(amount: number) {
 }
 
 export function calculateJobPaymentBreakdown(jobPrice: number): JobPaymentBreakdown {
-  const total = roundCurrencyAmount(jobPrice);
-  const serviceFee = roundCurrencyAmount(total * PLATFORM_FEE_RATE);
+  const workerEarnings = roundCurrencyAmount(jobPrice);
+  const serviceFee = calculateServiceFeeFromWorkerEarnings(workerEarnings);
   return {
-    total,
-    workerEarnings: Math.max(0, total - serviceFee),
+    total: workerEarnings + serviceFee,
+    workerEarnings,
     serviceFee
   };
 }
 
-export function calculateServiceFee(grossAmount: number) {
-  return calculateJobPaymentBreakdown(grossAmount).serviceFee;
+export function calculateServiceFee(workerEarnings: number) {
+  return calculateServiceFeeFromWorkerEarnings(workerEarnings);
 }
 
-export function calculateWorkerNet(grossAmount: number) {
-  return calculateJobPaymentBreakdown(grossAmount).workerEarnings;
+export function calculateWorkerNet(workerEarnings: number) {
+  return calculateJobPaymentBreakdown(workerEarnings).workerEarnings;
 }
 
 export function addPlatformFee(amount: number) {
-  return roundCurrencyAmount(amount * (1 + PLATFORM_FEE_RATE));
+  return calculateJobPaymentBreakdown(amount).total;
+}
+
+export function calculateServiceFeeFromWorkerEarnings(workerEarnings: number) {
+  return roundCurrencyAmount(workerEarnings * PLATFORM_FEE_RATE);
+}
+
+export function calculateWorkerEarningsFromServiceFee(serviceFee: number) {
+  if (!Number.isFinite(serviceFee) || serviceFee <= 0) return 0;
+  return roundCurrencyAmount(serviceFee / PLATFORM_FEE_RATE);
+}
+
+export function calculateWorkerEarningsFromClientTotal(clientTotal: number) {
+  if (!Number.isFinite(clientTotal) || clientTotal <= 0) return 0;
+  return roundCurrencyAmount(clientTotal / (1 + PLATFORM_FEE_RATE));
 }
 
 export function kes(amount: number) {

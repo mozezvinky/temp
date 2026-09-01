@@ -10,7 +10,7 @@ import { applyToJob, subscribeApplications, subscribeJob } from "@/services/jobs
 import type { Application, Job } from "@/types";
 import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
 import { displayJobQuantity } from "@/utils/jobUnits";
-import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/timeline-payments";
 import { perDurationUnit } from "@/utils/duration";
 import { requiresDriverLicenseForJob, workerCanApplyToJob } from "@/utils/jobRules";
 import { jobLocationLabel } from "@/utils/location-display";
@@ -78,7 +78,7 @@ export default function JobDetailsPage() {
   const timelinePay = isPayPerTimeline(job.payType);
   const fixedBreakdown = calculateJobPaymentBreakdown(job.payAmount ?? job.rateAmount ?? 0);
   const timelineCount = Number(job.timelineCount ?? 1);
-  const timelineSummary = timelinePaymentSummary(Number(job.clientPayPerTimeline ?? job.payAmount ?? job.rateAmount ?? 0), timelineCount);
+  const timelineSummary = timelinePaymentSummaryFromRecord(job, timelineCount);
   const workerPay = timelinePay ? timelineSummary.workerPayPerTimeline : fixedBreakdown.workerEarnings;
   const timelineUnitLabel = perDurationUnit(job.durationUnit);
   const timelineUnitTitle = timelineUnitLabel.charAt(0).toUpperCase() + timelineUnitLabel.slice(1);

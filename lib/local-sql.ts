@@ -3,11 +3,11 @@ import "server-only";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Application, DirectHirePricingSnapshot, Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
-import { calculateJobPaymentBreakdown, calculateServiceFee } from "@/utils/money";
+import { calculateJobPaymentBreakdown } from "@/utils/money";
 import { workerCanApplyToJob } from "@/utils/jobRules";
 import { jobLocationLabel } from "@/utils/location-display";
 import { normalizeVerificationStatus } from "@/utils/verification";
-import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/timeline-payments";
 import { approvedSkillNames } from "@/utils/worker-skills";
 
 type SqlValue = string | number | bigint | null | Uint8Array;
@@ -523,9 +523,7 @@ function rowToJob(row: Record<string, unknown>): Job {
   const totalPeriods = Math.max(1, Number.isFinite(rehireTotalPeriods) ? rehireTotalPeriods : 1);
   const completedPeriods = Math.min(totalPeriods, Math.max(0, Number(row.completedPeriods ?? 0)));
   const payType = String(row.payType) as Job["payType"];
-  const paymentSummary = isPayPerTimeline(payType)
-    ? timelinePaymentSummary(Number(row.clientPayPerTimeline ?? row.payAmount ?? 0), Number(row.timelineCount ?? durationValue ?? 1))
-    : null;
+  const paymentSummary = isPayPerTimeline(payType) ? timelinePaymentSummaryFromRecord(row, Number(row.timelineCount ?? durationValue ?? 1)) : null;
   return {
     id: String(row.id),
     clientId: String(row.clientId),
@@ -673,9 +671,7 @@ export function createLocalJob(input: {
 }) {
   const createdAt = nowIso();
   const rateType = input.payType;
-  const timelineSummary = isPayPerTimeline(input.payType)
-    ? timelinePaymentSummary(Number(input.clientPayPerTimeline ?? input.payAmount), Number(input.timelineCount ?? input.durationValue ?? 1))
-    : null;
+  const timelineSummary = isPayPerTimeline(input.payType) ? timelinePaymentSummaryFromRecord(input, Number(input.timelineCount ?? input.durationValue ?? 1)) : null;
   localDb().prepare(`
     INSERT INTO jobs (
       id, clientId, clientName, createdBy, title, description, category, location, county, locationDetails,
@@ -856,9 +852,17 @@ export function deleteLocalJob(id: string, clientId: string) {
 
 function rowToApplication(row: Record<string, unknown>) {
   const timelineCount = row.timelineCount == null ? undefined : Math.max(1, Math.trunc(Number(row.timelineCount) || 1));
-  const clientPayPerTimeline = row.clientPayPerTimeline != null ? Number(row.clientPayPerTimeline) : row.jobAmount != null ? Number(row.jobAmount) : undefined;
-  const fallbackSummary = clientPayPerTimeline == null ? null : timelinePaymentSummary(clientPayPerTimeline, timelineCount ?? 1);
-  const workerPayPerTimeline = fallbackSummary?.workerPayPerTimeline;
+  const fallbackSummary = timelinePaymentSummaryFromRecord({
+    payAmount: row.jobAmount == null ? undefined : Number(row.jobAmount),
+    clientPayPerTimeline: row.clientPayPerTimeline == null ? undefined : Number(row.clientPayPerTimeline),
+    workerPayPerTimeline: row.workerPayPerTimeline == null ? undefined : Number(row.workerPayPerTimeline),
+    totalClientAmount: row.totalClientAmount == null ? undefined : Number(row.totalClientAmount),
+    totalWorkerAmount: row.totalWorkerAmount == null ? undefined : Number(row.totalWorkerAmount),
+    totalPlatformFee: row.totalPlatformFee == null ? undefined : Number(row.totalPlatformFee),
+    timelineCount
+  }, timelineCount ?? 1);
+  const clientPayPerTimeline = fallbackSummary.clientPayPerTimeline;
+  const workerPayPerTimeline = fallbackSummary.workerPayPerTimeline;
   return {
     id: String(row.id),
     jobId: String(row.jobId),
@@ -1249,7 +1253,7 @@ export function requestLocalApplicationCompletion(applicationId: string, workerI
     const now = nowIso();
     const existingTimelineCount = localDb().prepare("SELECT COUNT(*) as count FROM job_timelines WHERE jobId = ?").get(application.jobId);
     if (Number(existingTimelineCount?.count ?? 0) === 0) {
-      const timelineSummary = timelinePaymentSummary(Number(job.clientPayPerTimeline ?? job.payAmount ?? 0), Number(job.timelineCount ?? 1));
+      const timelineSummary = timelinePaymentSummaryFromRecord(job, Number(job.timelineCount ?? 1));
       for (let timelineNumber = 1; timelineNumber <= timelineSummary.timelineCount; timelineNumber += 1) {
         localDb().prepare(`
           INSERT INTO job_timelines (id, jobId, applicationId, workerId, clientId, timelineNumber, status, workerAmount, clientAmount, platformFee, createdAt, updatedAt)
@@ -1340,9 +1344,13 @@ export function confirmLocalWorkerPaid(applicationId: string, clientId: string, 
         .run(now, now, now, applicationId, ...selected);
       const remaining = localDb().prepare("SELECT COUNT(*) as count FROM job_timelines WHERE jobId = ? AND status != 'paid'").get(application.jobId);
       allPaid = Number(remaining?.count ?? 0) === 0;
-      serviceFee = payableRows.reduce((sum, row) => sum + calculateServiceFee(Number(row.clientAmount ?? 0)), 0);
+      serviceFee = payableRows.reduce((sum, row) => {
+        const platformFee = Number(row.platformFee ?? 0);
+        if (platformFee > 0) return sum + platformFee;
+        return sum + Math.max(0, Number(row.clientAmount ?? 0) - Number(row.workerAmount ?? 0));
+      }, 0);
       const grossAmount = payableRows.reduce((sum, row) => sum + Number(row.clientAmount ?? 0), 0);
-      const workerEarnings = Math.max(0, grossAmount - serviceFee);
+      const workerEarnings = payableRows.reduce((sum, row) => sum + Number(row.workerAmount ?? 0), 0);
       localDb().prepare("UPDATE applications SET status = ?, paymentConfirmedAt = ?, grossAmount = ?, workerEarnings = ?, serviceFeeAmount = ?, serviceFeeStatus = ?, updatedAt = ? WHERE id = ?")
         .run(allPaid ? "completed" : "accepted", now, grossAmount, workerEarnings, serviceFee, serviceFee > 0 ? "due" : "paid", now, applicationId);
       localDb().prepare("UPDATE jobs SET status = ?, updatedAt = ? WHERE id = ?").run(allPaid ? "completed" : "live", now, application.jobId);

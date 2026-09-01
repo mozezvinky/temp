@@ -27,7 +27,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { isLiveJob } from "@/utils/activity";
 import { perDurationUnit } from "@/utils/duration";
-import { calculateJobPaymentBreakdown, calculateWorkerNet, kes } from "@/utils/money";
+import { calculateJobPaymentBreakdown, calculateWorkerEarningsFromServiceFee, calculateWorkerNet, kes } from "@/utils/money";
 import { completedJobId } from "@/utils/completed-job-id";
 import { jobLocationLabel } from "@/utils/location-display";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
@@ -286,9 +286,10 @@ export default function DashboardPage() {
   const completionRate = visibleApplications.length ? Math.round((doneApplications.length / visibleApplications.length) * 100) : 0;
   const demandedServiceFee = serviceFeeApproved ? 0 : currentOutstandingServiceFee;
   const waitingForAdminConfirmation = serviceFeeStatus === "pending" || pendingServiceFeePayment;
-  const paywallGrossAmount = Number(serviceFeePaywall?.grossAmount ?? 0) > 0 ? Number(serviceFeePaywall?.grossAmount ?? 0) : demandedServiceFee * 10;
+  const fallbackPaywallBreakdown = calculateJobPaymentBreakdown(calculateWorkerEarningsFromServiceFee(demandedServiceFee));
+  const paywallGrossAmount = Number(serviceFeePaywall?.grossAmount ?? 0) > 0 ? Number(serviceFeePaywall?.grossAmount ?? 0) : fallbackPaywallBreakdown.total;
   const paywallServiceFeeAmount = Number(serviceFeePaywall?.serviceFeeAmount ?? 0) > 0 ? Number(serviceFeePaywall?.serviceFeeAmount ?? 0) : demandedServiceFee;
-  const paywallWorkerEarnings = Number(serviceFeePaywall?.workerEarnings ?? 0) > 0 ? Number(serviceFeePaywall?.workerEarnings ?? 0) : Math.max(0, paywallGrossAmount - paywallServiceFeeAmount);
+  const paywallWorkerEarnings = Number(serviceFeePaywall?.workerEarnings ?? 0) > 0 ? Number(serviceFeePaywall?.workerEarnings ?? 0) : calculateWorkerEarningsFromServiceFee(paywallServiceFeeAmount);
   const profilePhoto = profile.photoURL ? {
     photoURL: profile.photoURL,
     photoPositionX: profile.photoPositionX ?? 50,
@@ -682,10 +683,16 @@ function ApplicationList({ applications, mode, workerHasLiveJob = false, onAppli
                   <p><strong className="text-[#111] dark:text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
                   <RequestPricingSummary application={application} />
                   {application.requestPricing ? (
-                    <p><strong className="text-[#111] dark:text-[#FFFBFF]">You should receive:</strong> {kes(application.requestPricing.subtotal)}</p>
+                    <>
+                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">You should receive:</strong> {kes(application.requestPricing.total)}</p>
+                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">Your earnings:</strong> {kes(application.requestPricing.subtotal)}</p>
+                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">COPIC fee:</strong> {kes(application.requestPricing.serviceFee)}</p>
+                    </>
                   ) : application.jobAmount ? (
                     <>
-                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">You should receive:</strong> {kes(fixedPay.workerEarnings)}</p>
+                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">You should receive:</strong> {kes(fixedPay.total)}</p>
+                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">Your earnings:</strong> {kes(fixedPay.workerEarnings)}</p>
+                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">COPIC fee:</strong> {kes(fixedPay.serviceFee)}</p>
                     </>
                   ) : null}
                   {application.requestDescription ? <p className="mt-2">{application.requestDescription}</p> : null}
@@ -710,7 +717,11 @@ function ApplicationList({ applications, mode, workerHasLiveJob = false, onAppli
                       <p className="mt-1 font-black text-[#111] dark:text-[#FFFBFF]">Amount Due: {kes(fixedPay.serviceFee)}</p>
                     </>
                   ) : (
-                    <p className="text-base font-black text-[#111] dark:text-[#FFFBFF]">You should receive: {kes(fixedPay.workerEarnings)}</p>
+                    <>
+                      <p className="text-base font-black text-[#111] dark:text-[#FFFBFF]">You should receive: {kes(fixedPay.total)}</p>
+                      <p className="mt-1">Your earnings: {kes(fixedPay.workerEarnings)}</p>
+                      <p className="mt-1">COPIC fee: {kes(fixedPay.serviceFee)}</p>
+                    </>
                   )}
                 </div>
               )}
@@ -797,7 +808,9 @@ function ApplicationList({ applications, mode, workerHasLiveJob = false, onAppli
             const breakdown = calculateJobPaymentBreakdown(Number(pendingComplete.jobAmount ?? 0));
             return (
               <div className="mt-4 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
-                <p className="text-base font-black text-[#FFFBFF]">You should receive: {kes(breakdown.workerEarnings)}</p>
+                <p className="text-base font-black text-[#FFFBFF]">You should receive: {kes(breakdown.total)}</p>
+                <p className="mt-1">Your earnings: {kes(breakdown.workerEarnings)}</p>
+                <p className="mt-1">COPIC fee: {kes(breakdown.serviceFee)}</p>
               </div>
             );
           })()}

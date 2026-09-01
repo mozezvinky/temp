@@ -4,7 +4,7 @@ import { isSqlBackend } from "@/lib/data-backend";
 import { adminDb } from "@/lib/firebase-admin";
 import { getLatestLocalServiceFeePayment, getLocalUser, listLocalApplications } from "@/lib/local-sql";
 import type { ServiceFeePaymentStatus, ServiceFeePaywallState } from "@/types";
-import { calculateJobPaymentBreakdown } from "@/utils/money";
+import { calculateJobPaymentBreakdown, calculateWorkerEarningsFromServiceFee } from "@/utils/money";
 
 type ServiceFeeBreakdown = {
   grossAmount: number;
@@ -91,8 +91,8 @@ function stateFromAmounts(input: {
 }
 
 function calculateBreakdownFromFee(serviceFee: number) {
-  const grossAmount = serviceFee > 0 ? serviceFee * 10 : 0;
-  const breakdown = calculateJobPaymentBreakdown(grossAmount);
+  const workerEarnings = calculateWorkerEarningsFromServiceFee(serviceFee);
+  const breakdown = calculateJobPaymentBreakdown(workerEarnings);
   return {
     grossAmount: breakdown.total,
     workerEarnings: breakdown.workerEarnings,
@@ -137,7 +137,7 @@ async function latestBreakdown(applications: Record<string, unknown>[]) {
     const serviceFeeAmount = Number(latestWithFee.serviceFeeAmount ?? 0);
     return {
       grossAmount,
-      workerEarnings: Number(latestWithFee.workerEarnings ?? Math.max(0, grossAmount - serviceFeeAmount)),
+      workerEarnings: Number(latestWithFee.workerEarnings ?? calculateWorkerEarningsFromServiceFee(serviceFeeAmount)),
       serviceFeeAmount,
       jobId: typeof latestWithFee.jobId === "string" ? latestWithFee.jobId : null,
       applicationId: typeof latestWithFee.id === "string" ? latestWithFee.id : null

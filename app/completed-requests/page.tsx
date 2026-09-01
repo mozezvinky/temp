@@ -82,7 +82,7 @@ export default function CompletedRequestsPage() {
   }
 
   function pendingPaymentAmount(application: Application) {
-    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).workerEarnings;
+    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).total;
     return applicationTimelinePay(application).submittedWorkerAmount;
   }
 

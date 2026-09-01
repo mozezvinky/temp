@@ -76,10 +76,26 @@ function localWorkersFor(uid: string) {
 }
 
 function publicWorker(worker: Record<string, unknown>) {
-  const skillProfiles = approvedSkillProfiles(Array.isArray(worker.skillProfiles) ? worker.skillProfiles as WorkerSkillProfile[] : []);
+  const richSkills = Array.isArray(worker.skillProfiles) ? worker.skillProfiles as WorkerSkillProfile[] : [];
+  const legacySkills = richSkills.length ? [] : Array.isArray(worker.skills) ? worker.skills.filter((skill): skill is string => typeof skill === "string" && !!skill.trim()) : [];
+  const legacyProfiles: WorkerSkillProfile[] = legacySkills.map((name, index) => ({
+    id: `legacy-${String(worker.id ?? worker.uid ?? "worker")}-${index}-${name}`,
+    name,
+    category: "services_trades",
+    level: "independent",
+    proofType: "reference",
+    chargeAmount: Number(worker.hourlyRate ?? 0) > 0 ? Number(worker.hourlyRate) : undefined,
+    chargeCategory: name,
+    chargePayType: "fixed",
+    completedJobs: Number(worker.completedJobs ?? 0),
+    ratingAverage: Number(worker.ratingAverage ?? 0),
+    ratingCount: Number(worker.ratingCount ?? 0),
+    verificationStatus: "approved"
+  }));
+  const skillProfiles = approvedSkillProfiles(richSkills.length ? richSkills : legacyProfiles);
   return {
     ...worker,
     skillProfiles,
-    skills: approvedSkillNames(skillProfiles)
+    skills: skillProfiles.length ? approvedSkillNames(skillProfiles) : legacySkills
   };
 }

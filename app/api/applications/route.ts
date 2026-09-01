@@ -7,9 +7,9 @@ import { type CopicNotificationInput, sendNotificationEmailsAfterCommit, setNoti
 import { serverDebug } from "@/lib/server-debug";
 import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatus, getWorkerVerificationStatusFromRecords, getWorkerWorkEligibility, logApplyEligibilityCheck } from "@/lib/worker-verification";
 import type { Role } from "@/types";
-import { calculateJobPaymentBreakdown, calculateServiceFee } from "@/utils/money";
+import { calculateJobPaymentBreakdown } from "@/utils/money";
 import { normalizeVerificationStatus } from "@/utils/verification";
-import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
+import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/timeline-payments";
 import { isLiveJob } from "@/utils/activity";
 import { FieldValue, type Transaction } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -381,8 +381,8 @@ export async function PATCH(request: NextRequest) {
             .filter(doc => doc.data().status === "pending")
             .sort((a, b) => Number(a.data().timelineNumber ?? 0) - Number(b.data().timelineNumber ?? 0));
           const timelineCount = Math.max(1, Math.trunc(Number(job.timelineCount ?? 1) || 1));
-          const clientPayPerTimeline = Number(job.clientPayPerTimeline ?? job.payAmount ?? job.rateAmount ?? 0);
-          const timelineSummary = timelinePaymentSummary(clientPayPerTimeline, timelineCount);
+          const timelineSummary = timelinePaymentSummaryFromRecord(job, timelineCount);
+          const clientPayPerTimeline = timelineSummary.clientPayPerTimeline;
           const workerPayPerTimeline = timelineSummary.workerPayPerTimeline;
           const submitCount = Math.max(1, Math.min(requestedTimelineCount, timelineSnap.empty ? timelineCount : pendingTimelineDocs.length));
           const submittedTimelineNumbers: number[] = [];
@@ -576,8 +576,14 @@ export async function PATCH(request: NextRequest) {
           const paidTimelineRatingScopeId = `timeline:${applicationSnap.id}:${payableDocs.map(doc => doc.id).sort().join("-")}`;
           const allPaid = allTimelinesSnap.docs.every(doc => doc.data().status === "paid" || paidIds.has(doc.id));
           const grossAmount = payableDocs.reduce((sum, doc) => sum + Number(doc.data().clientAmount ?? 0), 0);
-          const serviceFee = payableDocs.reduce((sum, doc) => sum + calculateServiceFee(Number(doc.data().clientAmount ?? 0)), 0);
-          const workerEarnings = Math.max(0, grossAmount - serviceFee);
+          const workerEarnings = payableDocs.reduce((sum, doc) => sum + Number(doc.data().workerAmount ?? 0), 0);
+          const serviceFee = payableDocs.reduce((sum, doc) => {
+            const platformFee = Number(doc.data().platformFee ?? 0);
+            if (platformFee > 0) return sum + platformFee;
+            const clientAmount = Number(doc.data().clientAmount ?? 0);
+            const workerAmount = Number(doc.data().workerAmount ?? 0);
+            return sum + Math.max(0, clientAmount - workerAmount);
+          }, 0);
           const workerUserRef = db.collection("users").doc(String(application.workerId));
           payableDocs.forEach(doc => transaction.set(doc.ref, { status: "paid", approvedAt: FieldValue.serverTimestamp(), paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true }));
           transaction.set(applicationRef, {
@@ -826,8 +832,8 @@ async function enrichApplicationsWithWorkers(applications: Array<Record<string, 
       const job = typeof application.jobId === "string" ? jobs.get(application.jobId) : undefined;
       const jobTimelines = typeof application.jobId === "string" ? timelines.get(application.jobId) ?? [] : [];
       const timelineCount = Math.max(1, Math.trunc(Number(job?.timelineCount ?? 1) || 1));
-      const clientPayPerTimeline = Number(job?.clientPayPerTimeline ?? job?.payAmount ?? job?.rateAmount ?? 0);
-      const timelineSummary = timelinePaymentSummary(clientPayPerTimeline, timelineCount);
+      const timelineSummary = timelinePaymentSummaryFromRecord(job ?? {}, timelineCount);
+      const clientPayPerTimeline = timelineSummary.clientPayPerTimeline;
       const workerPayPerTimeline = timelineSummary.workerPayPerTimeline;
       const paidTimelineCount = jobTimelines.filter(item => item.status === "paid").length;
       const submittedTimelineCount = jobTimelines.filter(item => item.status === "submitted").length;
