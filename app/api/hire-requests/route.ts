@@ -301,16 +301,9 @@ function hasRole(profile: unknown, role: "client" | "worker") {
   return data.role === role || (Array.isArray(data.roles) && data.roles.includes(role));
 }
 
-function isAdminOnly(profile: unknown) {
-  if (!profile || typeof profile !== "object") return false;
-  const data = profile as { role?: unknown; roles?: unknown };
-  const roles = Array.isArray(data.roles) ? data.roles : [];
-  return data.role === "admin" || roles.includes("admin");
-}
-
 function canUseClientMode(profile: unknown, resolvedRole: string | undefined, activeMode: string | null) {
   if (activeMode === "worker") return false;
-  if (!profile || isAdminOnly(profile)) return false;
+  if (!profile) return false;
   if (activeMode === "client") return true;
   return resolvedRole === "client" || resolvedRole === "worker" || hasRole(profile, "client") || hasRole(profile, "worker");
 }
