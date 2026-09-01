@@ -301,6 +301,7 @@ export interface Application {
   jobCategory?: string;
   jobStatus?: JobStatus;
   workerName?: string;
+  workerPhotoURL?: string;
   workerEmail?: string;
   workerPhoneNumber?: string;
   jobAmount?: number;
@@ -325,6 +326,7 @@ export interface Application {
   workerRatingCount?: number;
   workerVerificationStatus?: VerificationStatus;
   clientName?: string;
+  clientPhotoURL?: string;
   clientRatingAverage?: number;
   clientRatingCount?: number;
   clientRating?: number;

@@ -11,6 +11,7 @@ import { acceptApplication, cancelApplication, cancelLiveApplication, completeAp
 import { rateUser } from "@/services/ratings";
 import type { Application } from "@/types";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
+import { isLiveJob } from "@/utils/activity";
 import { perDurationUnit } from "@/utils/duration";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
@@ -68,10 +69,10 @@ export default function ApplicationsPage() {
   const visibleApplications = statusView === "requests"
     ? baseApplications.filter(application => application.source === "direct_hire" && application.status === "pending")
     : statusView === "live"
-      ? baseApplications.filter(isLiveApplication)
+      ? baseApplications.filter(isLiveJob)
       : baseApplications;
-  const currentJobApplications = visibleApplications.filter(isLiveApplication);
-  const pastOrPendingApplications = visibleApplications.filter(application => !isLiveApplication(application));
+  const currentJobApplications = visibleApplications.filter(isLiveJob);
+  const pastOrPendingApplications = visibleApplications.filter(application => !isLiveJob(application));
   const clientPageTitle = statusView === "requests" ? "Requests sent" : statusView === "live" ? "Live jobs" : "Applicants";
   const clientEmptyTitle = statusView === "requests" ? "No sent requests" : statusView === "live" ? "No live jobs" : "No applicants yet";
   const clientEmptyBody = statusView === "requests"
@@ -559,9 +560,4 @@ function StatusPill({ status }: { status: Application["status"] }) {
     return <span className="inline-flex rounded-full border border-purple-500/40 bg-purple-400/20 px-3 py-1 text-sm font-black text-purple-800 dark:text-purple-100">Payment sent</span>;
   }
   return <span className="text-sm capitalize text-[#CCC6BB]">Status: {status}</span>;
-}
-
-function isLiveApplication(application: Application) {
-  return ["accepted", "completion_requested", "payment_sent"].includes(application.status)
-    && ["live", "assigned", "active"].includes(String(application.jobStatus ?? ""));
 }

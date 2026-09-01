@@ -882,6 +882,7 @@ function rowToApplication(row: Record<string, unknown>) {
     nextTimelineNumber: row.nextTimelineNumber == null ? undefined : Number(row.nextTimelineNumber),
     nextPayableTimelineNumber: row.nextPayableTimelineNumber == null ? undefined : Number(row.nextPayableTimelineNumber),
     workerName: typeof row.workerName === "string" ? row.workerName : undefined,
+    workerPhotoURL: typeof row.workerPhotoURL === "string" ? row.workerPhotoURL : undefined,
     workerEmail: typeof row.workerEmail === "string" ? row.workerEmail : undefined,
     workerPhoneNumber: typeof row.workerPhoneNumber === "string" ? row.workerPhoneNumber : undefined,
     workerSkills: parseJson<string[]>(row.workerSkills, []),
@@ -890,6 +891,7 @@ function rowToApplication(row: Record<string, unknown>) {
     workerRatingCount: Number(row.workerRatingCount ?? 0),
     workerVerificationStatus: String(row.workerVerificationStatus ?? "not_submitted") as UserProfile["verificationStatus"],
     clientName: typeof row.clientName === "string" ? row.clientName : undefined,
+    clientPhotoURL: typeof row.clientPhotoURL === "string" ? row.clientPhotoURL : undefined,
     clientRatingAverage: Number(row.clientRatingAverage ?? 0),
     clientRatingCount: Number(row.clientRatingCount ?? 0),
     clientRating: row.clientRating == null ? undefined : Number(row.clientRating),
@@ -1072,8 +1074,8 @@ export function respondLocalDirectHireRequest(applicationId: string, workerId: s
     localDb().prepare("UPDATE jobs SET status = 'cancelled', updatedAt = ? WHERE id = ?").run(now, application.jobId);
     localDb().prepare(`
       INSERT OR REPLACE INTO notifications (id, userId, title, body, read, href, createdAt)
-      VALUES (?, ?, 'Direct hire rejected', ?, 0, '/workers', ?)
-    `).run(`notification-direct-hire-rejected-${applicationId}`, application.clientId, `${application.workerName ?? "The worker"} rejected your direct hire request for ${application.jobTitle ?? "the job"}.`, now);
+      VALUES (?, ?, 'Direct hire declined', ?, 0, '/workers', ?)
+    `).run(`notification-direct-hire-rejected-${applicationId}`, application.clientId, `${application.workerName ?? "The worker"} declined your hire request for ${application.jobTitle ?? "the job"}.`, now);
   } else {
     const worker = getLocalUser(workerId);
     const job = getLocalJob(application.jobId);
@@ -1614,6 +1616,7 @@ export function listLocalApplications(userId: string, role: "client" | "worker")
     SELECT
       applications.*,
       workers.displayName as workerName,
+      workers.photoURL as workerPhotoURL,
       workers.email as workerEmail,
       workers.phoneNumber as workerPhoneNumber,
       workers.skills as workerSkills,
@@ -1622,6 +1625,7 @@ export function listLocalApplications(userId: string, role: "client" | "worker")
       workers.ratingCount as workerRatingCount,
       workers.verificationStatus as workerVerificationStatus,
       clients.displayName as clientName,
+      clients.photoURL as clientPhotoURL,
       clients.ratingAverage as clientRatingAverage,
       clients.ratingCount as clientRatingCount,
       jobs.category as jobCategory,

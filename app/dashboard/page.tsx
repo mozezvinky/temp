@@ -25,6 +25,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
+import { isLiveJob } from "@/utils/activity";
 import { perDurationUnit } from "@/utils/duration";
 import { calculateJobPaymentBreakdown, calculateWorkerNet, kes } from "@/utils/money";
 import { completedJobId } from "@/utils/completed-job-id";
@@ -265,7 +266,7 @@ export default function DashboardPage() {
   const visibleApplications = applications.filter(application => application.coverNote !== "Rehire request");
   const directHireRequests = visibleApplications.filter(application => application.source === "direct_hire" && application.status === "pending");
   const standardApplications = visibleApplications.filter(application => application.source !== "direct_hire");
-  const liveApplications = visibleApplications.filter(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled");
+  const liveApplications = visibleApplications.filter(isLiveJob);
   const doneApplications = visibleApplications.filter(application => application.status === "completed" || application.jobStatus === "completed");
   const completedJobsCount = Math.max(profile.completedJobs ?? 0, doneApplications.length);
   const displayRating = ratingAggregate.count ? ratingAggregate.average : profile.ratingAverage ?? 0;

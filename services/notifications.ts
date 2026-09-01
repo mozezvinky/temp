@@ -6,6 +6,10 @@ import { getToken, onMessage } from "firebase/messaging";
 import { doc, updateDoc } from "firebase/firestore";
 import { toast } from "sonner";
 
+function notifyNotificationsChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("copic:notifications-changed"));
+}
+
 export async function enablePush(userId: string) {
   const db = requireDb();
   const instance = await messaging();
@@ -88,10 +92,12 @@ export function subscribeNotifications(userId: string, callback: (items: AppNoti
     run();
   };
   window.addEventListener("online", resume);
+  window.addEventListener("copic:notifications-changed", resume);
   return () => {
     stopped = true;
     if (timeoutId !== null) window.clearTimeout(timeoutId);
     window.removeEventListener("online", resume);
+    window.removeEventListener("copic:notifications-changed", resume);
   };
 }
 
@@ -117,6 +123,7 @@ export async function markNotificationRead(notificationId: string) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to mark this alert as viewed.");
+  notifyNotificationsChanged();
 }
 
 export async function deleteNotification(notificationId: string) {

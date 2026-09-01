@@ -11,6 +11,7 @@ import { normalizeLocationFields, locationRequiresDescription } from "@/utils/lo
 import { jobLocationLabel } from "@/utils/location-display";
 import { normalizeSkillVerificationStatus } from "@/utils/worker-skills";
 import { normalizeVerificationStatus } from "@/utils/verification";
+import { isActiveHireRequestStatus, isLiveJob } from "@/utils/activity";
 import { FieldValue, type Transaction } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -82,16 +83,6 @@ export async function POST(request: NextRequest) {
     const savedSkill = selectedWorkerSkill(Array.isArray(worker?.skillProfiles) ? worker.skillProfiles as WorkerSkillProfile[] : [], input.skillId);
     if (!savedSkill) return NextResponse.json({ error: "Choose a verified worker skill." }, { status: 400 });
     const pricing = calculateVerifiedPricing(savedSkill, input.quantity);
-    const existingRequestSnap = await db.collection("applications").where("clientId", "==", decoded.uid).limit(120).get();
-    const duplicateRequest = existingRequestSnap.docs.some(doc => {
-      const data = doc.data();
-      return data.source === "direct_hire"
-        && data.workerId === input.workerId
-        && data.requestSkillId === savedSkill.id
-        && isActiveHireRequestStatus(String(data.status ?? ""));
-    });
-    if (duplicateRequest) return NextResponse.json({ error: "You already have an active request for this worker skill." }, { status: 409 });
-
     const jobRef = db.collection("jobs").doc();
     const applicationRef = db.collection("applications").doc();
     const notification = {
@@ -108,6 +99,10 @@ export async function POST(request: NextRequest) {
       jobId: jobRef.id,
       workerId: input.workerId,
       clientId: decoded.uid,
+      workerName: String(worker?.displayName ?? "Worker"),
+      workerPhotoURL: typeof worker?.photoURL === "string" ? worker.photoURL : null,
+      clientName: String(effectiveClient.displayName ?? "Client"),
+      clientPhotoURL: typeof effectiveClient.photoURL === "string" ? effectiveClient.photoURL : null,
       jobTitle: input.title,
       jobCategory: input.category,
       coverNote: "Direct hire request",
@@ -128,40 +123,49 @@ export async function POST(request: NextRequest) {
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
     };
-    const batch = db.batch();
-    batch.set(jobRef, {
-      id: jobRef.id,
-      clientId: decoded.uid,
-      clientName: String(effectiveClient.displayName ?? "Client"),
-      createdBy: decoded.uid,
-      title: input.title,
-      description: input.description,
-      category: input.category,
-      location: input.location,
-      county: "",
-      locationDetails: input.locationDetails,
-      payAmount: pricing.total,
-      payType: pricing.pricingType === "timeline" ? "timeline" : "fixed",
-      duration: input.duration,
-      workersNeeded: 1,
-      quantity: pricing.quantity,
-      unit: pricing.unit,
-      customUnit: null,
-      requiredSkills: [savedSkill.name],
-      applicants: [],
-      assignedWorkerId: null,
-      status: "pending",
-      rateType: pricing.pricingType,
-      rateAmount: pricing.rateAmount,
-      grossAmount: pricing.total,
-      workerEarnings: pricing.subtotal,
-      serviceFeeAmount: pricing.serviceFee,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp()
+    await db.runTransaction(async transaction => {
+      const existingRequestSnap = await transaction.get(db.collection("applications").where("clientId", "==", decoded.uid).limit(120));
+      const duplicateRequest = existingRequestSnap.docs.some(doc => {
+        const data = doc.data();
+        return data.source === "direct_hire"
+          && data.workerId === input.workerId
+          && data.requestSkillId === savedSkill.id
+          && isActiveHireRequestStatus(String(data.status ?? ""));
+      });
+      if (duplicateRequest) throw new AuthRouteError("You already have an active request for this worker skill.", 409);
+      transaction.set(jobRef, {
+        id: jobRef.id,
+        clientId: decoded.uid,
+        clientName: String(effectiveClient.displayName ?? "Client"),
+        createdBy: decoded.uid,
+        title: input.title,
+        description: input.description,
+        category: input.category,
+        location: input.location,
+        county: "",
+        locationDetails: input.locationDetails,
+        payAmount: pricing.total,
+        payType: pricing.pricingType === "timeline" ? "timeline" : "fixed",
+        duration: input.duration,
+        workersNeeded: 1,
+        quantity: pricing.quantity,
+        unit: pricing.unit,
+        customUnit: null,
+        requiredSkills: [savedSkill.name],
+        applicants: [],
+        assignedWorkerId: null,
+        status: "pending",
+        rateType: pricing.pricingType,
+        rateAmount: pricing.rateAmount,
+        grossAmount: pricing.total,
+        workerEarnings: pricing.subtotal,
+        serviceFeeAmount: pricing.serviceFee,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      transaction.set(applicationRef, payload);
+      setNotification(transaction, db, notification);
     });
-    batch.set(applicationRef, payload);
-    setNotification(batch, db, notification);
-    await batch.commit();
     void sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, request: payload });
   } catch (error) {
@@ -246,10 +250,10 @@ export async function PATCH(request: NextRequest) {
       notification = {
         userId: String(application.clientId),
         type: response === "accept" ? "direct_hire_accepted" : "direct_hire_rejected",
-        title: response === "accept" ? "Direct hire accepted" : "Direct hire rejected",
+        title: response === "accept" ? "Direct hire accepted" : "Direct hire declined",
         message: response === "accept"
           ? `${application.workerName ?? "The worker"} accepted your direct hire request for ${application.jobTitle ?? "the job"}.`
-          : `${application.workerName ?? "The worker"} rejected your direct hire request for ${application.jobTitle ?? "the job"}.`,
+          : `${application.workerName ?? "The worker"} declined your hire request for ${application.jobTitle ?? "the job"}.`,
         link: response === "accept" ? "/find-work" : "/workers",
         emailSubject: response === "accept" ? "Direct hire accepted on COPIC" : "Direct hire declined on COPIC",
         eventId: `direct-hire:${applicationSnap.id}:${response}`
@@ -301,23 +305,25 @@ function calculateVerifiedPricing(skill: WorkerSkillProfile, quantity: number) {
   return calculateDirectHirePricing(skill, quantity);
 }
 
-function isActiveHireRequestStatus(status: string) {
-  return status === "pending" || status === "accepted" || status === "completion_requested" || status === "payment_sent";
-}
-
-function isLiveApplicationStatus(status: string) {
-  return status === "accepted" || status === "completion_requested" || status === "payment_sent";
-}
-
 async function workerHasLiveJob(transaction: Transaction, workerId: string, excludeApplicationId: string) {
   const db = adminDb();
   const snapshot = await transaction.get(db.collection("applications").where("workerId", "==", workerId).limit(80));
-  const activeApplications = snapshot.docs.filter(doc => doc.id !== excludeApplicationId && isLiveApplicationStatus(String(doc.data().status ?? "")));
-  if (!activeApplications.length) return false;
-  const jobSnaps = await Promise.all(activeApplications.map(doc => transaction.get(db.collection("jobs").doc(String(doc.data().jobId)))));
-  return activeApplications.some((doc, index) => {
-    const jobStatus = String(jobSnaps[index]?.data()?.status ?? "");
-    return jobStatus !== "completed" && jobStatus !== "cancelled" && doc.data().jobStatus !== "completed" && doc.data().jobStatus !== "cancelled";
+  const candidateApplications = snapshot.docs.filter(doc => doc.id !== excludeApplicationId);
+  if (!candidateApplications.length) return false;
+  const jobSnaps = await Promise.all(candidateApplications.map(doc => transaction.get(db.collection("jobs").doc(String(doc.data().jobId)))));
+  return candidateApplications.some((doc, index) => {
+    const data = doc.data();
+    return isLiveJob({
+      id: doc.id,
+      jobId: String(data.jobId ?? ""),
+      workerId: String(data.workerId ?? ""),
+      clientId: String(data.clientId ?? ""),
+      coverNote: String(data.coverNote ?? ""),
+      status: String(data.status ?? "pending") as never,
+      jobStatus: String(jobSnaps[index]?.data()?.status ?? data.jobStatus ?? "") as never,
+      createdAt: null as never,
+      updatedAt: null as never
+    });
   });
 }
 

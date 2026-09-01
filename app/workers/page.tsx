@@ -12,6 +12,7 @@ import { sendDirectHireRequest, subscribeApplications } from "@/services/jobs";
 import { subscribeWorkers } from "@/services/users";
 import type { Application, Conversation, LocationFields, Message, Role, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateDirectHirePricing, pluralUnit, quantityLabel, resolveSkillPricingType, resolveSkillUnit } from "@/utils/direct-hire-pricing";
+import { isActiveHireRequestStatus } from "@/utils/activity";
 import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
 import { jobLocationLabel } from "@/utils/location-display";
 import { kes } from "@/utils/money";
@@ -566,7 +567,7 @@ function WorkerResultCard({ match, active, requested, onHire, onMessage }: { mat
       </div>
       <div className="worker-result-action">
         <strong><span>{rate.amount}</span>{rate.suffix && <em>{rate.suffix}</em>}</strong>
-        <Button type="button" onClick={onHire} className="worker-hire-button" disabled={requested}>{requested ? "Requested" : "Hire"}</Button>
+        <Button type="button" onClick={onHire} className="worker-hire-button" disabled={requested}>{requested ? "Request sent" : "Hire"}</Button>
       </div>
     </article>
   );
@@ -723,10 +724,6 @@ function validateHireFields({ startDate, quantityInput, quantity, location }: {
     errors.locationDescription = "Please add location details because no nearby landmark was found";
   }
   return errors;
-}
-
-function isActiveHireRequestStatus(status: string) {
-  return status === "pending" || status === "accepted" || status === "completion_requested" || status === "payment_sent";
 }
 
 function locationRequiresExtraDescription(location: LocationFields) {

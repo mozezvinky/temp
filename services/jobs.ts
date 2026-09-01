@@ -61,8 +61,10 @@ function quotaError() {
   return new Error("Firestore quota is exhausted right now. Please wait a few minutes before trying again.");
 }
 
-function notifyApplicationsChanged() {
-  if (typeof window !== "undefined") window.dispatchEvent(new Event("copic:applications-changed"));
+function notifyActivityChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("copic:applications-changed"));
+  window.dispatchEvent(new Event("copic:notifications-changed"));
 }
 
 function activeRoleHeaders(userId: string, preferredRole?: "client" | "worker" | "admin"): Record<string, string> {
@@ -370,6 +372,7 @@ export async function createJob(clientId: string, input: unknown) {
   if (typeof window !== "undefined") {
     window.localStorage.removeItem("temp.dataQuotaPausedUntil");
     window.dispatchEvent(new CustomEvent("temp:jobs-changed"));
+    notifyActivityChanged();
   }
   return { id: String(payload.jobId) };
 }
@@ -456,7 +459,7 @@ export async function completeApplication(application: Application, timelineIds?
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to mark this worker paid.");
-  notifyApplicationsChanged();
+  notifyActivityChanged();
   return payload.application as Application;
 }
 
@@ -471,7 +474,7 @@ export async function confirmWorkerPaymentReceived(application: Application) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to confirm payment received.");
-  notifyApplicationsChanged();
+  notifyActivityChanged();
   return payload.application as Application;
 }
 
@@ -486,7 +489,7 @@ export async function requestApplicationCompletion(application: Application, tim
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to request completion.");
-  notifyApplicationsChanged();
+  notifyActivityChanged();
   return payload.application as Application;
 }
 
@@ -514,7 +517,7 @@ export async function applyToJob(job: Job, worker: UserProfile, coverNote: strin
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to submit application.");
-  notifyApplicationsChanged();
+  notifyActivityChanged();
 }
 
 export async function acceptApplication(application: Application) {
@@ -536,7 +539,7 @@ export async function acceptApplication(application: Application) {
     }
     throw new Error(message);
   }
-  notifyApplicationsChanged();
+  notifyActivityChanged();
   return payload.application as Application;
 }
 
@@ -551,7 +554,7 @@ export async function cancelApplication(application: Application) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to cancel application.");
-  notifyApplicationsChanged();
+  notifyActivityChanged();
   return payload.application as Application;
 }
 
@@ -566,7 +569,7 @@ export async function cancelLiveApplication(application: Application) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to cancel live job.");
-  notifyApplicationsChanged();
+  notifyActivityChanged();
   return payload.application as Application;
 }
 
@@ -593,7 +596,7 @@ export async function sendDirectHireRequest(input: {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to send hire request.");
-  notifyApplicationsChanged();
+  notifyActivityChanged();
   return payload.request as Application;
 }
 
@@ -608,7 +611,7 @@ export async function respondDirectHireRequest(application: Application, respons
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to update hire request.");
-  notifyApplicationsChanged();
+  notifyActivityChanged();
   return payload.request as Application;
 }
 

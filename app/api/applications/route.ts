@@ -10,6 +10,7 @@ import type { Role } from "@/types";
 import { calculateJobPaymentBreakdown, calculateServiceFee } from "@/utils/money";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
+import { isLiveJob } from "@/utils/activity";
 import { FieldValue, type Transaction } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -773,12 +774,22 @@ function isLiveApplicationStatus(status: string) {
 async function workerHasLiveJob(transaction: Transaction, workerId: string, excludeApplicationId: string) {
   const db = adminDb();
   const snapshot = await transaction.get(db.collection("applications").where("workerId", "==", workerId).limit(80));
-  const activeApplications = snapshot.docs.filter(doc => doc.id !== excludeApplicationId && isLiveApplicationStatus(String(doc.data().status ?? "")));
-  if (!activeApplications.length) return false;
-  const jobSnaps = await Promise.all(activeApplications.map(doc => transaction.get(db.collection("jobs").doc(String(doc.data().jobId)))));
-  return activeApplications.some((doc, index) => {
-    const jobStatus = String(jobSnaps[index]?.data()?.status ?? "");
-    return jobStatus !== "completed" && jobStatus !== "cancelled" && doc.data().jobStatus !== "completed" && doc.data().jobStatus !== "cancelled";
+  const candidateApplications = snapshot.docs.filter(doc => doc.id !== excludeApplicationId && isLiveApplicationStatus(String(doc.data().status ?? "")));
+  if (!candidateApplications.length) return false;
+  const jobSnaps = await Promise.all(candidateApplications.map(doc => transaction.get(db.collection("jobs").doc(String(doc.data().jobId)))));
+  return candidateApplications.some((doc, index) => {
+    const data = doc.data();
+    return isLiveJob({
+      id: doc.id,
+      jobId: String(data.jobId ?? ""),
+      workerId: String(data.workerId ?? ""),
+      clientId: String(data.clientId ?? ""),
+      coverNote: String(data.coverNote ?? ""),
+      status: String(data.status ?? "pending") as never,
+      jobStatus: String(jobSnaps[index]?.data()?.status ?? data.jobStatus ?? "") as never,
+      createdAt: null as never,
+      updatedAt: null as never
+    });
   });
 }
 
@@ -797,7 +808,7 @@ function timestampMillis(value: unknown) {
 async function enrichApplicationsWithWorkers(applications: Array<Record<string, unknown>>, role: "client" | "worker") {
   const db = adminDb();
   const workerIds = role === "client" ? [...new Set(applications.map(item => typeof item.workerId === "string" ? item.workerId : "").filter(Boolean))] : [];
-  const clientIds: string[] = [];
+  const clientIds = role === "worker" ? [...new Set(applications.map(item => typeof item.clientId === "string" ? item.clientId : "").filter(Boolean))] : [];
   const jobIds = [...new Set(applications.map(item => typeof item.jobId === "string" ? item.jobId : "").filter(Boolean))];
   const workerSnaps = await Promise.all(workerIds.map(id => db.collection("users").doc(id).get()));
   const clientSnaps = await Promise.all(clientIds.map(id => db.collection("users").doc(id).get()));
@@ -840,14 +851,16 @@ async function enrichApplicationsWithWorkers(applications: Array<Record<string, 
         unpaidTimelineCount: Math.max(0, timelineCount - paidTimelineCount),
         nextTimelineNumber: pendingTimelineNumbers.length ? Math.min(...pendingTimelineNumbers) : undefined,
         nextPayableTimelineNumber: payableTimelineNumbers.length ? Math.min(...payableTimelineNumbers) : undefined,
-        workerName: typeof worker?.displayName === "string" ? worker.displayName : undefined,
+        workerName: typeof worker?.displayName === "string" ? worker.displayName : typeof application.workerName === "string" ? application.workerName : undefined,
+        workerPhotoURL: typeof worker?.photoURL === "string" ? worker.photoURL : typeof application.workerPhotoURL === "string" ? application.workerPhotoURL : undefined,
         workerEmail: typeof worker?.email === "string" ? worker.email : undefined,
         workerPhoneNumber: typeof worker?.phoneNumber === "string" ? worker.phoneNumber : undefined,
         workerSkills: Array.isArray(worker?.skills) ? worker.skills : [],
         workerCompletedJobs: Number(worker?.completedJobs ?? worker?.ratingCount ?? 0),
         workerRatingAverage: Number(worker?.ratingAverage ?? 0),
         workerRatingCount: Number(worker?.ratingCount ?? 0),
-        clientName: typeof client?.displayName === "string" ? client.displayName : undefined,
+        clientName: typeof client?.displayName === "string" ? client.displayName : typeof application.clientName === "string" ? application.clientName : undefined,
+        clientPhotoURL: typeof client?.photoURL === "string" ? client.photoURL : typeof application.clientPhotoURL === "string" ? application.clientPhotoURL : undefined,
         clientRatingAverage: Number(client?.ratingAverage ?? 0),
         clientRatingCount: Number(client?.ratingCount ?? 0),
         workerVerificationStatus: normalizeVerificationStatus(worker?.verificationStatus)
