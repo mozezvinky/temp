@@ -2866,9 +2866,9 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
   display: grid;
   gap: 10px;
   margin-top: 2px;
-  padding: 12px;
-  border-radius: 20px;
-  background: var(--copic-surface);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .worker-hire-location .rounded-2xl {
   border-radius: 14px !important;
@@ -2933,7 +2933,7 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
   color: #f7f7f7;
 }
 [data-ui-theme="dark"] .worker-hire-location {
-  background: #111313;
+  background: transparent;
 }
 @keyframes workers-caret {
   50% { opacity: 0; }
