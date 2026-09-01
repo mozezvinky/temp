@@ -2457,16 +2457,36 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
   outline: 0 !important;
   padding: 0 !important;
   background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
   box-shadow: none !important;
   color: var(--copic-text) !important;
 }
+.workers-search-input input:hover,
+.workers-search-input input:active,
 .workers-search-input input:focus,
 .workers-search-input input:focus-visible {
+  -webkit-appearance: none !important;
+  appearance: none !important;
   border: 0 !important;
   border-radius: 0 !important;
   outline: 0 !important;
   box-shadow: none !important;
   background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+.workers-search-input input:-webkit-autofill,
+.workers-search-input input:-webkit-autofill:hover,
+.workers-search-input input:-webkit-autofill:focus,
+.workers-search-input input:-webkit-autofill:active {
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  -webkit-box-shadow: 0 0 0 1000px transparent inset !important;
+  box-shadow: 0 0 0 1000px transparent inset !important;
+  -webkit-text-fill-color: var(--copic-text) !important;
+  transition: background-color 9999s ease-out;
 }
 .workers-search-actions {
   display: grid;

@@ -1,5 +1,5 @@
 import type { LocationFields, UserProfile, WorkerSkillProfile } from "@/types";
-import { calculateDirectHirePricing, resolveSkillUnit } from "@/utils/direct-hire-pricing";
+import { calculateDirectHirePricing, resolveSkillPricingType, resolveSkillUnit } from "@/utils/direct-hire-pricing";
 import { workerCanApplyToJob } from "@/utils/jobRules";
 
 type SearchGroup = {
@@ -96,17 +96,19 @@ export function scoreWorkerMatch(worker: UserProfile, skills: WorkerSkillProfile
 
 export function clientRateLabel(skill: WorkerSkillProfile, formatter: (amount: number) => string) {
   const pricing = calculateDirectHirePricing(skill, 1);
-  if (skill.chargePayType === "unit") return `${formatter(pricing.clientRatePerUnit ?? pricing.total)}/${resolveSkillUnit(skill).toLowerCase() || "unit"}`;
-  if (skill.chargePayType === "timeline") return `${formatter(pricing.total)}/timeline`;
+  const pricingType = resolveSkillPricingType(skill);
+  if (pricingType === "unit") return `${formatter(pricing.clientRatePerUnit ?? pricing.total)}/${resolveSkillUnit(skill).toLowerCase() || "unit"}`;
+  if (pricingType === "timeline") return `${formatter(pricing.total)}/timeline`;
   return formatter(pricing.total);
 }
 
 export function clientRateParts(skill: WorkerSkillProfile, formatter: (amount: number) => string) {
   const pricing = calculateDirectHirePricing(skill, 1);
-  if (skill.chargePayType === "unit") {
+  const pricingType = resolveSkillPricingType(skill);
+  if (pricingType === "unit") {
     return { amount: formatter(pricing.clientRatePerUnit ?? pricing.total), suffix: `/${resolveSkillUnit(skill).toLowerCase() || "unit"}` };
   }
-  if (skill.chargePayType === "timeline") return { amount: formatter(pricing.total), suffix: "/timeline" };
+  if (pricingType === "timeline") return { amount: formatter(pricing.total), suffix: "/timeline" };
   return { amount: formatter(pricing.total), suffix: "" };
 }
 

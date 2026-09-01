@@ -11,7 +11,7 @@ import { sendMessage, subscribeMessages, subscribeUserConversations } from "@/se
 import { sendDirectHireRequest, subscribeApplications } from "@/services/jobs";
 import { subscribeWorkers } from "@/services/users";
 import type { Application, Conversation, LocationFields, Message, UserProfile, WorkerSkillProfile } from "@/types";
-import { calculateDirectHirePricing, pluralUnit, quantityLabel, resolveSkillPricingType, resolveSkillUnit, singularUnit } from "@/utils/direct-hire-pricing";
+import { calculateDirectHirePricing, pluralUnit, quantityLabel, resolveSkillPricingType, resolveSkillUnit } from "@/utils/direct-hire-pricing";
 import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
 import { unitsForCategory } from "@/utils/jobUnits";
 import { jobLocationLabel } from "@/utils/location-display";
@@ -49,6 +49,7 @@ export default function WorkersPage() {
   const [hireSkill, setHireSkill] = useState<WorkerSkillProfile | null>(null);
   const [hireLocation, setHireLocation] = useState<LocationFields>(emptyHireLocation());
   const [hireQuantity, setHireQuantity] = useState(1);
+  const [hireUnit, setHireUnit] = useState("");
   const [sendingHire, setSendingHire] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("recommended");
   const [sortOpen, setSortOpen] = useState(false);
@@ -268,6 +269,7 @@ export default function WorkersPage() {
     setHireSkill(skill);
     setHireLocation(emptyHireLocation());
     setHireQuantity(1);
+    setHireUnit(displayUnit(resolveSkillUnit(skill)));
   }
 
   function backToWorkers() {
@@ -352,9 +354,11 @@ export default function WorkersPage() {
           worker={hireWorker}
           skill={hireSkill}
           quantity={hireQuantity}
+          unit={hireUnit}
           location={hireLocation}
           sending={sendingHire}
           onQuantityChange={setHireQuantity}
+          onUnitChange={setHireUnit}
           onLocationChange={setHireLocation}
           onClose={backToWorkers}
           onSubmit={submitHireRequest}
@@ -514,21 +518,24 @@ function WorkerResultCard({ match, active, onHire, onMessage }: { match: WorkerS
   );
 }
 
-function HirePanel({ worker, skill, quantity, location, sending, onQuantityChange, onLocationChange, onClose, onSubmit }: {
+function HirePanel({ worker, skill, quantity, unit, location, sending, onQuantityChange, onUnitChange, onLocationChange, onClose, onSubmit }: {
   worker: UserProfile;
   skill: WorkerSkillProfile;
   quantity: number;
+  unit: string;
   location: LocationFields;
   sending: boolean;
   onQuantityChange: (value: number) => void;
+  onUnitChange: (value: string) => void;
   onLocationChange: (location: LocationFields) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const pricing = calculateDirectHirePricing(skill, quantity);
   const pricingType = resolveSkillPricingType(skill);
-  const unit = singularUnit(resolveSkillUnit(skill));
-  const plural = pluralUnit(unit);
+  const storedUnit = displayUnit(resolveSkillUnit(skill));
+  const activeUnit = unit || storedUnit;
+  const plural = pluralUnit(activeUnit || storedUnit);
   const rate = clientRateParts(skill, kes);
   const unitOptions = safeUnitOptions(skill);
   return (
@@ -570,7 +577,7 @@ function HirePanel({ worker, skill, quantity, location, sending, onQuantityChang
           </label>
           <label>
             <span>Unit</span>
-            <select value={unit} disabled aria-label="Unit priced by worker">
+            <select value={activeUnit} onChange={event => onUnitChange(event.target.value)} aria-label="Unit priced by worker">
               {unitOptions.map(option => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>
@@ -616,10 +623,14 @@ function workerSkillProfiles(worker: UserProfile): WorkerSkillProfile[] {
 }
 
 function safeUnitOptions(skill: WorkerSkillProfile) {
-  const storedUnit = singularUnit(resolveSkillUnit(skill));
-  const related = unitsForCategory(skill.chargeCategory ?? skill.category ?? skill.name).map(singularUnit);
-  const generic = ["Hour", "Day", "Week", "Month"];
-  return [storedUnit, ...related.filter(unit => unit === storedUnit), ...generic.filter(unit => unit === storedUnit)].filter((unit, index, all) => unit && all.indexOf(unit) === index);
+  const storedUnit = displayUnit(resolveSkillUnit(skill));
+  const related = unitsForCategory(skill.chargeCategory ?? skill.category ?? skill.name).map(displayUnit);
+  const generic = ["hour", "day", "week", "month"];
+  return [storedUnit, ...related, ...generic].filter((unit, index, all) => unit && all.indexOf(unit) === index);
+}
+
+function displayUnit(unit: string) {
+  return unit.trim().toLowerCase() || "unit";
 }
 
 function directHireDuration(skill: WorkerSkillProfile, quantity: number) {
