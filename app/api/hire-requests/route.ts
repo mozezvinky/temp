@@ -310,8 +310,9 @@ function isAdminOnly(profile: unknown) {
 
 function canUseClientMode(profile: unknown, resolvedRole: string | undefined, activeMode: string | null) {
   if (activeMode === "worker") return false;
-  if (activeMode === "client") return !!profile && !isAdminOnly(profile);
-  return resolvedRole === "client" || hasRole(profile, "client");
+  if (!profile || isAdminOnly(profile)) return false;
+  if (activeMode === "client") return true;
+  return resolvedRole === "client" || resolvedRole === "worker" || hasRole(profile, "client") || hasRole(profile, "worker");
 }
 
 class AuthRouteError extends Error {
