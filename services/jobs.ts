@@ -61,6 +61,10 @@ function quotaError() {
   return new Error("Firestore quota is exhausted right now. Please wait a few minutes before trying again.");
 }
 
+function notifyApplicationsChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("copic:applications-changed"));
+}
+
 function activeRoleHeaders(userId: string, preferredRole?: "client" | "worker" | "admin"): Record<string, string> {
   if (typeof window === "undefined") return {};
   if (preferredRole) return { "X-Temp-Role": preferredRole };
@@ -270,17 +274,6 @@ export function subscribeApplications(userId: string, role: "client" | "worker",
   let stopped = false;
   let inFlight = false;
   let timeoutId: number | null = null;
-  const storageKey = `temp.applications.${userId}.${role}`;
-
-  try {
-    const cached = window.sessionStorage.getItem(storageKey);
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed)) callback((parsed as Application[]).filter(isVisibleApplication));
-    }
-  } catch {
-    window.sessionStorage.removeItem(storageKey);
-  }
 
   const load = async () => {
     if (inFlight || stopped) return;
@@ -305,7 +298,6 @@ export function subscribeApplications(userId: string, role: "client" | "worker",
       const items = Array.isArray(payload.applications) ? (payload.applications as Application[]).filter(isVisibleApplication) : [];
       if (!stopped) {
         callback(items);
-        try { window.sessionStorage.setItem(storageKey, JSON.stringify(items)); } catch { /* Storage is optional. */ }
       }
     } finally {
       inFlight = false;
@@ -347,6 +339,7 @@ export function subscribeApplications(userId: string, role: "client" | "worker",
   window.addEventListener("focus", refreshWhenActive);
   window.addEventListener("online", refreshWhenActive);
   window.addEventListener("offline", run);
+  window.addEventListener("copic:applications-changed", refreshWhenActive);
   document.addEventListener("visibilitychange", refreshWhenActive);
   return () => {
     stopped = true;
@@ -354,6 +347,7 @@ export function subscribeApplications(userId: string, role: "client" | "worker",
     window.removeEventListener("focus", refreshWhenActive);
     window.removeEventListener("online", refreshWhenActive);
     window.removeEventListener("offline", run);
+    window.removeEventListener("copic:applications-changed", refreshWhenActive);
     document.removeEventListener("visibilitychange", refreshWhenActive);
   };
 }
@@ -462,6 +456,7 @@ export async function completeApplication(application: Application, timelineIds?
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to mark this worker paid.");
+  notifyApplicationsChanged();
   return payload.application as Application;
 }
 
@@ -476,6 +471,7 @@ export async function confirmWorkerPaymentReceived(application: Application) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to confirm payment received.");
+  notifyApplicationsChanged();
   return payload.application as Application;
 }
 
@@ -490,6 +486,7 @@ export async function requestApplicationCompletion(application: Application, tim
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to request completion.");
+  notifyApplicationsChanged();
   return payload.application as Application;
 }
 
@@ -517,6 +514,7 @@ export async function applyToJob(job: Job, worker: UserProfile, coverNote: strin
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to submit application.");
+  notifyApplicationsChanged();
 }
 
 export async function acceptApplication(application: Application) {
@@ -538,6 +536,7 @@ export async function acceptApplication(application: Application) {
     }
     throw new Error(message);
   }
+  notifyApplicationsChanged();
   return payload.application as Application;
 }
 
@@ -552,6 +551,7 @@ export async function cancelApplication(application: Application) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to cancel application.");
+  notifyApplicationsChanged();
   return payload.application as Application;
 }
 
@@ -566,6 +566,7 @@ export async function cancelLiveApplication(application: Application) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to cancel live job.");
+  notifyApplicationsChanged();
   return payload.application as Application;
 }
 
@@ -592,6 +593,7 @@ export async function sendDirectHireRequest(input: {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to send hire request.");
+  notifyApplicationsChanged();
   return payload.request as Application;
 }
 
@@ -606,6 +608,7 @@ export async function respondDirectHireRequest(application: Application, respons
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to update hire request.");
+  notifyApplicationsChanged();
   return payload.request as Application;
 }
 

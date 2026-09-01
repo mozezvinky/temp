@@ -558,7 +558,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
 function isLiveStatusApplication(application: Application) {
   return ["accepted", "completion_requested", "payment_sent"].includes(application.status)
-    && ["live", "assigned", "active", "open"].includes(String(application.jobStatus ?? ""));
+    && ["live", "assigned", "active"].includes(String(application.jobStatus ?? ""));
 }
 
 function NavProfilePhoto({ photo, alt }: { photo: { photoURL: string; photoPositionX: number; photoPositionY: number; photoZoom: number }; alt: string }) {

@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
     batch.set(applicationRef, payload);
     setNotification(batch, db, notification);
     await batch.commit();
-    await sendNotificationEmailsAfterCommit(db, [notification]);
+    void sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, request: payload });
   } catch (error) {
     const status = error instanceof AuthRouteError ? error.status : 500;

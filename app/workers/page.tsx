@@ -353,7 +353,7 @@ export default function WorkersPage() {
     }
     setSendingHire(true);
     try {
-      await sendDirectHireRequest({
+      const request = await sendDirectHireRequest({
         workerId: hireWorker.id,
         skillId: hireSkill.id,
         title: String(form.get("title") ?? hireSkill.name),
@@ -365,6 +365,7 @@ export default function WorkersPage() {
         duration: String(form.get("duration") ?? ""),
         description: String(form.get("description") ?? "")
       });
+      setApplications(items => items.some(item => item.id === request.id) ? items : [{ ...request, workerId: hireWorker.id, requestSkillId: hireSkill.id, source: "direct_hire", status: "pending" }, ...items]);
       toast.success(`Hire request sent to ${hireWorker.displayName}.`);
       setHireSkill(null);
       setHireWorker(null);

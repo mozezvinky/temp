@@ -18,6 +18,7 @@ import { jobLocationLabel } from "@/utils/location-display";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { ArrowLeft, Mail, MessageCircle, Phone, Star } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -31,6 +32,7 @@ function applicationRequestLocationLabel(application: Application) {
 
 export default function ApplicationsPage() {
   const { profile, loading: authLoading, isAuthorized } = useProtectedRoute(["client", "worker"]);
+  const router = useRouter();
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedApplicationId, setSelectedApplicationId] = useState("");
@@ -80,9 +82,9 @@ export default function ApplicationsPage() {
 
   if (!visibleApplications.length) return (
     <div className="space-y-4">
-      <Link href={profile.role === "client" ? "/find-work" : "/dashboard"} className="applications-back-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold">
+      <button type="button" onClick={goBack} className="applications-back-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold">
         <ArrowLeft size={16} aria-hidden="true" /> Back
-      </Link>
+      </button>
       <EmptyState title={profile.role === "client" ? clientEmptyTitle : "No applications yet"} body={profile.role === "client" ? clientEmptyBody : "Applications will appear after you apply for work."} />
     </div>
   );
@@ -147,11 +149,25 @@ export default function ApplicationsPage() {
     return applicationTimelinePay(application).submittedWorkerAmount;
   }
 
+  function goBack() {
+    const fallback = profile?.role === "client" ? "/find-work" : "/dashboard";
+    try {
+      const referrer = document.referrer ? new URL(document.referrer) : null;
+      if (referrer?.origin === window.location.origin && window.history.length > 1) {
+        router.back();
+        return;
+      }
+    } catch {
+      // Fall back to the role home when referrer parsing is unavailable.
+    }
+    router.push(fallback);
+  }
+
   return (
     <div className="space-y-4">
-      <Link href={profile.role === "client" ? "/find-work" : "/dashboard"} className="applications-back-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold">
+      <button type="button" onClick={goBack} className="applications-back-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold">
         <ArrowLeft size={16} aria-hidden="true" /> Back
-      </Link>
+      </button>
       <h1 className="text-3xl font-black">{profile.role === "client" ? clientPageTitle : "Applications"}</h1>
       {profile.role === "worker" ? (
         <>
@@ -547,5 +563,5 @@ function StatusPill({ status }: { status: Application["status"] }) {
 
 function isLiveApplication(application: Application) {
   return ["accepted", "completion_requested", "payment_sent"].includes(application.status)
-    && ["live", "assigned", "active", "open"].includes(String(application.jobStatus ?? ""));
+    && ["live", "assigned", "active"].includes(String(application.jobStatus ?? ""));
 }
