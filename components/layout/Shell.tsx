@@ -355,8 +355,11 @@ export function Shell({ children }: { children: ReactNode }) {
     ? "/completed-requests"
     : topAlertDetail?.href;
   const bottomStatus = useMemo(() => {
-    const live = statusApplications.find(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled");
-    if (live) return { href: `/applications?application=${live.id}`, label: "LIVE", tone: "live" };
+    const live = statusApplications.find(isLiveStatusApplication);
+    if (live) {
+      const href = profileRole === "worker" ? "/dashboard?view=live" : "/applications?status=live";
+      return { href, label: "LIVE", tone: "live" };
+    }
     const pendingRequests = statusApplications.filter(application => application.source === "direct_hire" && application.status === "pending");
     if (pendingRequests.length) {
       const href = profileRole === "worker" ? "/dashboard?view=requests" : "/applications?status=requests";
@@ -551,6 +554,11 @@ export function Shell({ children }: { children: ReactNode }) {
       )}
     </div>
   );
+}
+
+function isLiveStatusApplication(application: Application) {
+  return ["accepted", "completion_requested", "payment_sent"].includes(application.status)
+    && ["live", "assigned", "active", "open"].includes(String(application.jobStatus ?? ""));
 }
 
 function NavProfilePhoto({ photo, alt }: { photo: { photoURL: string; photoPositionX: number; photoPositionY: number; photoZoom: number }; alt: string }) {

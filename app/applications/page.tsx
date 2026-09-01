@@ -35,6 +35,7 @@ export default function ApplicationsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedApplicationId, setSelectedApplicationId] = useState("");
   const [selectedJobId, setSelectedJobId] = useState("");
+  const [statusView, setStatusView] = useState<"requests" | "live" | "">("");
   const [viewingWorker, setViewingWorker] = useState<Application | null>(null);
   const [acceptingId, setAcceptingId] = useState("");
   const [completingId, setCompletingId] = useState("");
@@ -44,6 +45,8 @@ export default function ApplicationsPage() {
     const params = new URLSearchParams(window.location.search);
     setSelectedApplicationId(params.get("application") ?? "");
     setSelectedJobId(params.get("job") ?? "");
+    const status = params.get("status");
+    setStatusView(status === "requests" || status === "live" ? status : "");
   }, []);
 
   useEffect(() => {
@@ -59,16 +62,28 @@ export default function ApplicationsPage() {
   const roleScopedApplications = profile.role === "client"
     ? nonRehireApplications.filter(application => application.status !== "completion_requested")
     : nonRehireApplications;
-  const visibleApplications = selectedJobId ? roleScopedApplications.filter(application => application.jobId === selectedJobId) : roleScopedApplications;
-  const currentJobApplications = visibleApplications.filter(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled");
-  const pastOrPendingApplications = visibleApplications.filter(application => !(["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled"));
+  const baseApplications = selectedJobId ? roleScopedApplications.filter(application => application.jobId === selectedJobId) : roleScopedApplications;
+  const visibleApplications = statusView === "requests"
+    ? baseApplications.filter(application => application.source === "direct_hire" && application.status === "pending")
+    : statusView === "live"
+      ? baseApplications.filter(isLiveApplication)
+      : baseApplications;
+  const currentJobApplications = visibleApplications.filter(isLiveApplication);
+  const pastOrPendingApplications = visibleApplications.filter(application => !isLiveApplication(application));
+  const clientPageTitle = statusView === "requests" ? "Requests sent" : statusView === "live" ? "Live jobs" : "Applicants";
+  const clientEmptyTitle = statusView === "requests" ? "No sent requests" : statusView === "live" ? "No live jobs" : "No applicants yet";
+  const clientEmptyBody = statusView === "requests"
+    ? "Direct hire requests you send to workers will appear here."
+    : statusView === "live"
+      ? "Accepted direct hire requests and jobs will appear here."
+      : "Applications will appear after workers apply to your jobs.";
 
   if (!visibleApplications.length) return (
     <div className="space-y-4">
       <Link href={profile.role === "client" ? "/find-work" : "/dashboard"} className="applications-back-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold">
         <ArrowLeft size={16} aria-hidden="true" /> Back
       </Link>
-      <EmptyState title={profile.role === "client" ? "No applicants yet" : "No applications yet"} body={profile.role === "client" ? "Applications will appear after workers apply to your jobs." : "Applications will appear after you apply for work."} />
+      <EmptyState title={profile.role === "client" ? clientEmptyTitle : "No applications yet"} body={profile.role === "client" ? clientEmptyBody : "Applications will appear after you apply for work."} />
     </div>
   );
 
@@ -137,7 +152,7 @@ export default function ApplicationsPage() {
       <Link href={profile.role === "client" ? "/find-work" : "/dashboard"} className="applications-back-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold">
         <ArrowLeft size={16} aria-hidden="true" /> Back
       </Link>
-      <h1 className="text-3xl font-black">{profile.role === "client" ? "Applicants" : "Applications"}</h1>
+      <h1 className="text-3xl font-black">{profile.role === "client" ? clientPageTitle : "Applications"}</h1>
       {profile.role === "worker" ? (
         <>
           <ApplicationSection
@@ -194,10 +209,13 @@ export default function ApplicationsPage() {
               )}
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={() => setViewingWorker(application)}>View worker profile</Button>
-                {application.status === "pending" && (
+                {application.status === "pending" && application.source !== "direct_hire" && (
                   <Button type="button" disabled={acceptingId === application.id || normalizeVerificationStatus(application.workerVerificationStatus) !== "approved"} onClick={() => void accept(application)}>
                     {acceptingId === application.id ? "Accepting..." : normalizeVerificationStatus(application.workerVerificationStatus) !== "approved" ? "Worker not verified" : "Accept application"}
                   </Button>
+                )}
+                {application.status === "pending" && application.source === "direct_hire" && (
+                  <Button type="button" variant="secondary" disabled>Waiting for worker</Button>
                 )}
               {application.status === "completion_requested" && (
                   <Button type="button" className="temp-success-button" disabled={completingId === application.id} onClick={() => setPendingCompletion(application)}>
@@ -525,4 +543,9 @@ function StatusPill({ status }: { status: Application["status"] }) {
     return <span className="inline-flex rounded-full border border-purple-500/40 bg-purple-400/20 px-3 py-1 text-sm font-black text-purple-800 dark:text-purple-100">Payment sent</span>;
   }
   return <span className="text-sm capitalize text-[#CCC6BB]">Status: {status}</span>;
+}
+
+function isLiveApplication(application: Application) {
+  return ["accepted", "completion_requested", "payment_sent"].includes(application.status)
+    && ["live", "assigned", "active", "open"].includes(String(application.jobStatus ?? ""));
 }

@@ -240,6 +240,10 @@ export async function PATCH(request: NextRequest) {
       }
       const client = currentUser.profile;
       if (!client || client.role !== "client") return NextResponse.json({ error: "Use a client account to update applications." }, { status: 403 });
+      if (action === "accept") {
+        const pendingApplication = listLocalApplications(currentUser.uid, "client").find(item => item.id === applicationId);
+        if (pendingApplication?.source === "direct_hire") return NextResponse.json({ error: "Workers must accept direct hire requests." }, { status: 400 });
+      }
       const timelineIds = Array.isArray(body.timelineIds) ? body.timelineIds.filter((item: unknown): item is string => typeof item === "string") : undefined;
       const application = action === "complete"
         ? confirmLocalWorkerPaid(applicationId, currentUser.uid, timelineIds)
@@ -655,6 +659,7 @@ export async function PATCH(request: NextRequest) {
       if (!applicationSnap.exists) throw new AuthRouteError("Application was not found.", 404);
       const application = applicationSnap.data() ?? {};
       if (application.clientId !== currentUser.uid) throw new AuthRouteError("You can only accept applications for your own jobs.", 403);
+      if (application.source === "direct_hire") throw new AuthRouteError("Workers must accept direct hire requests.", 400);
       const jobRef = db.collection("jobs").doc(String(application.jobId));
       const jobSnap = await transaction.get(jobRef);
       if (!jobSnap.exists) throw new AuthRouteError("Job was not found.", 404);

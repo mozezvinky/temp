@@ -96,6 +96,15 @@ export default function DashboardPage() {
   }, [profile, profileLocked, router]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const view = new URLSearchParams(window.location.search).get("view");
+    if (view === "requests" || view === "live") {
+      setJobsModalTab(view);
+      setOpenModal("jobs");
+    }
+  }, []);
+
+  useEffect(() => {
     if (!profileId || !profileRole || profileRole === "admin") return;
     setApplicationsLoading(true);
     setApplicationsError("");
