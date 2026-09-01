@@ -463,6 +463,7 @@ export default function DashboardPage() {
           <ApplicationList
             mode={jobsModalTab}
             applications={jobsModalTab === "applications" ? standardApplications : jobsModalTab === "live" ? liveApplications : jobsModalTab === "requests" ? directHireRequests : doneApplications}
+            workerHasLiveJob={liveApplications.length > 0}
             onApplicationUpdated={updatedApplication => {
               setApplications(items => items.map(item => item.id === updatedApplication.id ? { ...item, ...updatedApplication } : item));
             }}
@@ -523,7 +524,7 @@ function CopyBox({ label, value, copyValue = value }: { label: string; value: st
   );
 }
 
-function ApplicationList({ applications, mode, onApplicationUpdated }: { applications: Application[]; mode: "applications" | "live" | "completed" | "requests"; onApplicationUpdated: (application: Application) => void }) {
+function ApplicationList({ applications, mode, workerHasLiveJob = false, onApplicationUpdated }: { applications: Application[]; mode: "applications" | "live" | "completed" | "requests"; workerHasLiveJob?: boolean; onApplicationUpdated: (application: Application) => void }) {
   const [busyId, setBusyId] = useState("");
   const [busyAction, setBusyAction] = useState<"cancel" | "complete" | "confirm_payment" | "accept_request" | "reject_request" | "">("");
   const [pendingCancel, setPendingCancel] = useState<Application | null>(null);
@@ -712,8 +713,8 @@ function ApplicationList({ applications, mode, onApplicationUpdated }: { applica
                 )}
                 {mode === "requests" && application.status === "pending" && (
                   <>
-                    <Button type="button" disabled={isBusy} onClick={() => void answerRequest(application, "accept")}>
-                      {isBusy && busyAction === "accept_request" ? "Accepting..." : "Accept request"}
+                    <Button type="button" disabled={isBusy || workerHasLiveJob} onClick={() => void answerRequest(application, "accept")}>
+                      {workerHasLiveJob ? "Live job active" : isBusy && busyAction === "accept_request" ? "Accepting..." : "Accept request"}
                     </Button>
                     <Button type="button" variant="secondary" disabled={isBusy} onClick={() => void answerRequest(application, "reject")}>
                       {isBusy && busyAction === "reject_request" ? "Rejecting..." : "Reject request"}

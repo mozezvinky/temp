@@ -988,7 +988,7 @@ export function createLocalDirectHireRequest(input: {
   if (!hasProfileRole(worker, "worker")) throw new Error("Choose a valid worker.");
   const localWorker = worker as UserProfile;
   if (localWorker.isLocked || Number(localWorker.outstandingServiceFee ?? 0) > 0) throw new Error("This worker is not available for new jobs.");
-  if (countLocalActiveAcceptedApplications(input.workerId) > 0) throw new Error("This worker is occupied on another job right now.");
+  if (hasLocalActiveDirectHireRequest(input.clientId, input.workerId, input.skillId)) throw new Error("You already have an active request for this worker skill.");
   const createdAt = nowIso();
   const locationLabel = jobLocationLabel({ location: input.location, county: input.locationDetails.county, locationDetails: input.locationDetails });
   localDb().exec("BEGIN IMMEDIATE");
@@ -1047,6 +1047,19 @@ function hasProfileRole(profile: UserProfile | null | undefined, role: Role) {
   return profile?.role === role || Boolean(profile?.roles?.includes(role));
 }
 
+export function hasLocalActiveDirectHireRequest(clientId: string, workerId: string, skillId: string) {
+  const row = localDb().prepare(`
+    SELECT id FROM applications
+    WHERE clientId = ?
+      AND workerId = ?
+      AND requestSkillId = ?
+      AND source = 'direct_hire'
+      AND status IN ('pending', 'accepted', 'completion_requested', 'payment_sent')
+    LIMIT 1
+  `).get(clientId, workerId, skillId);
+  return Boolean(row);
+}
+
 export function respondLocalDirectHireRequest(applicationId: string, workerId: string, response: "accept" | "reject") {
   const row = localDb().prepare("SELECT * FROM applications WHERE id = ? AND workerId = ?").get(applicationId, workerId);
   if (!row) return null;
@@ -1070,6 +1083,7 @@ export function respondLocalDirectHireRequest(applicationId: string, workerId: s
       requiredSkills: job?.requiredSkills ?? []
     });
     if (!allowedWorker.ok) throw new Error(allowedWorker.reason);
+    if (countLocalActiveAcceptedApplications(workerId) > 0) throw new Error("Complete your current live job before accepting another request.");
     localDb().exec("BEGIN IMMEDIATE");
     try {
       localDb().prepare("UPDATE applications SET status = 'accepted', updatedAt = ? WHERE id = ?").run(now, applicationId);

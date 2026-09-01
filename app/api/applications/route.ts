@@ -10,7 +10,7 @@ import type { Role } from "@/types";
 import { calculateJobPaymentBreakdown, calculateServiceFee } from "@/utils/money";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, type Transaction } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -685,6 +685,9 @@ export async function PATCH(request: NextRequest) {
       if (!alreadyAccepted && acceptedCount >= Number(job.workersNeeded ?? 1)) {
         throw new AuthRouteError("This job already has enough accepted workers.", 400);
       }
+      if (!alreadyAccepted && await workerHasLiveJob(transaction, workerId, applicationSnap.id)) {
+        throw new AuthRouteError("This worker already has a live job.", 409);
+      }
       transaction.set(applicationRef, { status: "accepted", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       if (timelineSnap) {
         timelineSnap.docs.forEach(doc => {
@@ -756,6 +759,22 @@ export async function PATCH(request: NextRequest) {
 
 function isQuotaError(message: string) {
   return message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded");
+}
+
+function isLiveApplicationStatus(status: string) {
+  return status === "accepted" || status === "completion_requested" || status === "payment_sent";
+}
+
+async function workerHasLiveJob(transaction: Transaction, workerId: string, excludeApplicationId: string) {
+  const db = adminDb();
+  const snapshot = await transaction.get(db.collection("applications").where("workerId", "==", workerId).limit(80));
+  const activeApplications = snapshot.docs.filter(doc => doc.id !== excludeApplicationId && isLiveApplicationStatus(String(doc.data().status ?? "")));
+  if (!activeApplications.length) return false;
+  const jobSnaps = await Promise.all(activeApplications.map(doc => transaction.get(db.collection("jobs").doc(String(doc.data().jobId)))));
+  return activeApplications.some((doc, index) => {
+    const jobStatus = String(jobSnaps[index]?.data()?.status ?? "");
+    return jobStatus !== "completed" && jobStatus !== "cancelled" && doc.data().jobStatus !== "completed" && doc.data().jobStatus !== "cancelled";
+  });
 }
 
 class AuthRouteError extends Error {

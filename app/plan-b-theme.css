@@ -1300,6 +1300,33 @@ textarea,
 .temp-status-applications { background: #e1e0ff !important; color: #2f2ebe !important; }
 .temp-status-live { background: #b2f746 !important; color: #334f00 !important; }
 .temp-status-completed { background: #e2f6df !important; color: #245d22 !important; }
+.copic-bottom-status {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 35;
+  display: inline-flex;
+  min-width: 88px;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(17, 17, 17, .1);
+  border-radius: 999px;
+  padding: 0 18px;
+  color: #111;
+  font-family: "JetBrains Mono", monospace;
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-decoration: none;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, .14);
+}
+.copic-bottom-status.is-live { background: #ffd43b; }
+.copic-bottom-status.is-requests { background: #fff; }
+.copic-bottom-status:focus-visible {
+  outline: 3px solid color-mix(in srgb, #b2f746 70%, #111);
+  outline-offset: 3px;
+}
 
 @media (max-width: 900px) {
   .copic-auth-layout { grid-template-columns: 1fr; padding-block: 28px; }

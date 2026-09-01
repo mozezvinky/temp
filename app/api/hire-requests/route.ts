@@ -1,7 +1,7 @@
 import { isSqlBackend } from "@/lib/data-backend";
 import { getCurrentUserProfile } from "@/lib/current-user-profile";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
-import { createLocalDirectHireRequest, getLocalUser, respondLocalDirectHireRequest } from "@/lib/local-sql";
+import { createLocalDirectHireRequest, getLocalUser, hasLocalActiveDirectHireRequest, respondLocalDirectHireRequest } from "@/lib/local-sql";
 import { sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatusFromRecords } from "@/lib/worker-verification";
 import type { WorkerSkillProfile } from "@/types";
@@ -11,7 +11,7 @@ import { normalizeLocationFields, locationRequiresDescription } from "@/utils/lo
 import { jobLocationLabel } from "@/utils/location-display";
 import { normalizeSkillVerificationStatus } from "@/utils/worker-skills";
 import { normalizeVerificationStatus } from "@/utils/verification";
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, type Transaction } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -43,6 +43,9 @@ export async function POST(request: NextRequest) {
       const savedSkill = selectedWorkerSkill(getLocalUser(input.workerId)?.skillProfiles, input.skillId);
       if (!savedSkill) return NextResponse.json({ error: "Choose a verified worker skill." }, { status: 400 });
       const pricing = calculateVerifiedPricing(savedSkill, input.quantity);
+      if (hasLocalActiveDirectHireRequest(localClient.id, input.workerId, savedSkill.id)) {
+        return NextResponse.json({ error: "You already have an active request for this worker skill." }, { status: 409 });
+      }
       const application = createLocalDirectHireRequest({
         id: crypto.randomUUID(),
         jobId: crypto.randomUUID(),
@@ -79,9 +82,15 @@ export async function POST(request: NextRequest) {
     const savedSkill = selectedWorkerSkill(Array.isArray(worker?.skillProfiles) ? worker.skillProfiles as WorkerSkillProfile[] : [], input.skillId);
     if (!savedSkill) return NextResponse.json({ error: "Choose a verified worker skill." }, { status: 400 });
     const pricing = calculateVerifiedPricing(savedSkill, input.quantity);
-    const activeSnap = await db.collection("applications").where("workerId", "==", input.workerId).limit(40).get();
-    const activeApps = activeSnap.docs.filter(doc => ["accepted", "completion_requested", "payment_sent"].includes(String(doc.data().status)));
-    if (activeApps.length) return NextResponse.json({ error: "This worker is occupied on another job right now." }, { status: 400 });
+    const existingRequestSnap = await db.collection("applications").where("clientId", "==", decoded.uid).limit(120).get();
+    const duplicateRequest = existingRequestSnap.docs.some(doc => {
+      const data = doc.data();
+      return data.source === "direct_hire"
+        && data.workerId === input.workerId
+        && data.requestSkillId === savedSkill.id
+        && isActiveHireRequestStatus(String(data.status ?? ""));
+    });
+    if (duplicateRequest) return NextResponse.json({ error: "You already have an active request for this worker skill." }, { status: 409 });
 
     const jobRef = db.collection("jobs").doc();
     const applicationRef = db.collection("applications").doc();
@@ -213,6 +222,8 @@ export async function PATCH(request: NextRequest) {
           requiredSkills: []
         });
         if (allowedWorker.decision === "blocked") throw new AuthRouteError(allowedWorker.reason, 403);
+        const hasLiveJob = await workerHasLiveJob(transaction, decoded.uid, applicationSnap.id);
+        if (hasLiveJob) throw new AuthRouteError("Complete your current live job before accepting another request.", 409);
       }
       const jobRef = db.collection("jobs").doc(String(application.jobId));
       const jobSnap = await transaction.get(jobRef);
@@ -290,6 +301,26 @@ function calculateVerifiedPricing(skill: WorkerSkillProfile, quantity: number) {
   return calculateDirectHirePricing(skill, quantity);
 }
 
+function isActiveHireRequestStatus(status: string) {
+  return status === "pending" || status === "accepted" || status === "completion_requested" || status === "payment_sent";
+}
+
+function isLiveApplicationStatus(status: string) {
+  return status === "accepted" || status === "completion_requested" || status === "payment_sent";
+}
+
+async function workerHasLiveJob(transaction: Transaction, workerId: string, excludeApplicationId: string) {
+  const db = adminDb();
+  const snapshot = await transaction.get(db.collection("applications").where("workerId", "==", workerId).limit(80));
+  const activeApplications = snapshot.docs.filter(doc => doc.id !== excludeApplicationId && isLiveApplicationStatus(String(doc.data().status ?? "")));
+  if (!activeApplications.length) return false;
+  const jobSnaps = await Promise.all(activeApplications.map(doc => transaction.get(db.collection("jobs").doc(String(doc.data().jobId)))));
+  return activeApplications.some((doc, index) => {
+    const jobStatus = String(jobSnaps[index]?.data()?.status ?? "");
+    return jobStatus !== "completed" && jobStatus !== "cancelled" && doc.data().jobStatus !== "completed" && doc.data().jobStatus !== "cancelled";
+  });
+}
+
 function activeRoleFromRequest(request: NextRequest) {
   const value = request.headers.get("x-temp-role") ?? request.cookies.get("temp-role")?.value ?? "";
   return value === "client" || value === "worker" || value === "admin" ? value : null;
@@ -305,7 +336,7 @@ function canUseClientMode(profile: unknown, resolvedRole: string | undefined, ac
   if (activeMode === "worker") return false;
   if (!profile) return false;
   if (activeMode === "client") return true;
-  return resolvedRole === "client" || resolvedRole === "worker" || hasRole(profile, "client") || hasRole(profile, "worker");
+  return resolvedRole === "client" || hasRole(profile, "client");
 }
 
 class AuthRouteError extends Error {

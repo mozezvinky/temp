@@ -1,6 +1,7 @@
 import "server-only";
 
 import { sendAppEmail } from "@/lib/app-email";
+import { COPIC_PRODUCTION_APP_URL } from "@/lib/production-env";
 import type { Firestore, Transaction, WriteBatch } from "firebase-admin/firestore";
 import { FieldValue } from "firebase-admin/firestore";
 
@@ -21,9 +22,7 @@ function notificationDocId(eventId: string) {
 }
 
 function appBaseUrl() {
-  const configured = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? process.env.VERCEL_URL ?? "https://www.copic.co.ke";
-  const withProtocol = configured.startsWith("http://") || configured.startsWith("https://") ? configured : `https://${configured}`;
-  return withProtocol.replace(/\/+$/, "");
+  return COPIC_PRODUCTION_APP_URL;
 }
 
 export function safeAppLink(path?: string | null) {

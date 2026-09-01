@@ -192,6 +192,11 @@ export default function WorkersPage() {
   const hireView = !!hireWorker && !!hireSkill;
   const hireQuantity = normalizeHireQuantity(hireQuantityInput) ?? 1;
   const sortLabel = sortOptions.find(option => option.value === sortMode)?.label ?? "Recommended";
+  const requestedSkillKeys = useMemo(() => {
+    return new Set(applications
+      .filter(application => application.source === "direct_hire" && isActiveHireRequestStatus(application.status))
+      .map(application => `${application.workerId}:${application.requestSkillId ?? ""}`));
+  }, [applications]);
 
   function runSearch(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -288,10 +293,6 @@ export default function WorkersPage() {
     const allowedWorker = workerCanApplyToJob(worker, { title: skill.name, category: skill.chargeCategory ?? skill.category, requiredSkills: [skill.name] });
     if (!allowedWorker.ok) {
       toast.error(allowedWorker.reason);
-      return;
-    }
-    if (worker.isOccupied) {
-      toast.error(`${worker.displayName} is occupied on another job right now.`);
       return;
     }
     setResultsScrollY(window.scrollY);
@@ -493,7 +494,10 @@ export default function WorkersPage() {
         <section className="workers-results-shell">
           {results.length ? (
             <div className="workers-result-grid">
-              {results.map(match => <WorkerResultCard key={`${match.worker.id}-${match.skill.id}`} match={match} active={hireWorker?.id === match.worker.id && hireSkill?.id === match.skill.id} onHire={() => requestSkill(match.worker, match.skill)} onMessage={() => setMessageWorker(match.worker)} />)}
+              {results.map(match => {
+                const requested = requestedSkillKeys.has(`${match.worker.id}:${match.skill.id}`) || requestedSkillKeys.has(`${match.worker.uid}:${match.skill.id}`);
+                return <WorkerResultCard key={`${match.worker.id}-${match.skill.id}`} match={match} active={hireWorker?.id === match.worker.id && hireSkill?.id === match.skill.id} requested={requested} onHire={() => requestSkill(match.worker, match.skill)} onMessage={() => setMessageWorker(match.worker)} />;
+              })}
             </div>
           ) : (
             <EmptyState title={showRehire ? "No previous hires yet" : "No matching workers found"} body={showRehire ? "Completed or accepted workers you hired will appear here." : "Try a related term like cleaner, mama fua, kibarua, gardener, or errands."} />
@@ -538,7 +542,7 @@ export default function WorkersPage() {
   );
 }
 
-function WorkerResultCard({ match, active, onHire, onMessage }: { match: WorkerSearchMatch; active: boolean; onHire: () => void; onMessage: () => void }) {
+function WorkerResultCard({ match, active, requested, onHire, onMessage }: { match: WorkerSearchMatch; active: boolean; requested: boolean; onHire: () => void; onMessage: () => void }) {
   const { worker, skill } = match;
   const completed = completedJobsFor(match);
   const rating = ratingFor(match);
@@ -561,7 +565,7 @@ function WorkerResultCard({ match, active, onHire, onMessage }: { match: WorkerS
       </div>
       <div className="worker-result-action">
         <strong><span>{rate.amount}</span>{rate.suffix && <em>{rate.suffix}</em>}</strong>
-        <Button type="button" onClick={onHire} className="worker-hire-button">Hire</Button>
+        <Button type="button" onClick={onHire} className="worker-hire-button" disabled={requested}>{requested ? "Requested" : "Hire"}</Button>
       </div>
     </article>
   );
@@ -718,6 +722,10 @@ function validateHireFields({ startDate, quantityInput, quantity, location }: {
     errors.locationDescription = "Please add location details because no nearby landmark was found";
   }
   return errors;
+}
+
+function isActiveHireRequestStatus(status: string) {
+  return status === "pending" || status === "accepted" || status === "completion_requested" || status === "payment_sent";
 }
 
 function locationRequiresExtraDescription(location: LocationFields) {

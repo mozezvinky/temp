@@ -4,15 +4,16 @@ import { useAuth } from "@/context/AuthContext";
 import { AppModal } from "@/components/ui/AppModal";
 import { Button } from "@/components/ui/Button";
 import { activateProfileRole, authErrorMessage, logout } from "@/services/auth";
+import { subscribeApplications } from "@/services/jobs";
 import { markNotificationRead, subscribeNotifications } from "@/services/notifications";
 import { loadServiceFeePayment, loadServiceFeePaywallState } from "@/services/service-fee";
-import type { AppNotification, Role, ServiceFeePayment, ServiceFeePaywallState } from "@/types";
+import type { AppNotification, Application, Role, ServiceFeePayment, ServiceFeePaywallState } from "@/types";
 import { RoleModeToggle, ThemeModeSwitch, type UiTheme } from "@/components/layout/NavControls";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell, BriefcaseBusiness, ChevronDown, CircleHelp, ClipboardCheck, Coins, FileWarning, Headphones, History, Home, Menu, MessageCircle, Settings, ShieldCheck, UsersRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 function roleHome(role: Role) {
@@ -51,6 +52,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const [uiTheme, setUiTheme] = useState<UiTheme>("light");
   const [switchingRole, setSwitchingRole] = useState<Role | null>(null);
   const [topAlerts, setTopAlerts] = useState<AppNotification[]>([]);
+  const [statusApplications, setStatusApplications] = useState<Application[]>([]);
   const [serviceFeePayment, setServiceFeePayment] = useState<ServiceFeePayment | null>(null);
   const [serviceFeePaywall, setServiceFeePaywall] = useState<ServiceFeePaywallState | null>(null);
   const [dismissedTopAlertIds, setDismissedTopAlertIds] = useState<string[]>([]);
@@ -242,6 +244,14 @@ export function Shell({ children }: { children: ReactNode }) {
     };
   }, [accountLocked]);
 
+  useEffect(() => {
+    setStatusApplications([]);
+    if (!profileId || profileRole === "admin" || !profileRole) return;
+    return subscribeApplications(profileId, profileRole, items => {
+      setStatusApplications(items.filter(item => item.coverNote !== "Rehire request"));
+    }, () => setStatusApplications([]));
+  }, [profileId, profileRole]);
+
   async function signOutToLanding() {
     setProfileOpen(false);
     setDrawerOpen(false);
@@ -344,6 +354,16 @@ export function Shell({ children }: { children: ReactNode }) {
   const topAlertActionHref = topAlertDetail?.title === "Completion requested"
     ? "/completed-requests"
     : topAlertDetail?.href;
+  const bottomStatus = useMemo(() => {
+    const live = statusApplications.find(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled");
+    if (live) return { href: `/applications?application=${live.id}`, label: "LIVE", tone: "live" };
+    const pendingRequests = statusApplications.filter(application => application.source === "direct_hire" && application.status === "pending");
+    if (pendingRequests.length) {
+      const href = profileRole === "worker" ? "/dashboard?view=requests" : "/applications?status=requests";
+      return { href, label: "REQUESTS", tone: "requests" };
+    }
+    return null;
+  }, [profileRole, statusApplications]);
 
   const rememberViewedTopAlerts = useCallback((ids: string[]) => {
     if (!profileId || !ids.length) return;
@@ -489,6 +509,12 @@ export function Shell({ children }: { children: ReactNode }) {
       )}
 
       <main className={`temp-main mx-auto max-w-[1440px] px-4 py-6 md:px-8 ${isLanding ? "is-landing" : ""}`}>{children}</main>
+
+      {showAppNav && !isAdmin && bottomStatus && (
+        <Link href={bottomStatus.href} className={`copic-bottom-status is-${bottomStatus.tone}`} aria-label={bottomStatus.tone === "live" ? "Open live job" : "Open hire requests"}>
+          {bottomStatus.label}
+        </Link>
+      )}
 
       {drawerOpen && (
         <div className="temp-mobile-drawer-backdrop fixed inset-0 z-50 overflow-hidden bg-smoky/80 md:hidden">

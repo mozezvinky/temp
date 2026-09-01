@@ -5,6 +5,8 @@ export const REQUIRED_PRODUCTION_ENVS = [
   "NEXT_PUBLIC_APP_URL"
 ] as const;
 
+export const COPIC_PRODUCTION_APP_URL = "https://copic.co.ke";
+
 export function missingProductionEnvVars() {
   if (process.env.NODE_ENV !== "production") return [];
   return REQUIRED_PRODUCTION_ENVS.filter(name => !process.env[name]?.trim());
