@@ -2447,10 +2447,19 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
   border-color: color-mix(in srgb, var(--copic-lime) 45%, var(--copic-border));
   background: var(--copic-surface);
 }
-.workers-search-input input {
+.workers-search-input > input.workers-search-field,
+.workers-search-input > input.workers-search-field:hover,
+.workers-search-input > input.workers-search-field:active,
+.workers-search-input > input.workers-search-field:focus,
+.workers-search-input > input.workers-search-field:focus-visible {
+  all: unset !important;
   -webkit-appearance: none !important;
   appearance: none !important;
-  width: 100%;
+  box-sizing: border-box !important;
+  display: block !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
   min-height: 52px !important;
   border: 0 !important;
   border-radius: 0 !important;
@@ -2461,25 +2470,22 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
   background-image: none !important;
   box-shadow: none !important;
   color: var(--copic-text) !important;
+  font: inherit !important;
+  cursor: text !important;
 }
-.workers-search-input input:hover,
-.workers-search-input input:active,
-.workers-search-input input:focus,
-.workers-search-input input:focus-visible {
-  -webkit-appearance: none !important;
-  appearance: none !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  outline: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  background-image: none !important;
+.workers-search-input > input.workers-search-field::placeholder {
+  color: color-mix(in srgb, var(--copic-subtle) 65%, transparent) !important;
 }
-.workers-search-input input:-webkit-autofill,
-.workers-search-input input:-webkit-autofill:hover,
-.workers-search-input input:-webkit-autofill:focus,
-.workers-search-input input:-webkit-autofill:active {
+.workers-search-input > input.workers-search-field:-webkit-autofill,
+.workers-search-input > input.workers-search-field:-webkit-autofill:hover,
+.workers-search-input > input.workers-search-field:-webkit-autofill:focus,
+.workers-search-input > input.workers-search-field:-webkit-autofill:active {
+  all: unset !important;
+  box-sizing: border-box !important;
+  display: block !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-height: 52px !important;
   border: 0 !important;
   border-radius: 0 !important;
   outline: 0 !important;

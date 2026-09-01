@@ -377,6 +377,7 @@ export default function WorkersPage() {
               <label className="workers-search-input">
                 <Search size={21} />
                 <input
+                  className="workers-search-field"
                   value={search}
                   onChange={event => { setSearch(event.target.value); setSuggestionsOpen(!!event.target.value.trim()); setHighlightedSuggestion(0); }}
                   onFocus={() => setSuggestionsOpen(!!search.trim())}

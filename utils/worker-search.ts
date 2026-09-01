@@ -97,7 +97,8 @@ export function scoreWorkerMatch(worker: UserProfile, skills: WorkerSkillProfile
 export function clientRateLabel(skill: WorkerSkillProfile, formatter: (amount: number) => string) {
   const pricing = calculateDirectHirePricing(skill, 1);
   const pricingType = resolveSkillPricingType(skill);
-  if (pricingType === "unit") return `${formatter(pricing.clientRatePerUnit ?? pricing.total)}/${resolveSkillUnit(skill).toLowerCase() || "unit"}`;
+  const unit = resolveSkillUnit(skill).trim().toLowerCase();
+  if (pricingType === "unit" || unit) return `${formatter(pricing.clientRatePerUnit ?? pricing.total)}/${unit || "unit"}`;
   if (pricingType === "timeline") return `${formatter(pricing.total)}/timeline`;
   return formatter(pricing.total);
 }
@@ -105,8 +106,9 @@ export function clientRateLabel(skill: WorkerSkillProfile, formatter: (amount: n
 export function clientRateParts(skill: WorkerSkillProfile, formatter: (amount: number) => string) {
   const pricing = calculateDirectHirePricing(skill, 1);
   const pricingType = resolveSkillPricingType(skill);
-  if (pricingType === "unit") {
-    return { amount: formatter(pricing.clientRatePerUnit ?? pricing.total), suffix: `/${resolveSkillUnit(skill).toLowerCase() || "unit"}` };
+  const unit = resolveSkillUnit(skill).trim().toLowerCase();
+  if (pricingType === "unit" || unit) {
+    return { amount: formatter(pricing.clientRatePerUnit ?? pricing.total), suffix: `/${unit || "unit"}` };
   }
   if (pricingType === "timeline") return { amount: formatter(pricing.total), suffix: "/timeline" };
   return { amount: formatter(pricing.total), suffix: "" };
