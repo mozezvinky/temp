@@ -2448,9 +2448,12 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
   background: var(--copic-surface);
 }
 .workers-search-input input {
+  -webkit-appearance: none !important;
+  appearance: none !important;
   width: 100%;
   min-height: 52px !important;
   border: 0 !important;
+  border-radius: 0 !important;
   outline: 0 !important;
   padding: 0 !important;
   background: transparent !important;
@@ -2460,8 +2463,10 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
 .workers-search-input input:focus,
 .workers-search-input input:focus-visible {
   border: 0 !important;
+  border-radius: 0 !important;
   outline: 0 !important;
   box-shadow: none !important;
+  background: transparent !important;
 }
 .workers-search-actions {
   display: grid;
@@ -2826,8 +2831,11 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
 }
 .worker-hire-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+.worker-start-date-field {
+  grid-column: 1 / -1;
 }
 .worker-hire-grid label {
   display: grid;
@@ -3027,7 +3035,7 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
     grid-column: 1 / -1;
   }
   .worker-hire-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .worker-hire-total {
     grid-template-columns: auto 1fr;

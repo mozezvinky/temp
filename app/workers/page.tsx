@@ -554,36 +554,29 @@ function HirePanel({ worker, skill, quantity, location, sending, onQuantityChang
         </div>
         <input type="hidden" name="title" value={skill.name} />
         <input type="hidden" name="category" value={skill.chargeCategory ?? skill.name} />
+        <input type="hidden" name="duration" value={directHireDuration(skill, quantity)} />
         <div className="worker-hire-grid">
-          {pricingType === "unit" ? (
-            <>
-              <label>
-                <span>{quantityLabel(skill)}</span>
-                <div className="worker-quantity-control">
-                  <button type="button" onClick={() => onQuantityChange(Math.max(1, quantity - 1))}>-</button>
-                  <input value={quantity} onChange={event => onQuantityChange(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} type="number" min={1} aria-label={`Number of ${plural}`} />
-                  <button type="button" onClick={() => onQuantityChange(quantity + 1)}>+</button>
-                </div>
-              </label>
-              <label>
-                <span>Unit</span>
-                <select value={unit} disabled aria-label="Unit priced by worker">
-                  {unitOptions.map(option => <option key={option} value={option}>{option}</option>)}
-                </select>
-              </label>
-            </>
-          ) : null}
-          <label>
+          <label className="worker-start-date-field">
             <span>Start date</span>
             <input name="startDate" required type="date" />
           </label>
           <label>
-            <span>Duration</span>
-            <input name="duration" required defaultValue={skill.chargeTimeline ? `${skill.chargeTimeline} ${skill.chargeTimelineUnit}` : ""} placeholder="Example: 2 days" />
+            <span>{pricingType === "unit" ? quantityLabel(skill) : "Quantity"}</span>
+            <div className="worker-quantity-control">
+              <button type="button" onClick={() => onQuantityChange(Math.max(1, quantity - 1))}>-</button>
+              <input value={quantity} onChange={event => onQuantityChange(Math.max(1, Math.trunc(Number(event.target.value) || 1)))} type="number" min={1} inputMode="numeric" aria-label={`Number of ${plural}`} />
+              <button type="button" onClick={() => onQuantityChange(quantity + 1)}>+</button>
+            </div>
+          </label>
+          <label>
+            <span>Unit</span>
+            <select value={unit} disabled aria-label="Unit priced by worker">
+              {unitOptions.map(option => <option key={option} value={option}>{option}</option>)}
+            </select>
           </label>
         </div>
         <div className="worker-hire-location">
-          <MapPicker value={location} onChange={onLocationChange} showMap={false} />
+          <MapPicker value={location} onChange={onLocationChange} showMap={false} resetOnCustom />
           <input type="hidden" name="description" value={location.locationDescription ?? ""} />
           {location.addressText && <p><MapPin size={15} /> {jobLocationLabel({ location: location.addressText, county: location.county, locationDetails: location })}</p>}
         </div>
@@ -627,6 +620,12 @@ function safeUnitOptions(skill: WorkerSkillProfile) {
   const related = unitsForCategory(skill.chargeCategory ?? skill.category ?? skill.name).map(singularUnit);
   const generic = ["Hour", "Day", "Week", "Month"];
   return [storedUnit, ...related.filter(unit => unit === storedUnit), ...generic.filter(unit => unit === storedUnit)].filter((unit, index, all) => unit && all.indexOf(unit) === index);
+}
+
+function directHireDuration(skill: WorkerSkillProfile, quantity: number) {
+  if (skill.chargeTimeline && skill.chargeTimelineUnit) return `${skill.chargeTimeline} ${skill.chargeTimelineUnit}`;
+  const unit = resolveSkillUnit(skill);
+  return `${Math.max(1, Math.trunc(Number(quantity) || 1))} ${unit || "unit"}`;
 }
 
 function bestRehireMatch(worker: UserProfile, skills: WorkerSkillProfile[], applications: Application[]): WorkerSearchMatch | null {

@@ -16,7 +16,7 @@ type SearchResult = {
   details: Partial<LocationFields>;
 };
 
-export default function MapPicker({ value, onChange, showMap = true }: { value: LocationFields; onChange: (location: LocationFields) => void; showMap?: boolean }) {
+export default function MapPicker({ value, onChange, showMap = true, resetOnCustom = false }: { value: LocationFields; onChange: (location: LocationFields) => void; showMap?: boolean; resetOnCustom?: boolean }) {
   useEffect(() => {
     void import("mapbox-gl/dist/mapbox-gl.css");
   }, []);
@@ -123,6 +123,28 @@ export default function MapPicker({ value, onChange, showMap = true }: { value: 
     setLocationNotice("");
     onChange(locationFromCoords(result.latitude, result.longitude, { ...result.details, locationSource: "manual", landmarkResolved: true }));
     setViewState(current => ({ ...current, longitude: result.longitude, latitude: result.latitude, zoom: 14 }));
+  }
+
+  function chooseCustomLocation() {
+    setMode("custom");
+    setSearchQuery("");
+    setSearchResults([]);
+    setLocationError("");
+    setLocationNotice("");
+    if (!resetOnCustom) return;
+    onChange({
+      ...value,
+      addressText: "",
+      displayLocation: "",
+      nearestLandmark: "",
+      landmark: undefined,
+      area: undefined,
+      city: undefined,
+      latitude: Number.NaN,
+      longitude: Number.NaN,
+      locationSource: "manual",
+      landmarkResolved: false
+    });
   }
 
   function locationFromCoords(latitude: number, longitude: number, details?: Partial<LocationFields>) {
@@ -328,7 +350,7 @@ export default function MapPicker({ value, onChange, showMap = true }: { value: 
           <Button type="button" variant={mode === "current" ? "primary" : "ghost"} onClick={snapToCurrentLocation} disabled={locating}>
             <Crosshair size={17} /> {locating ? locatingLabel : "Use current location"}
           </Button>
-          <Button type="button" variant={mode === "custom" ? "primary" : "ghost"} onClick={() => { setMode("custom"); setLocationError(""); setLocationNotice(""); }}>
+          <Button type="button" variant={mode === "custom" ? "primary" : "ghost"} onClick={chooseCustomLocation}>
             <MapPin size={17} /> Choose custom location
           </Button>
         </div>
