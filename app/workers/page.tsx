@@ -34,7 +34,7 @@ const sortOptions = [
   { value: "priceHigh", label: "Highest price" }
 ] as const;
 type SortMode = typeof sortOptions[number]["value"];
-type HireFieldErrorKey = "startDate" | "quantity" | "unit" | "location" | "locationDescription";
+type HireFieldErrorKey = "startDate" | "quantity" | "location" | "locationDescription";
 type HireFieldErrors = Partial<Record<HireFieldErrorKey, string>>;
 
 export default function WorkersPage() {
@@ -51,7 +51,6 @@ export default function WorkersPage() {
   const [hireSkill, setHireSkill] = useState<WorkerSkillProfile | null>(null);
   const [hireLocation, setHireLocation] = useState<LocationFields>(emptyHireLocation());
   const [hireQuantityInput, setHireQuantityInput] = useState("1");
-  const [hireUnit, setHireUnit] = useState("");
   const [hireErrors, setHireErrors] = useState<HireFieldErrors>({});
   const [sendingHire, setSendingHire] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>("recommended");
@@ -300,7 +299,6 @@ export default function WorkersPage() {
     setHireSkill(skill);
     setHireLocation(emptyHireLocation());
     setHireQuantityInput("1");
-    setHireUnit(displayUnit(resolveSkillUnit(skill)));
     setHireErrors({});
   }
 
@@ -332,7 +330,6 @@ export default function WorkersPage() {
       startDate,
       quantityInput: hireQuantityInput,
       quantity,
-      unit: hireUnit,
       location: hireLocation
     });
     setHireErrors(fieldErrors);
@@ -366,7 +363,7 @@ export default function WorkersPage() {
         startDate: String(form.get("startDate") ?? ""),
         duration: String(form.get("duration") ?? ""),
         description: String(form.get("description") ?? "")
-      }, activeRole);
+      });
       toast.success(`Hire request sent to ${hireWorker.displayName}.`);
       setHireSkill(null);
       setHireWorker(null);
@@ -405,7 +402,6 @@ export default function WorkersPage() {
           skill={hireSkill}
           quantity={hireQuantity}
           quantityInput={hireQuantityInput}
-          unit={hireUnit}
           location={hireLocation}
           errors={hireErrors}
           sending={sendingHire}
@@ -571,12 +567,11 @@ function WorkerResultCard({ match, active, onHire, onMessage }: { match: WorkerS
   );
 }
 
-function HirePanel({ worker, skill, quantity, quantityInput, unit, location, errors, sending, onQuantityChange, onLocationChange, onFieldFixed, onClose, onSubmit }: {
+function HirePanel({ worker, skill, quantity, quantityInput, location, errors, sending, onQuantityChange, onLocationChange, onFieldFixed, onClose, onSubmit }: {
   worker: UserProfile;
   skill: WorkerSkillProfile;
   quantity: number;
   quantityInput: string;
-  unit: string;
   location: LocationFields;
   errors: HireFieldErrors;
   sending: boolean;
@@ -589,8 +584,7 @@ function HirePanel({ worker, skill, quantity, quantityInput, unit, location, err
   const pricing = calculateDirectHirePricing(skill, quantity);
   const pricingType = resolveSkillPricingType(skill);
   const storedUnit = displayUnit(resolveSkillUnit(skill));
-  const activeUnit = unit || storedUnit;
-  const plural = pluralUnit(activeUnit || storedUnit);
+  const plural = pluralUnit(storedUnit);
   const rate = clientRateParts(skill, kes);
   const quantityButtonBase = normalizeHireQuantity(quantityInput) ?? quantity;
   return (
@@ -630,7 +624,7 @@ function HirePanel({ worker, skill, quantity, quantityInput, unit, location, err
             />
             <FieldError id="hire-start-date-error" message={errors.startDate} />
           </label>
-          <label>
+          <label className="worker-quantity-field">
             <span>{pricingType === "unit" ? quantityLabel(skill) : "Quantity"}</span>
             <div className={`worker-quantity-control ${errors.quantity ? "is-invalid" : ""}`}>
               <button type="button" onClick={() => onQuantityChange(String(Math.max(1, quantityButtonBase - 1)))}>-</button>
@@ -648,19 +642,6 @@ function HirePanel({ worker, skill, quantity, quantityInput, unit, location, err
               <button type="button" onClick={() => onQuantityChange(String(quantityButtonBase + 1))}>+</button>
             </div>
             <FieldError id="hire-quantity-error" message={errors.quantity} />
-          </label>
-          <label>
-            <span>Unit</span>
-            <input
-              className={errors.unit ? "is-invalid" : undefined}
-              name="unit"
-              value={activeUnit}
-              readOnly
-              aria-label="Unit priced by worker"
-              aria-invalid={!!errors.unit}
-              aria-describedby={errors.unit ? "hire-unit-error" : undefined}
-            />
-            <FieldError id="hire-unit-error" message={errors.unit} />
           </label>
         </div>
         <div className={`worker-hire-location ${errors.location ? "is-location-invalid" : ""} ${errors.locationDescription ? "is-description-invalid" : ""}`}>
@@ -721,17 +702,15 @@ function normalizeHireQuantity(value: string) {
   return Math.trunc(quantity);
 }
 
-function validateHireFields({ startDate, quantityInput, quantity, unit, location }: {
+function validateHireFields({ startDate, quantityInput, quantity, location }: {
   startDate: string;
   quantityInput: string;
   quantity: number | null;
-  unit: string;
   location: LocationFields;
 }) {
   const errors: HireFieldErrors = {};
   if (!startDate) errors.startDate = "Please select a start date";
   if (!quantityInput.trim() || quantity == null) errors.quantity = "Please enter a valid quantity";
-  if (!unit.trim()) errors.unit = "Please select a unit";
   if (!location.addressText || !Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) {
     errors.location = "Please select a location";
   }

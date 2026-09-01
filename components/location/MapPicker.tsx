@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/Button";
 import { auth } from "@/lib/firebase";
+import { defaultKenyaLocation } from "@/lib/location";
 import type { LocationFields } from "@/types";
 import { buildLocationDisplayLabel } from "@/utils/location-display";
 import { Crosshair, MapPin } from "lucide-react";
@@ -88,10 +89,12 @@ export default function MapPicker({ value, onChange, showMap = true, resetOnCust
       setLocationError("Location search is unavailable until Mapbox is connected.");
       return;
     }
-    setSearching(true);
+      setSearching(true);
     try {
       const encoded = encodeURIComponent(trimmed);
-      const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${token}&country=ke&autocomplete=true&limit=6&proximity=${value.longitude},${value.latitude}`);
+      const proximityLongitude = Number.isFinite(value.longitude) ? value.longitude : defaultKenyaLocation.longitude;
+      const proximityLatitude = Number.isFinite(value.latitude) ? value.latitude : defaultKenyaLocation.latitude;
+      const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${token}&country=ke&autocomplete=true&limit=6&proximity=${proximityLongitude},${proximityLatitude}`);
       const payload = await response.json().catch(() => ({}));
       const features = Array.isArray(payload.features) ? payload.features as Array<Record<string, unknown>> : [];
       setSearchResults(features.flatMap(feature => {

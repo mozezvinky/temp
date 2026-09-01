@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   try {
     const activeMode = activeRoleFromRequest(request);
     if (activeMode === "worker") return NextResponse.json({ error: "Switch to client mode before sending hire requests." }, { status: 403 });
-    const currentUser = await getCurrentUserProfile(request, activeMode === "client" ? "client" : null);
+    const currentUser = await getCurrentUserProfile(request, "client");
     const decoded = currentUser.decoded;
     const body = await request.json().catch(() => ({}));
     const input = normalizeRequest(body);

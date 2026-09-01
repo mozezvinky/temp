@@ -2863,6 +2863,10 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
 .worker-start-date-field {
   grid-column: 1 / -1;
 }
+.worker-quantity-field {
+  grid-column: 1 / -1;
+  max-width: 240px;
+}
 .worker-hire-grid label {
   display: grid;
   gap: 6px;
