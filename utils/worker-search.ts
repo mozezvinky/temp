@@ -59,6 +59,12 @@ export type WorkerSearchMatch = {
   distanceKm: number | null;
 };
 
+export type WorkerSearchSuggestion = {
+  value: string;
+  score: number;
+  matches: number;
+};
+
 export function normalizeSearchTerm(value: string) {
   return value
     .toLowerCase()
@@ -74,13 +80,14 @@ export function scoreWorkerMatch(worker: UserProfile, skills: WorkerSkillProfile
   let best: WorkerSearchMatch | null = null;
 
   for (const skill of skills) {
+    const allowed = workerCanApplyToJob(worker, { title: skill.name, category: skill.chargeCategory ?? skill.category, requiredSkills: [skill.name] });
+    if (!allowed.ok) continue;
     const relevance = skillRelevance(worker, skill, normalizedQuery, terms);
     if (relevance <= 0) continue;
     const distanceKm = distanceBetween(clientLocation, worker.location);
     const distanceScore = distanceKm == null ? 0 : Math.max(0, 22 - Math.min(distanceKm, 44) * 0.5);
     const reputation = Math.min(Number(skill.ratingAverage || worker.ratingAverage || 0), 5) * 3 + Math.min(workerCompletedJobs(worker, skill), 30) * 0.35;
-    const eligibility = workerCanApplyToJob(worker, { title: skill.name, category: skill.chargeCategory ?? skill.category, requiredSkills: [skill.name] }).ok ? 8 : -60;
-    const score = relevance + distanceScore + reputation + eligibility;
+    const score = relevance + distanceScore + reputation + 8;
     if (!best || score > best.score) best = { worker, skill, score, relevance, distanceKm };
   }
 
@@ -89,9 +96,62 @@ export function scoreWorkerMatch(worker: UserProfile, skills: WorkerSkillProfile
 
 export function clientRateLabel(skill: WorkerSkillProfile, formatter: (amount: number) => string) {
   const pricing = calculateDirectHirePricing(skill, 1);
-  if (skill.chargePayType === "unit") return `${formatter(pricing.clientRatePerUnit ?? pricing.total)} / ${resolveSkillUnit(skill).toLowerCase() || "unit"}`;
-  if (skill.chargePayType === "timeline") return `${formatter(pricing.total)} / timeline`;
+  if (skill.chargePayType === "unit") return `${formatter(pricing.clientRatePerUnit ?? pricing.total)}/${resolveSkillUnit(skill).toLowerCase() || "unit"}`;
+  if (skill.chargePayType === "timeline") return `${formatter(pricing.total)}/timeline`;
   return formatter(pricing.total);
+}
+
+export function clientRateParts(skill: WorkerSkillProfile, formatter: (amount: number) => string) {
+  const pricing = calculateDirectHirePricing(skill, 1);
+  if (skill.chargePayType === "unit") {
+    return { amount: formatter(pricing.clientRatePerUnit ?? pricing.total), suffix: `/${resolveSkillUnit(skill).toLowerCase() || "unit"}` };
+  }
+  if (skill.chargePayType === "timeline") return { amount: formatter(pricing.total), suffix: "/timeline" };
+  return { amount: formatter(pricing.total), suffix: "" };
+}
+
+export function buildWorkerSearchSuggestions(workers: UserProfile[], skillsForWorker: (worker: UserProfile) => WorkerSkillProfile[], query: string, clientLocation?: LocationFields | null) {
+  const normalizedQuery = normalizeSearchTerm(query);
+  if (!normalizedQuery) return [];
+  const suggestions = new Map<string, WorkerSearchSuggestion>();
+  const addSuggestion = (value: string, score: number, matches = 0) => {
+    const label = value.trim().toLowerCase();
+    if (!label || label.length < 2) return;
+    const existing = suggestions.get(label);
+    if (!existing || score > existing.score) suggestions.set(label, { value: label, score, matches: Math.max(existing?.matches ?? 0, matches) });
+    else existing.matches = Math.max(existing.matches, matches);
+  };
+
+  for (const group of searchGroups) {
+    for (const term of [...group.canonical, ...group.aliases]) {
+      const normalized = normalizeSearchTerm(term);
+      const score = suggestionTextScore(normalized, normalizedQuery);
+      if (score > 0) addSuggestion(normalized, score - (group.tier ?? 1) * 2);
+    }
+  }
+
+  for (const worker of workers) {
+    for (const skill of skillsForWorker(worker)) {
+      const skillTerms = [
+        skill.name,
+        skill.chargeCategory,
+        skill.category,
+        resolveSkillUnit(skill),
+        ...expandedTerms(normalizeSearchTerm(skill.name))
+      ].filter(Boolean).map(String);
+      for (const term of skillTerms) {
+        const normalized = normalizeSearchTerm(term);
+        const score = suggestionTextScore(normalized, normalizedQuery);
+        if (score <= 0) continue;
+        const match = scoreWorkerMatch(worker, [skill], normalized, clientLocation);
+        addSuggestion(normalized, score + (match ? 35 : 0), match ? 1 : 0);
+      }
+    }
+  }
+
+  return [...suggestions.values()]
+    .sort((first, second) => second.score - first.score || second.matches - first.matches || first.value.localeCompare(second.value))
+    .slice(0, 8);
 }
 
 function expandedTerms(query: string) {
@@ -104,6 +164,24 @@ function expandedTerms(query: string) {
     }
   }
   return [...queryTerms].filter(Boolean);
+}
+
+function suggestionTextScore(value: string, query: string) {
+  if (!value || !query) return 0;
+  if (value === query) return 130;
+  if (value.startsWith(query)) return 115 - Math.min(value.length - query.length, 30);
+  if (value.split(" ").some(part => part.startsWith(query))) return 92;
+  if (value.includes(query)) return 72;
+  return fuzzyContains(value, query) ? 42 : 0;
+}
+
+function fuzzyContains(value: string, query: string) {
+  let index = 0;
+  for (const char of value) {
+    if (char === query[index]) index += 1;
+    if (index >= query.length) return true;
+  }
+  return query.length >= 3 && index >= Math.max(2, query.length - 1);
 }
 
 function skillRelevance(worker: UserProfile, skill: WorkerSkillProfile, query: string, terms: string[]) {

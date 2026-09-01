@@ -13,17 +13,28 @@ import { subscribeWorkers } from "@/services/users";
 import type { Application, Conversation, LocationFields, Message, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateDirectHirePricing, pluralUnit, quantityLabel, resolveSkillPricingType, resolveSkillUnit, singularUnit } from "@/utils/direct-hire-pricing";
 import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
+import { unitsForCategory } from "@/utils/jobUnits";
 import { jobLocationLabel } from "@/utils/location-display";
 import { kes } from "@/utils/money";
-import { clientRateLabel, normalizeSearchTerm, scoreWorkerMatch, type WorkerSearchMatch } from "@/utils/worker-search";
+import { buildWorkerSearchSuggestions, clientRateParts, normalizeSearchTerm, scoreWorkerMatch, type WorkerSearchMatch, type WorkerSearchSuggestion } from "@/utils/worker-search";
 import { normalizeVerificationStatus } from "@/utils/verification";
+import { isApprovedSkill } from "@/utils/worker-skills";
 import dynamic from "next/dynamic";
-import { BriefcaseBusiness, Check, MapPin, MessageCircle, Search, Send, Star } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, BriefcaseBusiness, Check, ChevronDown, MapPin, MessageCircle, Search, Send, SlidersHorizontal, Star } from "lucide-react";
+import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const MapPicker = dynamic(() => import("@/components/location/MapPicker"), { ssr: false });
 const headline = "Who are you looking to hire?";
+const sortOptions = [
+  { value: "recommended", label: "Recommended" },
+  { value: "nearest", label: "Nearest" },
+  { value: "rating", label: "Highest rated" },
+  { value: "completed", label: "Most jobs completed" },
+  { value: "priceLow", label: "Lowest price" },
+  { value: "priceHigh", label: "Highest price" }
+] as const;
+type SortMode = typeof sortOptions[number]["value"];
 
 export default function WorkersPage() {
   const { profile, loading, isAuthorized } = useProtectedRoute(["client", "admin"]);
@@ -39,11 +50,17 @@ export default function WorkersPage() {
   const [hireLocation, setHireLocation] = useState<LocationFields>(emptyHireLocation());
   const [hireQuantity, setHireQuantity] = useState(1);
   const [sendingHire, setSendingHire] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>("recommended");
+  const [sortOpen, setSortOpen] = useState(false);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [highlightedSuggestion, setHighlightedSuggestion] = useState(0);
+  const [resultsScrollY, setResultsScrollY] = useState(0);
   const [typedHeadline, setTypedHeadline] = useState(headline);
   const [messageWorker, setMessageWorker] = useState<UserProfile | null>(null);
   const [messageConversation, setMessageConversation] = useState<Conversation | null>(null);
   const [messageHistory, setMessageHistory] = useState<Message[]>([]);
   const [messageLoading, setMessageLoading] = useState(false);
+  const searchWrapRef = useRef<HTMLFormElement | null>(null);
   const { status: liveVerificationStatus, checking: checkingVerification } = useLiveVerificationStatus(profile?.verificationStatus);
 
   useEffect(() => {
@@ -123,14 +140,33 @@ export default function WorkersPage() {
     return subscribeMessages(messageConversation.id, setMessageHistory, () => setMessageHistory([]));
   }, [messageConversation]);
 
-  const results = useMemo(() => {
+  useEffect(() => {
+    if (!suggestionsOpen && !sortOpen) return;
+    const closeFloatingControls = (event: PointerEvent) => {
+      if (!searchWrapRef.current?.contains(event.target as Node)) {
+        setSuggestionsOpen(false);
+        setSortOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeFloatingControls);
+    return () => document.removeEventListener("pointerdown", closeFloatingControls);
+  }, [sortOpen, suggestionsOpen]);
+
+  const searchableWorkers = useMemo(() => {
     const currentUserIds = new Set([profile?.id, profile?.uid].filter(Boolean));
+    return availableWorkers.filter(worker => !currentUserIds.has(worker.id) && !currentUserIds.has(worker.uid));
+  }, [availableWorkers, profile?.id, profile?.uid]);
+
+  const suggestions = useMemo(() => {
+    return buildWorkerSearchSuggestions(searchableWorkers, approvedWorkerSkillProfiles, search, clientLocation);
+  }, [clientLocation, search, searchableWorkers]);
+
+  const results = useMemo(() => {
     const query = showRehire ? "" : submittedSearch;
     const rehireIds = showRehire ? previouslyHiredWorkerIds(applications) : null;
-    const matches = availableWorkers.flatMap(worker => {
-      if (currentUserIds.has(worker.id) || currentUserIds.has(worker.uid)) return [];
+    const matches = searchableWorkers.flatMap(worker => {
       if (rehireIds && !rehireIds.has(worker.id) && !rehireIds.has(worker.uid)) return [];
-      const skills = workerSkillProfiles(worker);
+      const skills = approvedWorkerSkillProfiles(worker);
       if (!skills.length) return [];
       const match = showRehire
         ? bestRehireMatch(worker, skills, applications)
@@ -139,11 +175,19 @@ export default function WorkersPage() {
     });
     return matches.sort((first, second) => {
       const recentDiff = (showRehire ? rehireLastHiredAt(applications, second.worker.id) - rehireLastHiredAt(applications, first.worker.id) : 0);
-      return recentDiff || second.score - first.score;
+      if (recentDiff) return recentDiff;
+      if (sortMode === "nearest") return sortNumber(first.distanceKm, second.distanceKm, "asc") || second.score - first.score;
+      if (sortMode === "rating") return ratingFor(second) - ratingFor(first) || second.score - first.score;
+      if (sortMode === "completed") return completedJobsFor(second) - completedJobsFor(first) || second.score - first.score;
+      if (sortMode === "priceLow") return priceFor(first) - priceFor(second) || second.score - first.score;
+      if (sortMode === "priceHigh") return priceFor(second) - priceFor(first) || second.score - first.score;
+      return second.score - first.score;
     });
-  }, [applications, availableWorkers, clientLocation, profile?.id, profile?.uid, showRehire, submittedSearch]);
+  }, [applications, clientLocation, searchableWorkers, showRehire, sortMode, submittedSearch]);
 
   const searched = showRehire || !!submittedSearch;
+  const hireView = !!hireWorker && !!hireSkill;
+  const sortLabel = sortOptions.find(option => option.value === sortMode)?.label ?? "Recommended";
 
   function runSearch(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -156,13 +200,48 @@ export default function WorkersPage() {
     }
     setSubmittedSearch(search.trim());
     setShowRehire(false);
+    setSuggestionsOpen(false);
     setHireSkill(null);
+    setHireWorker(null);
   }
 
   function showRehireResults() {
     setShowRehire(true);
     setSubmittedSearch("");
+    setSuggestionsOpen(false);
     setHireSkill(null);
+    setHireWorker(null);
+  }
+
+  function chooseSuggestion(suggestion: WorkerSearchSuggestion) {
+    setSearch(suggestion.value);
+    setSubmittedSearch(suggestion.value);
+    setShowRehire(false);
+    setSuggestionsOpen(false);
+    setHireSkill(null);
+    setHireWorker(null);
+  }
+
+  function handleSearchKeys(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      setSuggestionsOpen(false);
+      return;
+    }
+    if (!suggestions.length) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSuggestionsOpen(true);
+      setHighlightedSuggestion(index => Math.min(suggestions.length - 1, index + 1));
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSuggestionsOpen(true);
+      setHighlightedSuggestion(index => Math.max(0, index - 1));
+    }
+    if (event.key === "Enter" && suggestionsOpen) {
+      event.preventDefault();
+      chooseSuggestion(suggestions[highlightedSuggestion] ?? suggestions[0]);
+    }
   }
 
   function requestSkill(worker: UserProfile, skill: WorkerSkillProfile) {
@@ -184,10 +263,17 @@ export default function WorkersPage() {
       toast.error(`${worker.displayName} is occupied on another job right now.`);
       return;
     }
+    setResultsScrollY(window.scrollY);
     setHireWorker(worker);
     setHireSkill(skill);
     setHireLocation(emptyHireLocation());
     setHireQuantity(1);
+  }
+
+  function backToWorkers() {
+    setHireWorker(null);
+    setHireSkill(null);
+    window.setTimeout(() => window.scrollTo({ top: resultsScrollY, behavior: "auto" }), 0);
   }
 
   async function submitHireRequest(event: FormEvent<HTMLFormElement>) {
@@ -255,19 +341,96 @@ export default function WorkersPage() {
 
   if (loading || !isAuthorized) return <LoadingSpinner label="Checking client access" />;
 
+  if (hireView) {
+    return (
+      <div className="workers-search-page workers-hire-view">
+        <button type="button" className="workers-back-button" onClick={backToWorkers} aria-label="Back to workers">
+          <ArrowLeft size={20} />
+          <span>Back</span>
+        </button>
+        <HirePanel
+          worker={hireWorker}
+          skill={hireSkill}
+          quantity={hireQuantity}
+          location={hireLocation}
+          sending={sendingHire}
+          onQuantityChange={setHireQuantity}
+          onLocationChange={setHireLocation}
+          onClose={backToWorkers}
+          onSubmit={submitHireRequest}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="workers-search-page">
       <section className={`workers-search-hero ${searched ? "is-compact" : ""}`}>
-        <h1 aria-label={headline}><span aria-hidden="true">{typedHeadline}</span><span className="workers-type-caret" aria-hidden="true" /></h1>
-        <form className="workers-search-box" onSubmit={runSearch}>
-          <label className="workers-search-input">
-            <Search size={21} />
-            <input value={search} onChange={event => setSearch(event.target.value)} placeholder="mama fua, cleaner, kibarua, gardener..." />
-          </label>
-          <div className="workers-search-actions">
-            <Button type="button" variant="secondary" onClick={showRehireResults}>Rehire</Button>
-            <Button type="submit" className="workers-search-submit">Search</Button>
+        {!searched && <h1 aria-label={headline}><span aria-hidden="true">{typedHeadline}</span><span className="workers-type-caret" aria-hidden="true" /></h1>}
+        <form ref={searchWrapRef} className={`workers-search-box ${searched ? "is-results-mode" : ""}`} onSubmit={runSearch}>
+          <div className="workers-search-row">
+            <div className="workers-search-combobox">
+              <label className="workers-search-input">
+                <Search size={21} />
+                <input
+                  value={search}
+                  onChange={event => { setSearch(event.target.value); setSuggestionsOpen(!!event.target.value.trim()); setHighlightedSuggestion(0); }}
+                  onFocus={() => setSuggestionsOpen(!!search.trim())}
+                  onKeyDown={handleSearchKeys}
+                  placeholder="mama fua, cleaner, kibarua, gardener..."
+                  role="combobox"
+                  aria-expanded={suggestionsOpen && suggestions.length > 0}
+                  aria-controls="workers-search-suggestions"
+                  aria-autocomplete="list"
+                  aria-activedescendant={suggestionsOpen && suggestions[highlightedSuggestion] ? `workers-suggestion-${highlightedSuggestion}` : undefined}
+                />
+              </label>
+              {suggestionsOpen && suggestions.length > 0 && (
+                <div id="workers-search-suggestions" className="workers-autocomplete" role="listbox">
+                  {suggestions.map((suggestion, index) => (
+                    <button
+                      id={`workers-suggestion-${index}`}
+                      key={suggestion.value}
+                      type="button"
+                      role="option"
+                      aria-selected={index === highlightedSuggestion}
+                      className={index === highlightedSuggestion ? "is-active" : ""}
+                      onMouseEnter={() => setHighlightedSuggestion(index)}
+                      onClick={() => chooseSuggestion(suggestion)}
+                    >
+                      <SuggestionText value={suggestion.value} query={search} />
+                      {suggestion.matches > 0 && <span>{suggestion.matches} available</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {searched && (
+              <div className="workers-sort-wrap">
+                <button type="button" className="workers-sort-button" onClick={() => setSortOpen(open => !open)} aria-haspopup="menu" aria-expanded={sortOpen} aria-label="Sort workers">
+                  <SlidersHorizontal size={18} />
+                  <span>Sort by</span>
+                  <strong>{sortLabel}</strong>
+                  <ChevronDown size={16} />
+                </button>
+                {sortOpen && (
+                  <div className="workers-sort-menu" role="menu">
+                    {sortOptions.map(option => (
+                      <button key={option.value} type="button" role="menuitemradio" aria-checked={sortMode === option.value} className={sortMode === option.value ? "is-active" : ""} onClick={() => { setSortMode(option.value); setSortOpen(false); }}>
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+          {!searched && (
+            <div className="workers-search-actions">
+              <Button type="button" variant="secondary" onClick={showRehireResults}>Rehire</Button>
+              <Button type="submit" className="workers-search-submit">Search</Button>
+            </div>
+          )}
         </form>
       </section>
 
@@ -275,13 +438,6 @@ export default function WorkersPage() {
 
       {searched ? (
         <section className="workers-results-shell">
-          <div className="workers-results-head">
-            <div>
-              <p className="workers-results-kicker">{showRehire ? "Previous hires" : "Search results"}</p>
-              <h2>{showRehire ? "Workers you have hired before" : submittedSearch}</h2>
-            </div>
-            <p>{results.length} result{results.length === 1 ? "" : "s"}</p>
-          </div>
           {results.length ? (
             <div className="workers-result-grid">
               {results.map(match => <WorkerResultCard key={`${match.worker.id}-${match.skill.id}`} match={match} active={hireWorker?.id === match.worker.id && hireSkill?.id === match.skill.id} onHire={() => requestSkill(match.worker, match.skill)} onMessage={() => setMessageWorker(match.worker)} />)}
@@ -294,20 +450,6 @@ export default function WorkersPage() {
         <section className="workers-suggestion-strip" aria-label="Suggested searches">
           {["mama fua", "kibarua", "gardener", "errands"].map(term => <button key={term} type="button" onClick={() => { setSearch(term); setSubmittedSearch(term); }}>{term}</button>)}
         </section>
-      )}
-
-      {hireWorker && hireSkill && (
-        <HirePanel
-          worker={hireWorker}
-          skill={hireSkill}
-          quantity={hireQuantity}
-          location={hireLocation}
-          sending={sendingHire}
-          onQuantityChange={setHireQuantity}
-          onLocationChange={setHireLocation}
-          onClose={() => { setHireWorker(null); setHireSkill(null); }}
-          onSubmit={submitHireRequest}
-        />
       )}
 
       {messageWorker && (
@@ -345,8 +487,9 @@ export default function WorkersPage() {
 
 function WorkerResultCard({ match, active, onHire, onMessage }: { match: WorkerSearchMatch; active: boolean; onHire: () => void; onMessage: () => void }) {
   const { worker, skill } = match;
-  const completed = Math.max(Number(worker.completedJobs || 0), Number(skill.completedJobs || 0), Number(worker.ratingCount || 0), Number(skill.ratingCount || 0));
-  const rating = Number(skill.ratingAverage || worker.ratingAverage || 0);
+  const completed = completedJobsFor(match);
+  const rating = ratingFor(match);
+  const rate = clientRateParts(skill, kes);
   return (
     <article className={`worker-result-card ${active ? "is-active" : ""}`}>
       <button type="button" className="worker-result-avatar" onClick={onMessage} aria-label={`Message ${worker.displayName}`}>
@@ -364,7 +507,7 @@ function WorkerResultCard({ match, active, onHire, onMessage }: { match: WorkerS
         </div>
       </div>
       <div className="worker-result-action">
-        <strong>{clientRateLabel(skill, kes)}</strong>
+        <strong><span>{rate.amount}</span>{rate.suffix && <em>{rate.suffix}</em>}</strong>
         <Button type="button" onClick={onHire} className="worker-hire-button">Hire</Button>
       </div>
     </article>
@@ -386,6 +529,8 @@ function HirePanel({ worker, skill, quantity, location, sending, onQuantityChang
   const pricingType = resolveSkillPricingType(skill);
   const unit = singularUnit(resolveSkillUnit(skill));
   const plural = pluralUnit(unit);
+  const rate = clientRateParts(skill, kes);
+  const unitOptions = safeUnitOptions(skill);
   return (
     <section className="worker-hire-panel" aria-label={`Hire ${worker.displayName}`}>
       <form onSubmit={onSubmit}>
@@ -395,7 +540,17 @@ function HirePanel({ worker, skill, quantity, location, sending, onQuantityChang
             <h2>{worker.displayName}</h2>
             <span>{skill.name}</span>
           </div>
-          <button type="button" onClick={onClose}>Close</button>
+          <button type="button" onClick={onClose}>Back</button>
+        </div>
+        <div className="worker-hire-summary">
+          <div className="worker-result-avatar" aria-hidden="true">
+            {worker.photoURL ? <img src={worker.photoURL} alt="" style={{ objectPosition: `${worker.photoPositionX ?? 50}% ${worker.photoPositionY ?? 50}%`, transform: `scale(${worker.photoZoom ?? 1})`, transformOrigin: `${worker.photoPositionX ?? 50}% ${worker.photoPositionY ?? 50}%` }} /> : worker.displayName.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <p>{worker.displayName}</p>
+            <span>{skill.name}</span>
+          </div>
+          <strong><span>{rate.amount}</span>{rate.suffix && <em>{rate.suffix}</em>}</strong>
         </div>
         <input type="hidden" name="title" value={skill.name} />
         <input type="hidden" name="category" value={skill.chargeCategory ?? skill.name} />
@@ -412,7 +567,9 @@ function HirePanel({ worker, skill, quantity, location, sending, onQuantityChang
               </label>
               <label>
                 <span>Unit</span>
-                <input value={unit} readOnly />
+                <select value={unit} disabled aria-label="Unit priced by worker">
+                  {unitOptions.map(option => <option key={option} value={option}>{option}</option>)}
+                </select>
               </label>
             </>
           ) : null}
@@ -440,6 +597,17 @@ function HirePanel({ worker, skill, quantity, location, sending, onQuantityChang
   );
 }
 
+function SuggestionText({ value, query }: { value: string; query: string }) {
+  const normalizedQuery = normalizeSearchTerm(query);
+  const index = value.indexOf(normalizedQuery);
+  if (!normalizedQuery || index < 0) return <span>{value}</span>;
+  return <span>{value.slice(0, index)}<mark>{value.slice(index, index + normalizedQuery.length)}</mark>{value.slice(index + normalizedQuery.length)}</span>;
+}
+
+function approvedWorkerSkillProfiles(worker: UserProfile): WorkerSkillProfile[] {
+  return workerSkillProfiles(worker).filter(skill => isApprovedSkill(skill) && Number(skill.chargeAmount ?? 0) > 0);
+}
+
 function workerSkillProfiles(worker: UserProfile): WorkerSkillProfile[] {
   if (worker.skillProfiles?.length) return worker.skillProfiles;
   return (worker.skills ?? []).map((name, index) => ({
@@ -452,6 +620,13 @@ function workerSkillProfiles(worker: UserProfile): WorkerSkillProfile[] {
     ratingAverage: worker.ratingAverage ?? 0,
     ratingCount: worker.ratingCount ?? 0
   }));
+}
+
+function safeUnitOptions(skill: WorkerSkillProfile) {
+  const storedUnit = singularUnit(resolveSkillUnit(skill));
+  const related = unitsForCategory(skill.chargeCategory ?? skill.category ?? skill.name).map(singularUnit);
+  const generic = ["Hour", "Day", "Week", "Month"];
+  return [storedUnit, ...related.filter(unit => unit === storedUnit), ...generic.filter(unit => unit === storedUnit)].filter((unit, index, all) => unit && all.indexOf(unit) === index);
 }
 
 function bestRehireMatch(worker: UserProfile, skills: WorkerSkillProfile[], applications: Application[]): WorkerSearchMatch | null {
@@ -480,6 +655,25 @@ function timestampMillis(value: unknown) {
 
 function sameWorker(first?: string | null, second?: string | null) {
   return !!first && !!second && first === second;
+}
+
+function ratingFor(match: WorkerSearchMatch) {
+  return Number(match.skill.ratingAverage || match.worker.ratingAverage || 0);
+}
+
+function completedJobsFor(match: WorkerSearchMatch) {
+  return Math.max(Number(match.worker.completedJobs || 0), Number(match.skill.completedJobs || 0), Number(match.worker.ratingCount || 0), Number(match.skill.ratingCount || 0));
+}
+
+function priceFor(match: WorkerSearchMatch) {
+  return calculateDirectHirePricing(match.skill, 1).clientRatePerUnit ?? calculateDirectHirePricing(match.skill, 1).total;
+}
+
+function sortNumber(first: number | null, second: number | null, direction: "asc" | "desc") {
+  if (first == null && second == null) return 0;
+  if (first == null) return 1;
+  if (second == null) return -1;
+  return direction === "asc" ? first - second : second - first;
 }
 
 function emptyHireLocation(): LocationFields {
