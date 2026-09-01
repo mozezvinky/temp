@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     if (isSqlBackend()) {
       const client = currentUser.profile ?? getLocalUser(decoded.uid);
-      if (!hasRole(client, "client") || currentUser.role !== "client") return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
+      if (!canUseClientMode(client, currentUser.role, activeMode)) return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
       const localClient = client as NonNullable<typeof client>;
       if (!clientCanPost(localClient)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
       const allowedWorker = await getWorkerJobEligibility(input.workerId, { title: input.title, category: input.category, requiredSkills: [] });
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     ]);
     const client = clientSnap.data();
     const worker = workerSnap.data();
-    if (!clientSnap.exists || currentUser.role !== "client" || !hasRole(client, "client")) return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
+    if (!clientSnap.exists || !canUseClientMode(client, currentUser.role, activeMode)) return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
     const clientVerificationStatus = normalizeVerificationStatus(clientVerificationSnap.data()?.identityVerificationStatus ?? clientVerificationSnap.data()?.status);
     const effectiveClient: Record<string, unknown> = {
       ...client,
@@ -295,6 +295,12 @@ function hasRole(profile: unknown, role: "client" | "worker") {
   if (!profile || typeof profile !== "object") return false;
   const data = profile as { role?: unknown; roles?: unknown };
   return data.role === role || (Array.isArray(data.roles) && data.roles.includes(role));
+}
+
+function canUseClientMode(profile: unknown, resolvedRole: string | undefined, activeMode: string | null) {
+  const selectedRole = activeMode ?? resolvedRole;
+  if (selectedRole !== "client") return false;
+  return hasRole(profile, "client") || hasRole(profile, "worker");
 }
 
 class AuthRouteError extends Error {

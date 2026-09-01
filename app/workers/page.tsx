@@ -38,6 +38,7 @@ type SortMode = typeof sortOptions[number]["value"];
 
 export default function WorkersPage() {
   const { profile, loading, isAuthorized } = useProtectedRoute(["client", "admin"]);
+  const activeRole = activeRoleForProfile(profile);
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
   const [showRehire, setShowRehire] = useState(false);
@@ -92,9 +93,9 @@ export default function WorkersPage() {
   }, [isAuthorized]);
 
   useEffect(() => {
-    if (!profile?.id || profile.role !== "client") return;
+    if (!profile?.id || activeRole !== "client") return;
     return subscribeApplications(profile.id, "client", setApplications, () => setApplications([]));
-  }, [profile?.id, profile?.role]);
+  }, [activeRole, profile?.id]);
 
   useEffect(() => {
     if (profile?.location) setClientLocation(profile.location);
@@ -246,7 +247,10 @@ export default function WorkersPage() {
   }
 
   function requestSkill(worker: UserProfile, skill: WorkerSkillProfile) {
-    if (profile?.role !== "client") return;
+    if (activeRole !== "client") {
+      toast.error("Hiring is only available in client mode");
+      return;
+    }
     if (checkingVerification) {
       toast.message("Checking your verification status. Try again in a moment.");
       return;
@@ -281,6 +285,10 @@ export default function WorkersPage() {
   async function submitHireRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!hireWorker || !hireSkill) return;
+    if (activeRole !== "client") {
+      toast.error("Hiring is only available in client mode");
+      return;
+    }
     if (checkingVerification) {
       toast.message("Checking your verification status. Try again in a moment.");
       return;
@@ -689,6 +697,18 @@ function sortNumber(first: number | null, second: number | null, direction: "asc
 
 function emptyHireLocation(): LocationFields {
   return { ...defaultKenyaLocation, addressText: "", displayLocation: "", latitude: Number.NaN, longitude: Number.NaN };
+}
+
+function activeRoleForProfile(profile: UserProfile | null) {
+  if (typeof window !== "undefined" && profile) {
+    const userId = profile.uid ?? profile.id;
+    const sessionUserId = window.sessionStorage.getItem("temp.profile.uid");
+    const sessionRole = sessionUserId === userId ? window.sessionStorage.getItem("temp.profile.role") : null;
+    if (sessionRole === "client" || sessionRole === "worker" || sessionRole === "admin") return sessionRole;
+    const localRole = window.localStorage.getItem(`temp.profile.role.${userId}`);
+    if (localRole === "client" || localRole === "worker" || localRole === "admin") return localRole;
+  }
+  return profile?.role ?? null;
 }
 
 function isOfflineError(error: Error) {
