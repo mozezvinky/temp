@@ -18,7 +18,7 @@ import { rateUser } from "@/services/ratings";
 import { reportCompletedJob } from "@/services/reports";
 import { CheckCircle2, MoreVertical, Plus } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { Application, Job } from "@/types";
 import { durationLabel, durationToHours, durationUnits, perDurationUnit, type DurationUnit } from "@/utils/duration";
@@ -35,6 +35,7 @@ export default function FindWorkPage() {
   const [postedJobsError, setPostedJobsError] = useState("");
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [progressJob, setProgressJob] = useState<Job | null>(null);
+  const [pendingPaymentApplicationId, setPendingPaymentApplicationId] = useState("");
   const [selectedApplicationIds, setSelectedApplicationIds] = useState<string[]>([]);
   const [progressCategory, setProgressCategory] = useState("All");
   const [paymentStep, setPaymentStep] = useState<"progress" | "review" | "complete">("progress");
@@ -48,6 +49,19 @@ export default function FindWorkPage() {
   const [verificationOpen, setVerificationOpen] = useState(false);
   const [reportingJobId, setReportingJobId] = useState("");
   const { status: liveVerificationStatus, checking: checkingVerification } = useLiveVerificationStatus(profile?.verificationStatus);
+
+  const openPaymentReviewForApplication = useCallback((applicationId: string) => {
+    const application = applications.find(item => item.id === applicationId && item.status === "completion_requested");
+    if (!application) return false;
+    const job = postedJobs.find(item => item.id === application.jobId);
+    if (!job) return false;
+    setCompletedOpen(false);
+    setProgressJob(job);
+    setSelectedApplicationIds([application.id]);
+    setProgressCategory(application.jobCategory ?? job.category ?? "All");
+    setPaymentStep("review");
+    return true;
+  }, [applications, postedJobs]);
 
   useEffect(() => {
     if (!profile || profile.role !== "client") return;
@@ -75,7 +89,30 @@ export default function FindWorkPage() {
       setCompletedTab("requests");
       setCompletedOpen(true);
     }
+    const payApplication = params.get("payApplication");
+    if (payApplication) setPendingPaymentApplicationId(payApplication);
   }, []);
+
+  useEffect(() => {
+    const openPayment = (event: Event) => {
+      const detail = (event as CustomEvent<{ applicationId?: string }>).detail;
+      if (detail?.applicationId) setPendingPaymentApplicationId(detail.applicationId);
+    };
+    window.addEventListener("copic:open-posted-job-payment", openPayment);
+    return () => window.removeEventListener("copic:open-posted-job-payment", openPayment);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingPaymentApplicationId) return;
+    if (!openPaymentReviewForApplication(pendingPaymentApplicationId)) return;
+    setPendingPaymentApplicationId("");
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("payApplication")) {
+      params.delete("payApplication");
+      const query = params.toString();
+      window.history.replaceState(null, "", query ? `/find-work?${query}` : "/find-work");
+    }
+  }, [openPaymentReviewForApplication, pendingPaymentApplicationId]);
 
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -446,14 +483,14 @@ export default function FindWorkPage() {
         </div>
       )}
       {progressJob && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm">
           <Card className="w-full max-w-xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-bold uppercase tracking-[.2em] text-emerald-200">Ongoing job</p>
                 <h2 className="mt-2 text-2xl font-black text-[#FFFBFF]">{progressJob.title}</h2>
               </div>
-              <Button type="button" variant="ghost" onClick={closeProgress}>Close</Button>
+              <Button type="button" variant="ghost" onClick={paymentStep === "review" ? () => setPaymentStep("progress") : closeProgress}>{paymentStep === "review" ? "Back" : "Close"}</Button>
             </div>
 
             {paymentStep === "progress" && (

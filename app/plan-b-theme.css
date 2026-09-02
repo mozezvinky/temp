@@ -1320,6 +1320,10 @@ textarea,
   padding: 14px;
 }
 
+.copic-activity-panel.is-retreating {
+  animation: copic-activity-retreat .16s ease-in forwards;
+}
+
 .copic-activity-panel-head,
 .copic-activity-profile,
 .copic-activity-actions,
@@ -1650,6 +1654,26 @@ textarea,
   97% { transform: translateX(-1px) scale(1.01); }
 }
 
+@keyframes copic-activity-retreat {
+  to {
+    opacity: 0;
+    transform: translateY(-48%) scale(.98);
+  }
+}
+
+@keyframes copic-activity-retreat-mobile {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copic-activity-panel.is-retreating {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .copic-activity-button.has-unread {
     animation: none;
@@ -1669,6 +1693,10 @@ textarea,
     width: auto;
     max-height: min(76dvh, 620px);
     transform: none;
+  }
+
+  .copic-activity-panel.is-retreating {
+    animation-name: copic-activity-retreat-mobile;
   }
 }
 .temp-location-map { min-height: 320px; overflow: hidden; border: 1px solid var(--copic-border); border-radius: 20px; }

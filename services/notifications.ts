@@ -27,7 +27,11 @@ export async function enablePush(userId: string) {
 export async function foregroundMessages() {
   const instance = await messaging();
   if (!instance) return () => undefined;
-  return onMessage(instance, payload => toast(payload.notification?.title ?? "Copic", { description: payload.notification?.body }));
+  return onMessage(instance, payload => {
+    toast(payload.notification?.title ?? "Copic", { description: payload.notification?.body });
+    notifyNotificationsChanged();
+    window.dispatchEvent(new Event("copic:applications-changed"));
+  });
 }
 
 export function subscribeNotifications(userId: string, callback: (items: AppNotification[]) => void, onError?: (error: Error) => void, archived = false) {

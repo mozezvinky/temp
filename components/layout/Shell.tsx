@@ -491,7 +491,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <main className={`temp-main mx-auto max-w-[1440px] px-4 py-6 md:px-8 ${isLanding ? "is-landing" : ""}`}>{children}</main>
 
       {showAppNav && profile && (profile.role === "client" || profile.role === "worker") && (
-        <ActivityHub userId={profile.id} role={profile.role} />
+        <ActivityHub userId={profile.id} role={profile.role} pathname={pathname} />
       )}
 
       {drawerOpen && (

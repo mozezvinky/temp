@@ -3,7 +3,7 @@ import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-us
 import { sendAppEmail } from "@/lib/app-email";
 import { adminDb } from "@/lib/firebase-admin";
 import { acceptLocalApplication, cancelLocalApplication, cancelLocalLiveApplication, completeLocalApplication, confirmLocalWorkerPaid, countLocalAcceptedApplications, countLocalActiveAcceptedApplications, createLocalApplication, getLocalJob, getLocalUser, listLocalApplications, requestLocalApplicationCompletion } from "@/lib/local-sql";
-import { type CopicNotificationInput, sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
+import { type CopicNotificationInput, safeAppLink, sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { serverDebug } from "@/lib/server-debug";
 import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatus, getWorkerVerificationStatusFromRecords, getWorkerWorkEligibility, logApplyEligibilityCheck } from "@/lib/worker-verification";
 import type { Role } from "@/types";
@@ -226,8 +226,14 @@ export async function PATCH(request: NextRequest) {
         if (!worker || worker.role !== "worker") return NextResponse.json({ error: "Use a worker account to mark work complete." }, { status: 403 });
         const allowed = await getWorkerWorkEligibility(currentUser.uid);
         if (allowed.decision === "blocked") return NextResponse.json({ error: allowed.reason }, { status: 403 });
+        const existingApplication = listLocalApplications(currentUser.uid, "worker").find(item => item.id === applicationId);
         const application = requestLocalApplicationCompletion(applicationId, currentUser.uid, requestedTimelineCount);
         if (!application) return NextResponse.json({ error: "Application was not found." }, { status: 404 });
+        if (existingApplication?.status === "accepted" && application.status === "completion_requested") {
+          const client = getLocalUser(application.clientId);
+          void sendCompletionRequestedEmail(client?.email, application.jobTitle ?? "your job", application.workerName ?? worker.displayName, `/find-work?payApplication=${application.id}`)
+            .catch(error => console.error("[api/applications] completion request email failed", error));
+        }
         return NextResponse.json({ success: true, application });
       }
       if (action === "worker_confirm_payment") {
@@ -350,6 +356,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true, application: result });
     }
     if (action === "worker_complete") {
+      let completionNotification: CopicNotificationInput | null = null;
       const result = await db.runTransaction(async transaction => {
         const applicationSnap = await transaction.get(applicationRef);
         if (!applicationSnap.exists) throw new AuthRouteError("Application was not found.", 404);
@@ -423,40 +430,34 @@ export async function PATCH(request: NextRequest) {
           transaction.set(applicationRef, { status: "completion_requested", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
           transaction.set(jobRef, { status: "live", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
           const paymentUnit = String(job.durationUnit ?? "timeline").replace(/s$/, "") || "timeline";
-          setNotification(transaction, db, {
+          completionNotification = {
             userId: String(application.clientId),
             type: "timeline_completion_requested",
             title: "Pending payment",
             message: `Pending payment: ${submittedTimelineNumbers.length} ${paymentUnit}${submittedTimelineNumbers.length === 1 ? "" : "s"} for ${application.jobTitle ?? "your job"}.`,
-            link: "/find-work",
+            link: `/find-work?payApplication=${applicationSnap.id}`,
             emailSubject: "Job completion requested on COPIC",
             eventId: `application:${applicationSnap.id}:timeline-completion-requested:${submittedTimelineNumbers.join("-")}`
-          });
+          };
+          setNotification(transaction, db, completionNotification);
           return { id: applicationSnap.id, ...application, status: "completion_requested" };
         }
         if (application.status === "completion_requested") return { id: applicationSnap.id, ...application, status: "completion_requested" };
         if (application.status !== "accepted") throw new AuthRouteError("Only accepted jobs can be marked complete.", 400);
         transaction.set(applicationRef, { status: "completion_requested", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        setNotification(transaction, db, {
+        completionNotification = {
           userId: String(application.clientId),
           type: "completion_requested",
           title: "Completion requested",
-          message: `${application.workerName ?? "A worker"} marked ${application.jobTitle ?? "your job"} as complete. Please confirm that the job has been completed and payment has been made directly to the worker.`,
-          link: `/completed-requests?application=${applicationRef.id}`,
+          message: `${application.workerName ?? "A worker"} marked ${application.jobTitle ?? "your job"} as complete. Open COPIC to confirm completion and pay the worker.`,
+          link: `/find-work?payApplication=${applicationRef.id}`,
           emailSubject: "Job completion requested on COPIC",
           eventId: `application:${applicationSnap.id}:completion-requested`
-        });
+        };
+        setNotification(transaction, db, completionNotification);
         return { id: applicationSnap.id, ...application, status: "completion_requested" };
       });
-      await sendNotificationEmailsAfterCommit(db, [{
-        userId: String((result as Record<string, unknown>).clientId ?? ""),
-        type: "completion_requested",
-        title: "Completion requested",
-        message: `${String((result as Record<string, unknown>).workerName ?? "A worker")} marked ${String((result as Record<string, unknown>).jobTitle ?? "your job")} as complete. Please confirm that the job has been completed and payment has been made directly to the worker.`,
-        link: `/completed-requests?application=${applicationId}`,
-        emailSubject: "Job completion requested on COPIC",
-        eventId: `application:${applicationId}:completion-requested`
-      }]);
+      if (completionNotification) await sendNotificationEmailsAfterCommit(db, [completionNotification]);
       return NextResponse.json({ success: true, application: result });
     }
     if (action === "worker_confirm_payment") {
@@ -892,6 +893,17 @@ function sendApplicationAcceptedEmail(workerEmail: string | undefined | null, jo
       <p>Open Copic to chat with the employer and manage the job from your applications page.</p>
     </div>
   `);
+}
+
+function sendCompletionRequestedEmail(clientEmail: string | undefined | null, jobTitle: string, workerName: string, href: string) {
+  return sendAppEmail(clientEmail, "Job completion requested on COPIC", `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#1f2933;">
+      <h1 style="font-size:22px;margin:0 0 12px;">Completion requested</h1>
+      <p>${escapeHtml(workerName)} marked <strong>${escapeHtml(jobTitle)}</strong> as complete.</p>
+      <p>Open COPIC to confirm the work and pay the worker.</p>
+      <p><a href="${escapeHtml(safeAppLink(href))}">Open COPIC</a></p>
+    </div>
+  `, `completion-requested:${href}`);
 }
 
 function escapeHtml(value: string) {

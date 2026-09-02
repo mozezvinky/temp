@@ -1,9 +1,7 @@
 "use client";
 
 import { markNotificationRead, subscribeNotifications } from "@/services/notifications";
-import { StarRatingInput } from "@/components/ui/StarRatingInput";
-import { cancelLiveApplication, completeApplication, confirmWorkerPaymentReceived, requestApplicationCompletion, respondDirectHireRequest, subscribeApplications } from "@/services/jobs";
-import { rateUser } from "@/services/ratings";
+import { cancelLiveApplication, confirmWorkerPaymentReceived, requestApplicationCompletion, respondDirectHireRequest, subscribeApplications } from "@/services/jobs";
 import type { AppNotification, Application, Role } from "@/types";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { isLiveJob, isPendingDirectHireRequest } from "@/utils/activity";
@@ -19,10 +17,14 @@ import { toast } from "sonner";
 type ActivityHubProps = {
   userId: string;
   role: Exclude<Role, "admin">;
+  pathname?: string;
 };
 
-export function ActivityHub({ userId, role }: ActivityHubProps) {
+const ACTIVITY_RETREAT_MS = 160;
+
+export function ActivityHub({ userId, role, pathname }: ActivityHubProps) {
   const [open, setOpen] = useState(false);
+  const [retreating, setRetreating] = useState(false);
   const [applications, setApplications] = useState<Application[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loadingApplications, setLoadingApplications] = useState(true);
@@ -60,15 +62,49 @@ export function ActivityHub({ userId, role }: ActivityHubProps) {
   const unreadCount = unreadNotifications.length;
   const isLoading = loadingApplications || loadingNotifications;
 
+  function closeActivity(afterClose?: () => void) {
+    if (typeof window === "undefined") {
+      setOpen(false);
+      afterClose?.();
+      return;
+    }
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      setOpen(false);
+      setRetreating(false);
+      afterClose?.();
+      return;
+    }
+    setRetreating(true);
+    window.setTimeout(() => {
+      setOpen(false);
+      setRetreating(false);
+      afterClose?.();
+    }, ACTIVITY_RETREAT_MS);
+  }
+
+  function openPostedJobsPayment(application: Application) {
+    closeActivity(() => {
+      const applicationId = encodeURIComponent(application.id);
+      if (pathname === "/find-work") {
+        window.dispatchEvent(new CustomEvent("copic:open-posted-job-payment", {
+          detail: { jobId: application.jobId, applicationId: application.id }
+        }));
+        return;
+      }
+      window.location.assign(`/find-work?payApplication=${applicationId}`);
+    });
+  }
+
   useEffect(() => {
     if (!open) return;
     const close = (event: PointerEvent) => {
       if (panelRef.current?.contains(event.target as Node) || buttonRef.current?.contains(event.target as Node)) return;
-      setOpen(false);
+      closeActivity();
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpen(false);
+        closeActivity();
         buttonRef.current?.focus();
       }
     };
@@ -119,13 +155,13 @@ export function ActivityHub({ userId, role }: ActivityHubProps) {
       </button>
 
       {open && (
-        <div ref={panelRef} className="copic-activity-panel" role="dialog" aria-modal="false" aria-label="Activity">
+        <div ref={panelRef} className={`copic-activity-panel ${retreating ? "is-retreating" : ""}`} role="dialog" aria-modal="false" aria-label="Activity">
           <div className="copic-activity-panel-head">
             <div>
               <p>Activity</p>
               <h2>{role === "client" ? "Client Center" : "Worker Center"}</h2>
             </div>
-            <button type="button" onClick={() => setOpen(false)} aria-label="Close activity"><X size={18} /></button>
+            <button type="button" onClick={() => closeActivity()} aria-label="Close activity"><X size={18} /></button>
           </div>
 
           <div className="copic-activity-tabs" role="tablist" aria-label="Activity summary">
@@ -149,9 +185,9 @@ export function ActivityHub({ userId, role }: ActivityHubProps) {
               </ActivitySection>
               <ActivitySection title="Live Jobs" items={liveJobs}>
                 {liveJobs.map(application => (
-                  <LiveJobCard key={application.id} application={application} role={role} onChanged={updated => {
+                  <LiveJobCard key={application.id} application={application} role={role} onConfirmPay={openPostedJobsPayment} onChanged={updated => {
                     setApplications(items => items.map(item => item.id === application.id ? { ...item, ...updated } : item));
-                  }} onOpen={() => setOpen(false)} />
+                  }} onOpen={() => closeActivity()} />
                 ))}
               </ActivitySection>
             </div>
@@ -197,9 +233,8 @@ function RequestCard({ application, role, onAnswer }: { application: Application
   );
 }
 
-function LiveJobCard({ application, role, onChanged, onOpen }: { application: Application; role: Exclude<Role, "admin">; onChanged: (application: Application) => void; onOpen: () => void }) {
+function LiveJobCard({ application, role, onConfirmPay, onChanged, onOpen }: { application: Application; role: Exclude<Role, "admin">; onConfirmPay: (application: Application) => void; onChanged: (application: Application) => void; onOpen: () => void }) {
   const [busyAction, setBusyAction] = useState("");
-  const [pendingClientPayment, setPendingClientPayment] = useState<Application | null>(null);
   const [pendingWorkerTimeline, setPendingWorkerTimeline] = useState<Application | null>(null);
   const [pendingWorkerCancel, setPendingWorkerCancel] = useState<Application | null>(null);
   const counterpartName = role === "client" ? application.workerName ?? "Worker" : application.clientName ?? "Client";
@@ -208,28 +243,6 @@ function LiveJobCard({ application, role, onChanged, onOpen }: { application: Ap
   const unit = perDurationUnit(application.jobDurationUnit);
   const unitTitle = unit.charAt(0).toUpperCase() + unit.slice(1);
   const fixedPay = resolveJobPaymentBreakdown(application);
-
-  async function clientConfirmPayment(target: Application, stars = 0, review = "") {
-    setBusyAction(`client-pay-${target.id}`);
-    try {
-      const updated = await completeApplication(target);
-      onChanged({ ...target, ...updated });
-      toast.success("Payment marked as sent. The worker must confirm they received it before the job completes.");
-      const canSaveRating = canRateAfterThisPayment(target) || updated.status === "completed" || updated.jobStatus === "completed";
-      if (stars > 0 && canSaveRating) {
-        try {
-          await rateUser(target.jobId, target.workerId, stars, review, updated.paidTimelineRatingScopeId);
-          toast.success("Worker rating submitted.");
-        } catch {
-          toast.warning("Payment was saved, but the rating could not be submitted.");
-        }
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to confirm completion.");
-    } finally {
-      setBusyAction("");
-    }
-  }
 
   async function workerMarkComplete(target: Application, timelineCount?: number) {
     setBusyAction(`worker-complete-${target.id}`);
@@ -302,8 +315,8 @@ function LiveJobCard({ application, role, onChanged, onOpen }: { application: Ap
           <span>Chat</span>
         </Link>
         {role === "client" && application.status === "completion_requested" && (
-          <button type="button" className="copic-activity-success-action" disabled={busyAction === `client-pay-${application.id}`} onClick={() => setPendingClientPayment(application)}>
-            {busyAction === `client-pay-${application.id}` ? "Saving..." : "Confirm & Pay"}
+          <button type="button" className="copic-activity-success-action" onClick={() => onConfirmPay(application)}>
+            Confirm & Pay
           </button>
         )}
         {role === "client" && application.status === "accepted" && (
@@ -331,11 +344,6 @@ function LiveJobCard({ application, role, onChanged, onOpen }: { application: Ap
           </button>
         )}
       </div>
-      {pendingClientPayment && <ClientPaymentModal application={pendingClientPayment} saving={busyAction === `client-pay-${pendingClientPayment.id}`} onClose={() => setPendingClientPayment(null)} onSubmit={(stars, review) => {
-        const target = pendingClientPayment;
-        setPendingClientPayment(null);
-        void clientConfirmPayment(target, stars, review);
-      }} />}
       {pendingWorkerCancel && <ConfirmModal title="Cancel live job?" body="If you cancel after accepting, the job will be cancelled with no pay." busy={busyAction === `worker-cancel-${pendingWorkerCancel.id}`} cancelLabel="Keep job" confirmLabel="Yes, cancel" onClose={() => setPendingWorkerCancel(null)} onConfirm={() => {
         const target = pendingWorkerCancel;
         setPendingWorkerCancel(null);
@@ -347,44 +355,6 @@ function LiveJobCard({ application, role, onChanged, onOpen }: { application: Ap
         void workerMarkComplete(target, count);
       }} />}
     </article>
-  );
-}
-
-function ClientPaymentModal({ application, saving, onClose, onSubmit }: { application: Application; saving: boolean; onClose: () => void; onSubmit: (stars: number, review: string) => void }) {
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    onSubmit(Number(form.get("stars") ?? 0), String(form.get("review") ?? ""));
-  }
-
-  return (
-    <div className="copic-activity-modal-backdrop" role="presentation" onMouseDown={event => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
-      <div className="copic-activity-modal" role="dialog" aria-modal="true" aria-label="Confirm completion and pay worker">
-        <h3>Confirm completion and pay worker</h3>
-        <p>Confirm only if {application.workerName ?? "the worker"} has finished the work. Pay the worker directly outside the platform, then click below. The job will not be completed until the worker confirms they received the money.</p>
-        <p className="copic-activity-warning">Payment is for labor only. Does not include materials and transport.</p>
-        <div className="copic-activity-payment-summary">
-          <p><strong>Worker:</strong> {application.workerName ?? "Worker"}</p>
-          <p><strong>Phone:</strong> {application.workerPhoneNumber ?? "No phone provided"}</p>
-          <p><strong>{pendingPaymentLabel(application)}</strong></p>
-          <p><strong>Worker payment:</strong> {kes(pendingPaymentAmount(application))}</p>
-        </div>
-        <form onSubmit={submit} className="copic-activity-modal-form">
-          {canRateAfterThisPayment(application) ? (
-            <>
-              <StarRatingInput name="stars" label="Rate worker optional" />
-              <label>Review optional<textarea name="review" placeholder="Optional public review" /></label>
-            </>
-          ) : <p className="copic-activity-state-note">Ratings appear when a submitted {perDurationUnit(application.jobDurationUnit)} is ready to pay.</p>}
-          <div className="copic-activity-modal-actions">
-            <button type="button" onClick={onClose}>Review first</button>
-            <button type="submit" className="copic-activity-success-action" disabled={saving}>{saving ? "Saving..." : "I Have Paid The Worker"}</button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 }
 
@@ -438,17 +408,6 @@ function ConfirmModal({ title, body, busy, cancelLabel, confirmLabel, onClose, o
       </div>
     </div>
   );
-}
-
-function canRateAfterThisPayment(application: Application) {
-  return !isPayPerTimeline(application.jobPayType) || Math.max(0, Math.trunc(Number(application.submittedTimelineCount ?? 0) || 0)) > 0;
-}
-
-function pendingPaymentLabel(application: Application) {
-  if (!isPayPerTimeline(application.jobPayType)) return "Pending payment";
-  const timelinePay = applicationTimelinePay(application);
-  const unit = perDurationUnit(application.jobDurationUnit);
-  return `Pending payment: ${timelinePay.submittedTimelineCount} ${unit}${timelinePay.submittedTimelineCount === 1 ? "" : "s"}`;
 }
 
 function pendingPaymentAmount(application: Application) {
