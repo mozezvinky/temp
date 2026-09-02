@@ -1,4 +1,4 @@
-import { calculateJobPaymentBreakdown, calculateWorkerEarningsFromClientTotal, PLATFORM_FEE_RATE } from "@/utils/money";
+import { calculateClientPostedJobPaymentBreakdown, calculateWorkerEarningsFromClientTotal, PLATFORM_FEE_RATE } from "@/utils/money";
 
 export const TIMELINE_PLATFORM_FEE_RATE = PLATFORM_FEE_RATE;
 
@@ -6,9 +6,9 @@ export function isPayPerTimeline(payType?: string | null) {
   return payType === "pay_per_timeline" || payType === "timeline";
 }
 
-export function timelinePaymentSummary(workerPayPerTimeline: number, timelineCount: number) {
+export function timelinePaymentSummary(clientPayPerTimelineInput: number, timelineCount: number) {
   const count = Math.max(1, Math.trunc(Number(timelineCount) || 1));
-  const breakdown = calculateJobPaymentBreakdown(workerPayPerTimeline);
+  const breakdown = calculateClientPostedJobPaymentBreakdown(clientPayPerTimelineInput);
   return {
     timelineCount: count,
     clientPayPerTimeline: breakdown.total,
@@ -35,9 +35,8 @@ export function timelinePaymentSummaryFromRecord(record: TimelinePaymentRecord, 
   const count = Math.max(1, Math.trunc(Number(record.timelineCount ?? record.durationValue ?? fallbackTimelineCount) || 1));
   const storedClientPay = positiveNumber(record.clientPayPerTimeline);
   const storedWorkerPay = positiveNumber(record.workerPayPerTimeline);
-  const workerPay = storedWorkerPay
-    ?? (storedClientPay ? calculateWorkerEarningsFromClientTotal(storedClientPay) : positiveNumber(record.payAmount) ?? positiveNumber(record.rateAmount) ?? 0);
-  const calculated = timelinePaymentSummary(workerPay, count);
+  const calculated = timelinePaymentSummary(storedClientPay ?? positiveNumber(record.payAmount) ?? positiveNumber(record.rateAmount) ?? 0, count);
+  const workerPay = storedWorkerPay ?? (storedClientPay ? calculateWorkerEarningsFromClientTotal(storedClientPay) : calculated.workerPayPerTimeline);
   const clientPay = storedClientPay ?? calculated.clientPayPerTimeline;
   const platformFee = Math.max(0, clientPay - workerPay);
   return {

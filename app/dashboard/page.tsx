@@ -27,7 +27,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { isLiveJob } from "@/utils/activity";
 import { perDurationUnit } from "@/utils/duration";
-import { calculateJobPaymentBreakdown, calculateWorkerEarningsFromServiceFee, calculateWorkerNet, kes } from "@/utils/money";
+import { calculateJobPaymentBreakdown, calculateWorkerEarningsFromServiceFee, kes, resolveJobPaymentBreakdown } from "@/utils/money";
 import { completedJobId } from "@/utils/completed-job-id";
 import { jobLocationLabel } from "@/utils/location-display";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
@@ -271,17 +271,17 @@ export default function DashboardPage() {
   const completedJobsCount = Math.max(profile.completedJobs ?? 0, doneApplications.length);
   const displayRating = ratingAggregate.count ? ratingAggregate.average : profile.ratingAverage ?? 0;
   const dashboardSkills = profileSkills;
-  const totalGrossEarnings = doneApplications.reduce((sum, application) => sum + Number(application.jobAmount ?? 0), 0);
-  const totalEarnings = doneApplications.reduce((sum, application) => sum + calculateWorkerNet(Number(application.jobAmount ?? 0)), 0);
+  const totalGrossEarnings = doneApplications.reduce((sum, application) => sum + resolveJobPaymentBreakdown(application).clientTotal, 0);
+  const totalEarnings = doneApplications.reduce((sum, application) => sum + resolveJobPaymentBreakdown(application).workerEarnings, 0);
   const now = new Date();
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - 7);
   const earningsThisMonth = doneApplications
     .filter(application => application.updatedAt && "toDate" in application.updatedAt ? (application.updatedAt.toDate() as Date).getMonth() === now.getMonth() : true)
-    .reduce((sum, application) => sum + calculateWorkerNet(Number(application.jobAmount ?? 0)), 0);
+    .reduce((sum, application) => sum + resolveJobPaymentBreakdown(application).workerEarnings, 0);
   const earningsThisWeek = doneApplications
     .filter(application => application.updatedAt && "toDate" in application.updatedAt ? (application.updatedAt.toDate() as Date) >= weekStart : true)
-    .reduce((sum, application) => sum + calculateWorkerNet(Number(application.jobAmount ?? 0)), 0);
+    .reduce((sum, application) => sum + resolveJobPaymentBreakdown(application).workerEarnings, 0);
   const averageJobValue = doneApplications.length ? totalEarnings / doneApplications.length : 0;
   const completionRate = visibleApplications.length ? Math.round((doneApplications.length / visibleApplications.length) * 100) : 0;
   const demandedServiceFee = serviceFeeApproved ? 0 : currentOutstandingServiceFee;
@@ -655,7 +655,7 @@ function ApplicationList({ applications, mode, workerHasLiveJob = false, onAppli
         {applications.map(application => {
           const isBusy = busyId === application.id;
           const timelinePay = applicationTimelinePay(application);
-          const fixedPay = calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0));
+          const fixedPay = resolveJobPaymentBreakdown(application);
           const timelineUnitLabel = perDurationUnit(application.jobDurationUnit);
           const statusLabel = application.status === "completed" || application.jobStatus === "completed"
             ? "done"
@@ -805,7 +805,7 @@ function ApplicationList({ applications, mode, workerHasLiveJob = false, onAppli
               : "Send completion to the client for payment confirmation. You can rate the client now or leave the rating empty."}
           </p>
           {!isPayPerTimeline(pendingComplete.jobPayType) && Number(pendingComplete.jobAmount ?? 0) > 0 && (() => {
-            const breakdown = calculateJobPaymentBreakdown(Number(pendingComplete.jobAmount ?? 0));
+            const breakdown = resolveJobPaymentBreakdown(pendingComplete);
             return (
               <div className="mt-4 rounded-xl border border-bone/10 bg-bone/[.04] p-3 text-sm font-bold text-[#CCC6BB]">
                 <p className="text-base font-black text-[#FFFBFF]">You should receive: {kes(breakdown.total)}</p>

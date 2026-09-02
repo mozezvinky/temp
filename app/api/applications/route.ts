@@ -7,7 +7,7 @@ import { type CopicNotificationInput, sendNotificationEmailsAfterCommit, setNoti
 import { serverDebug } from "@/lib/server-debug";
 import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatus, getWorkerVerificationStatusFromRecords, getWorkerWorkEligibility, logApplyEligibilityCheck } from "@/lib/worker-verification";
 import type { Role } from "@/types";
-import { calculateJobPaymentBreakdown } from "@/utils/money";
+import { resolveJobPaymentBreakdown } from "@/utils/money";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/timeline-payments";
 import { isLiveJob } from "@/utils/activity";
@@ -494,13 +494,12 @@ export async function PATCH(request: NextRequest) {
           participants: [application.clientId, application.workerId],
           updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
-        const grossAmount = Number(jobSnap.data()?.payAmount ?? jobSnap.data()?.rateAmount ?? application.jobAmount ?? 0);
-        const breakdown = calculateJobPaymentBreakdown(grossAmount);
+        const breakdown = resolveJobPaymentBreakdown({ ...jobSnap.data(), ...application });
         const serviceFee = breakdown.serviceFee;
         transaction.set(applicationRef, {
           status: "completed",
           paymentConfirmedAt: FieldValue.serverTimestamp(),
-          grossAmount: breakdown.total,
+          grossAmount: breakdown.clientTotal,
           workerEarnings: breakdown.workerEarnings,
           serviceFeeAmount: serviceFee,
           serviceFeeStatus: serviceFee > 0 ? "due" : "paid",
@@ -527,7 +526,7 @@ export async function PATCH(request: NextRequest) {
           eventId: `application:${applicationSnap.id}:worker-confirmed-payment`
         });
         serverDebug("Worker confirmed direct payment received", { applicationId, workerId: currentUser.uid });
-        return { id: applicationSnap.id, ...application, status: "completed", grossAmount: breakdown.total, workerEarnings: breakdown.workerEarnings, serviceFeeAmount: serviceFee, serviceFeeStatus: serviceFee > 0 ? "due" : "paid", workerLocked: serviceFee > 0, outstandingServiceFee: serviceFee };
+        return { id: applicationSnap.id, ...application, status: "completed", grossAmount: breakdown.clientTotal, workerEarnings: breakdown.workerEarnings, serviceFeeAmount: serviceFee, serviceFeeStatus: serviceFee > 0 ? "due" : "paid", workerLocked: serviceFee > 0, outstandingServiceFee: serviceFee };
       });
       await sendNotificationEmailsAfterCommit(db, [
         {

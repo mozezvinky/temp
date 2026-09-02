@@ -9,7 +9,7 @@ import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { isLiveJob, isPendingDirectHireRequest } from "@/utils/activity";
 import { perDurationUnit } from "@/utils/duration";
 import { jobLocationLabel } from "@/utils/location-display";
-import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
+import { kes, resolveJobPaymentBreakdown } from "@/utils/money";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { MessageCircle, X } from "lucide-react";
 import Link from "next/link";
@@ -129,8 +129,8 @@ export function ActivityHub({ userId, role }: ActivityHubProps) {
           </div>
 
           <div className="copic-activity-tabs" role="tablist" aria-label="Activity summary">
-            <span>Requests ({pendingRequests.length})</span>
-            <span>Live ({liveJobs.length})</span>
+            <span className={pendingRequests.length > 0 ? "is-active" : ""}>Requests ({pendingRequests.length})</span>
+            <span className={liveJobs.length > 0 ? "is-active" : ""}>Live ({liveJobs.length})</span>
           </div>
 
           {isLoading ? <p className="copic-activity-empty">Loading activity...</p> : error ? (
@@ -207,7 +207,7 @@ function LiveJobCard({ application, role, onChanged, onOpen }: { application: Ap
   const timelinePay = applicationTimelinePay(application);
   const unit = perDurationUnit(application.jobDurationUnit);
   const unitTitle = unit.charAt(0).toUpperCase() + unit.slice(1);
-  const fixedPay = calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0));
+  const fixedPay = resolveJobPaymentBreakdown(application);
 
   async function clientConfirmPayment(target: Application, stars = 0, review = "") {
     setBusyAction(`client-pay-${target.id}`);
@@ -452,7 +452,7 @@ function pendingPaymentLabel(application: Application) {
 }
 
 function pendingPaymentAmount(application: Application) {
-  if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).total;
+  if (!isPayPerTimeline(application.jobPayType)) return resolveJobPaymentBreakdown(application).clientTotal;
   return applicationTimelinePay(application).submittedWorkerAmount;
 }
 

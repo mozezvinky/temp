@@ -3,7 +3,7 @@ import "server-only";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Application, DirectHirePricingSnapshot, Job, LocationFields, Role, ServiceFeePayment, UserProfile, WorkerSkillProfile } from "@/types";
-import { calculateJobPaymentBreakdown } from "@/utils/money";
+import { resolveJobPaymentBreakdown } from "@/utils/money";
 import { workerCanApplyToJob } from "@/utils/jobRules";
 import { jobLocationLabel } from "@/utils/location-display";
 import { normalizeVerificationStatus } from "@/utils/verification";
@@ -1423,12 +1423,12 @@ export function completeLocalApplication(applicationId: string, workerId: string
   if (application.status !== "payment_sent") throw new Error("Confirm payment only after the client has marked the direct payment as sent.");
 
   const now = nowIso();
-  const breakdown = calculateJobPaymentBreakdown(Number(job?.payAmount ?? application.jobAmount ?? 0));
+  const breakdown = resolveJobPaymentBreakdown({ ...job, ...application });
   const serviceFee = breakdown.serviceFee;
   localDb().exec("BEGIN IMMEDIATE");
   try {
     localDb().prepare("UPDATE applications SET status = 'completed', paymentConfirmedAt = ?, grossAmount = ?, workerEarnings = ?, serviceFeeAmount = ?, serviceFeeStatus = ?, updatedAt = ? WHERE id = ?")
-      .run(now, breakdown.total, breakdown.workerEarnings, serviceFee, serviceFee > 0 ? "due" : "paid", now, applicationId);
+      .run(now, breakdown.clientTotal, breakdown.workerEarnings, serviceFee, serviceFee > 0 ? "due" : "paid", now, applicationId);
     if (job) localDb().prepare("UPDATE jobs SET status = 'completed', completedPeriods = 1, recurrenceStatus = 'completed', updatedAt = ? WHERE id = ?").run(now, job.id);
     localDb().prepare("UPDATE users SET completedJobs = completedJobs + 1, updatedAt = ? WHERE uid IN (?, ?)").run(now, application.workerId, application.clientId);
     localDb().prepare("UPDATE users SET isLocked = 1, outstandingServiceFee = outstandingServiceFee + ?, lockReason = ?, updatedAt = ? WHERE uid = ?")

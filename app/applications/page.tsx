@@ -14,7 +14,7 @@ import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { isLiveJob } from "@/utils/activity";
 import { perDurationUnit } from "@/utils/duration";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
-import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
+import { kes, resolveJobPaymentBreakdown } from "@/utils/money";
 import { jobLocationLabel } from "@/utils/location-display";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { ArrowLeft, Mail, MessageCircle, Phone, Star } from "lucide-react";
@@ -146,7 +146,7 @@ export default function ApplicationsPage() {
   }
 
   function pendingPaymentAmount(application: Application) {
-    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).total;
+    if (!isPayPerTimeline(application.jobPayType)) return resolveJobPaymentBreakdown(application).clientTotal;
     return applicationTimelinePay(application).submittedWorkerAmount;
   }
 
@@ -380,7 +380,7 @@ function ApplicationSection({ title, empty, applications, onCancel }: { title: s
         <Card key={application.id} data-copic-component={isCurrentJobSection ? "current-job-v2" : undefined}>
           {(() => {
             const timelinePay = applicationTimelinePay(application);
-            const fixedPay = calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0));
+            const fixedPay = resolveJobPaymentBreakdown(application);
             const timelineUnitLabel = perDurationUnit(application.jobDurationUnit);
             const timelineUnitTitle = timelineUnitLabel.charAt(0).toUpperCase() + timelineUnitLabel.slice(1);
             return (

@@ -11,7 +11,7 @@ import { rateUser } from "@/services/ratings";
 import type { Application } from "@/types";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { perDurationUnit } from "@/utils/duration";
-import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
+import { kes, resolveJobPaymentBreakdown } from "@/utils/money";
 import { isPayPerTimeline } from "@/utils/timeline-payments";
 import { ArrowLeft, Mail, Phone, Star } from "lucide-react";
 import Link from "next/link";
@@ -82,7 +82,7 @@ export default function CompletedRequestsPage() {
   }
 
   function pendingPaymentAmount(application: Application) {
-    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).total;
+    if (!isPayPerTimeline(application.jobPayType)) return resolveJobPaymentBreakdown(application).clientTotal;
     return applicationTimelinePay(application).submittedWorkerAmount;
   }
 

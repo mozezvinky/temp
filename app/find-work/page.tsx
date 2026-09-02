@@ -23,7 +23,7 @@ import { toast } from "sonner";
 import type { Application, Job } from "@/types";
 import { durationLabel, durationToHours, durationUnits, perDurationUnit, type DurationUnit } from "@/utils/duration";
 import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/timeline-payments";
-import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
+import { kes, resolveJobPaymentBreakdown } from "@/utils/money";
 import { completedJobId } from "@/utils/completed-job-id";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { clientCanPost } from "@/utils/jobRules";
@@ -160,7 +160,7 @@ export default function FindWorkPage() {
   }
 
   function pendingPaymentAmount(application: Application) {
-    if (!isPayPerTimeline(application.jobPayType)) return calculateJobPaymentBreakdown(Number(application.jobAmount ?? 0)).total;
+    if (!isPayPerTimeline(application.jobPayType)) return resolveJobPaymentBreakdown(application).clientTotal;
     return applicationTimelinePay(application).submittedWorkerAmount;
   }
 

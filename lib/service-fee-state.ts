@@ -4,7 +4,7 @@ import { isSqlBackend } from "@/lib/data-backend";
 import { adminDb } from "@/lib/firebase-admin";
 import { getLatestLocalServiceFeePayment, getLocalUser, listLocalApplications } from "@/lib/local-sql";
 import type { ServiceFeePaymentStatus, ServiceFeePaywallState } from "@/types";
-import { calculateJobPaymentBreakdown, calculateWorkerEarningsFromServiceFee } from "@/utils/money";
+import { calculateJobPaymentBreakdown, calculateWorkerEarningsFromServiceFee, resolveJobPaymentBreakdown } from "@/utils/money";
 
 type ServiceFeeBreakdown = {
   grossAmount: number;
@@ -133,12 +133,14 @@ export async function getServiceFeePaywallState(uid: string): Promise<ServiceFee
 async function latestBreakdown(applications: Record<string, unknown>[]) {
   const latestWithFee = applications.find(application => Number(application.serviceFeeAmount ?? 0) > 0);
   if (latestWithFee) {
-    const grossAmount = Number(latestWithFee.grossAmount ?? latestWithFee.jobAmount ?? 0);
-    const serviceFeeAmount = Number(latestWithFee.serviceFeeAmount ?? 0);
+    const jobSnap = typeof latestWithFee.jobId === "string"
+      ? await adminDb().collection("jobs").doc(String(latestWithFee.jobId)).get()
+      : null;
+    const breakdown = resolveJobPaymentBreakdown({ ...jobSnap?.data(), ...latestWithFee });
     return {
-      grossAmount,
-      workerEarnings: Number(latestWithFee.workerEarnings ?? calculateWorkerEarningsFromServiceFee(serviceFeeAmount)),
-      serviceFeeAmount,
+      grossAmount: breakdown.clientTotal,
+      workerEarnings: breakdown.workerEarnings,
+      serviceFeeAmount: breakdown.serviceFee,
       jobId: typeof latestWithFee.jobId === "string" ? latestWithFee.jobId : null,
       applicationId: typeof latestWithFee.id === "string" ? latestWithFee.id : null
     };
@@ -147,11 +149,10 @@ async function latestBreakdown(applications: Record<string, unknown>[]) {
   const latest = applications.find(application => typeof application.jobId === "string");
   if (!latest) return undefined;
   const jobSnap = await adminDb().collection("jobs").doc(String(latest.jobId)).get();
-  const grossAmount = Number(jobSnap.data()?.payAmount ?? jobSnap.data()?.rateAmount ?? latest.jobAmount ?? 0);
-  if (grossAmount <= 0) return undefined;
-  const breakdown = calculateJobPaymentBreakdown(grossAmount);
+  const breakdown = resolveJobPaymentBreakdown({ ...jobSnap.data(), ...latest });
+  if (breakdown.clientTotal <= 0) return undefined;
   return {
-    grossAmount: breakdown.total,
+    grossAmount: breakdown.clientTotal,
     workerEarnings: breakdown.workerEarnings,
     serviceFeeAmount: breakdown.serviceFee,
     jobId: String(latest.jobId),
@@ -167,11 +168,10 @@ function getLocalServiceFeePaywallState(uid: string): ServiceFeePaywallState {
     .filter(application => application.status === "completed")
     .sort((a, b) => timestampMillis(b.updatedAt) - timestampMillis(a.updatedAt));
   const latest = applications[0];
-  const grossAmount = Number(latest?.jobAmount ?? 0);
-  const paymentBreakdown = grossAmount > 0 ? calculateJobPaymentBreakdown(grossAmount) : null;
+  const paymentBreakdown = latest ? resolveJobPaymentBreakdown(latest) : null;
   const fallbackBreakdown = paymentBreakdown
     ? {
-        grossAmount: paymentBreakdown.total,
+        grossAmount: paymentBreakdown.clientTotal,
         workerEarnings: paymentBreakdown.workerEarnings,
         serviceFeeAmount: paymentBreakdown.serviceFee
       }

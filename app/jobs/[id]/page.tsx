@@ -8,7 +8,7 @@ import { useLiveVerificationStatus } from "@/hooks/useLiveVerificationStatus";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { applyToJob, subscribeApplications, subscribeJob } from "@/services/jobs";
 import type { Application, Job } from "@/types";
-import { calculateJobPaymentBreakdown, kes } from "@/utils/money";
+import { kes, resolveJobPaymentBreakdown } from "@/utils/money";
 import { displayJobQuantity } from "@/utils/jobUnits";
 import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/timeline-payments";
 import { perDurationUnit } from "@/utils/duration";
@@ -76,7 +76,7 @@ export default function JobDetailsPage() {
   const alreadyApplied = applications.some(application => application.jobId === job.id);
   const quantityLabel = displayJobQuantity(job.quantity, job.unit, job.customUnit);
   const timelinePay = isPayPerTimeline(job.payType);
-  const fixedBreakdown = calculateJobPaymentBreakdown(job.payAmount ?? job.rateAmount ?? 0);
+  const fixedBreakdown = resolveJobPaymentBreakdown(job);
   const timelineCount = Number(job.timelineCount ?? 1);
   const timelineSummary = timelinePaymentSummaryFromRecord(job, timelineCount);
   const workerPay = timelinePay ? timelineSummary.workerPayPerTimeline : fixedBreakdown.workerEarnings;

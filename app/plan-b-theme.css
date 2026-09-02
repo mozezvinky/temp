@@ -1365,12 +1365,20 @@ textarea,
 }
 
 .copic-activity-tabs span {
+  border: 1px solid var(--copic-border);
   border-radius: 999px;
-  background: rgba(255, 212, 59, .14);
-  color: #ffdc52;
+  background: var(--copic-surface-low);
+  color: var(--copic-text);
   font-size: .8rem;
   font-weight: 900;
   padding: 7px 10px;
+}
+
+.copic-activity-tabs span.is-active {
+  border-color: rgba(255, 212, 59, .55);
+  background: color-mix(in srgb, #ffd43b 22%, var(--copic-surface));
+  color: var(--copic-text);
+  box-shadow: 0 0 0 1px rgba(255, 212, 59, .18);
 }
 
 .copic-activity-content,

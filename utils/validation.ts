@@ -50,15 +50,15 @@ export const jobSchema = z.object({
     });
   }
   if (!isPayPerTimeline(value.payType)) return;
-  const workerPay = Number(value.clientPayPerTimeline ?? value.payAmount);
+  const clientPay = Number(value.clientPayPerTimeline ?? value.payAmount);
   const timelineCount = Number(value.timelineCount ?? value.durationValue);
   if (!Number.isFinite(timelineCount) || timelineCount < 1) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["timelineCount"], message: "Timeline count must be at least 1." });
   }
-  if (!Number.isFinite(workerPay) || workerPay < 50) {
+  if (!Number.isFinite(clientPay) || clientPay < 50) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["clientPayPerTimeline"], message: "Pay per timeline must be at least KES 50." });
   }
-  if (timelinePaymentSummary(workerPay, timelineCount).workerPayPerTimeline < 0) {
+  if (timelinePaymentSummary(clientPay, timelineCount).workerPayPerTimeline < 0) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["clientPayPerTimeline"], message: "Worker pay per timeline cannot be negative." });
   }
 }).transform(value => {
@@ -67,7 +67,7 @@ export const jobSchema = z.object({
   return {
     ...value,
     payType: "pay_per_timeline" as const,
-    payAmount: summary.workerPayPerTimeline,
+    payAmount: summary.clientPayPerTimeline,
     timelineCount: summary.timelineCount,
     clientPayPerTimeline: summary.clientPayPerTimeline,
     workerPayPerTimeline: summary.workerPayPerTimeline,
