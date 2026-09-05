@@ -2086,6 +2086,77 @@ textarea,
 .copic-dashboard-actions { align-items: center; }
 .copic-dashboard-actions > * { display: inline-flex !important; align-items: center; justify-content: center; text-align: center; }
 
+.copic-onboarding-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, .58);
+}
+.copic-onboarding-target {
+  position: relative;
+  z-index: 90;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .82), 0 18px 44px rgba(0, 0, 0, .34) !important;
+}
+.copic-onboarding-callout {
+  position: fixed;
+  z-index: 100;
+  max-width: calc(100vw - 32px);
+  border: 1px solid color-mix(in srgb, var(--copic-lime) 32%, var(--copic-border));
+  border-radius: 18px;
+  padding: 18px;
+  background: var(--copic-surface);
+  color: var(--copic-text);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, .36);
+}
+.copic-onboarding-arrow {
+  position: absolute;
+  left: var(--copic-onboarding-arrow-left);
+  width: 16px;
+  height: 16px;
+  border-left: 1px solid color-mix(in srgb, var(--copic-lime) 32%, var(--copic-border));
+  border-top: 1px solid color-mix(in srgb, var(--copic-lime) 32%, var(--copic-border));
+  background: var(--copic-surface);
+  transform: translateX(-50%) rotate(45deg);
+}
+.copic-onboarding-callout[data-direction="above"] .copic-onboarding-arrow {
+  top: -9px;
+}
+.copic-onboarding-callout[data-direction="below"] .copic-onboarding-arrow {
+  bottom: -9px;
+  transform: translateX(-50%) rotate(225deg);
+}
+.copic-onboarding-title {
+  font-size: 1.02rem;
+  font-weight: 900;
+  color: var(--copic-text);
+}
+.copic-onboarding-body {
+  margin-top: 7px;
+  color: var(--copic-muted);
+  font-size: .9rem;
+  line-height: 1.45;
+}
+.copic-onboarding-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.copic-onboarding-actions .copic-button {
+  min-height: 42px !important;
+  padding-inline: 18px !important;
+}
+.copic-onboarding-skip {
+  border: 0;
+  background: transparent;
+  color: var(--copic-muted);
+  font-size: .82rem;
+  font-weight: 800;
+}
+.copic-onboarding-skip:hover {
+  color: var(--copic-text);
+}
+
 @media (min-width: 768px) {
   .temp-navbar.is-app-nav .temp-navbar-link { gap: 7px; min-width: 98px; }
   .temp-navbar.is-app-nav .temp-navbar-link-icon { display: block !important; flex: 0 0 auto; }

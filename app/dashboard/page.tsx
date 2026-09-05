@@ -23,7 +23,7 @@ import type { Application, ServiceFeePayment, ServiceFeePaywallState, WorkerSkil
 import { BriefcaseBusiness, Car, CheckCircle2, Clock, MapPin, MessageCircle, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useEffect, useState } from "react";
+import { type CSSProperties, type FormEvent, type RefObject, useEffect, useRef, useState } from "react";
 import { applicationTimelinePay } from "@/utils/application-timeline-pay";
 import { isLiveJob } from "@/utils/activity";
 import { perDurationUnit } from "@/utils/duration";
@@ -63,13 +63,16 @@ export default function DashboardPage() {
   const [editingSkill, setEditingSkill] = useState<WorkerSkillProfile | null>(null);
   const [profileSkills, setProfileSkills] = useState<WorkerSkillProfile[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsLoaded, setSkillsLoaded] = useState(false);
   const [skillsError, setSkillsError] = useState("");
+  const [workerSkillsOnboardingDismissed, setWorkerSkillsOnboardingDismissed] = useState(false);
   const [serviceFeePayment, setServiceFeePayment] = useState<ServiceFeePayment | null>(null);
   const [serviceFeePaywall, setServiceFeePaywall] = useState<ServiceFeePaywallState | null>(null);
   const [submittingFee, setSubmittingFee] = useState(false);
   const [feeScreenshotSelected, setFeeScreenshotSelected] = useState(false);
   const [feeMessage, setFeeMessage] = useState<{ tone: "success" | "error" | "pending"; text: string } | null>(null);
   const [ratingAggregate, setRatingAggregate] = useState<{ average: number; count: number; breakdown: Record<number, number> }>({ average: 0, count: 0, breakdown: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } });
+  const addSkillsButtonRef = useRef<HTMLButtonElement | null>(null);
   const profileId = profile?.id;
   const profileRole = profile?.role;
   const profileOutstandingServiceFee = Number(profile?.outstandingServiceFee ?? 0);
@@ -169,6 +172,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!profile || profile.role !== "worker") {
       setProfileSkills([]);
+      setSkillsLoaded(false);
       return;
     }
     setProfileSkills(profile.skillProfiles?.length
@@ -189,6 +193,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!profileId || profileRole !== "worker") return;
     let cancelled = false;
+    setSkillsLoaded(false);
     setSkillsLoading(true);
     setSkillsError("");
     void loadWorkerSkills()
@@ -205,7 +210,10 @@ export default function DashboardPage() {
         }
       })
       .finally(() => {
-        if (!cancelled) setSkillsLoading(false);
+        if (!cancelled) {
+          setSkillsLoading(false);
+          setSkillsLoaded(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -262,6 +270,12 @@ export default function DashboardPage() {
     toast.info(PHONE_PROMPT_UNAVAILABLE_MESSAGE);
   }
 
+  function openAddSkills() {
+    setWorkerSkillsOnboardingDismissed(true);
+    setEditingSkill(null);
+    setSkillOpen(true);
+  }
+
   const emailPrompt = null;
   const visibleApplications = applications.filter(application => application.coverNote !== "Rehire request");
   const directHireRequests = visibleApplications.filter(application => application.source === "direct_hire" && application.status === "pending");
@@ -271,6 +285,7 @@ export default function DashboardPage() {
   const completedJobsCount = Math.max(profile.completedJobs ?? 0, doneApplications.length);
   const displayRating = ratingAggregate.count ? ratingAggregate.average : profile.ratingAverage ?? 0;
   const dashboardSkills = profileSkills;
+  const showWorkerSkillsOnboarding = profile.role === "worker" && skillsLoaded && !skillsLoading && dashboardSkills.length === 0 && !workerSkillsOnboardingDismissed && !skillOpen;
   const totalGrossEarnings = doneApplications.reduce((sum, application) => sum + resolveJobPaymentBreakdown(application).clientTotal, 0);
   const totalEarnings = doneApplications.reduce((sum, application) => sum + resolveJobPaymentBreakdown(application).workerEarnings, 0);
   const now = new Date();
@@ -357,7 +372,7 @@ export default function DashboardPage() {
           </div>
           <div className="copic-dashboard-actions">
             <Link href="/jobs" className="temp-success-button copic-button copic-button-primary">Find Jobs</Link>
-            <Button type="button" onClick={() => { setEditingSkill(null); setSkillOpen(true); }}><Plus size={17} /> Add skills</Button>
+            <Button ref={addSkillsButtonRef} type="button" className={showWorkerSkillsOnboarding ? "copic-onboarding-target" : undefined} onClick={openAddSkills}><Plus size={17} /> Add skills</Button>
             <Button type="button" variant="secondary" onClick={() => setOpenModal("ratings")}><Star size={17} /> Ratings</Button>
           </div>
         </header>
@@ -499,7 +514,74 @@ export default function DashboardPage() {
       {verificationOpen && <IdentityVerificationModal profile={profile} onClose={() => setVerificationOpen(false)} onSubmitted={refreshProfile} />}
       {driverLicenseOpen && <IdentityVerificationModal profile={profile} kind="driver_license" onClose={() => setDriverLicenseOpen(false)} onSubmitted={refreshProfile} />}
       {locationOpen && <WorkerLocationModal profile={profile} onClose={() => setLocationOpen(false)} onSaved={refreshProfile} />}
+      {showWorkerSkillsOnboarding && (
+        <WorkerSkillsOnboarding
+          targetRef={addSkillsButtonRef}
+          onContinue={openAddSkills}
+          onSkip={() => setWorkerSkillsOnboardingDismissed(true)}
+        />
+      )}
     </div>
+  );
+}
+
+function WorkerSkillsOnboarding({ targetRef, onContinue, onSkip }: { targetRef: RefObject<HTMLButtonElement | null>; onContinue: () => void; onSkip: () => void }) {
+  const [placement, setPlacement] = useState<{ style: CSSProperties; direction: "above" | "below" } | null>(null);
+
+  useEffect(() => {
+    function updatePosition() {
+      const target = targetRef.current;
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const gap = 14;
+      const margin = 16;
+      const width = Math.min(320, viewportWidth - margin * 2);
+      const estimatedHeight = 190;
+      const fitsBelow = rect.bottom + gap + estimatedHeight <= viewportHeight - margin;
+      const top = fitsBelow
+        ? rect.bottom + gap
+        : Math.max(margin, rect.top - gap - estimatedHeight);
+      const left = Math.min(Math.max(margin, rect.left + rect.width / 2 - width / 2), viewportWidth - width - margin);
+      const arrowLeft = Math.min(Math.max(24, rect.left + rect.width / 2 - left), width - 24);
+      setPlacement({
+        direction: fitsBelow ? "above" : "below",
+        style: {
+          top,
+          left,
+          width,
+          "--copic-onboarding-arrow-left": `${arrowLeft}px`
+        } as CSSProperties
+      });
+    }
+
+    updatePosition();
+    const frame = window.requestAnimationFrame(updatePosition);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [targetRef]);
+
+  if (!placement) return null;
+
+  return (
+    <>
+      <div className="copic-onboarding-scrim" aria-hidden="true" />
+      <div className="copic-onboarding-callout" role="dialog" aria-label="Start earning on COPIC" data-direction={placement.direction} style={placement.style}>
+        <span className="copic-onboarding-arrow" aria-hidden="true" />
+        <p className="copic-onboarding-title">Start earning on COPIC</p>
+        <p className="copic-onboarding-body">Tell clients what you can do. Add your first service to start appearing in searches.</p>
+        <div className="copic-onboarding-actions">
+          <Button type="button" className="temp-success-button" onClick={onContinue}>Continue</Button>
+          <button type="button" className="copic-onboarding-skip" onClick={onSkip}>Skip</button>
+        </div>
+      </div>
+    </>
   );
 }
 
