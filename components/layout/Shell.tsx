@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { toast } from "sonner";
 
 function roleHome(role: Role) {
-  return role === "client" ? "/find-work" : role === "worker" ? "/jobs" : "/admin";
+  return role === "client" ? "/find-work" : role === "worker" ? "/dashboard" : "/admin";
 }
 
 function canLockedWorkerAccess(pathname: string) {

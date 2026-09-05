@@ -351,7 +351,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshProfile, user]);
 
   const loading = authLoading || profileLoading;
-  const homePath = profile?.role === "admin" ? "/admin" : profile?.role === "client" ? "/find-work" : "/jobs";
+  const homePath = profile?.role === "admin" ? "/admin" : profile?.role === "client" ? "/find-work" : "/dashboard";
   const value = useMemo(() => ({ user, profile, loading, isAdmin: profile?.role === "admin", homePath, refreshProfile }), [user, profile, loading, homePath, refreshProfile]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

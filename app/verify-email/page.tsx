@@ -16,7 +16,7 @@ export default function VerifyEmailPage() {
   const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    if (!loading && profile?.emailVerified) window.location.replace(profile.role === "client" ? "/find-work" : "/jobs");
+    if (!loading && profile?.emailVerified) window.location.replace(profile.role === "client" ? "/find-work" : "/dashboard");
   }, [loading, profile]);
 
   async function send() {

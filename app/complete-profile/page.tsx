@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 function roleHome(role: Role) {
-  return role === "admin" ? "/admin" : role === "client" ? "/workers" : "/jobs";
+  return role === "admin" ? "/admin" : role === "client" ? "/workers" : "/dashboard";
 }
 
 export default function CompleteProfilePage() {

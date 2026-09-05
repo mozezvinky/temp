@@ -41,7 +41,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       window.sessionStorage.setItem("temp.profile.uid", signedInUser.uid);
       window.sessionStorage.setItem("temp.profile.role", savedRole);
       if (signedInUser.email) window.localStorage.setItem(`temp.accountRole.${signedInUser.email.toLowerCase()}`, savedRole);
-      window.location.assign(savedRole === "client" ? "/find-work" : "/jobs");
+      window.location.assign(savedRole === "client" ? "/find-work" : savedRole === "worker" ? "/dashboard" : "/admin");
     } catch (error) {
       toast.error(authErrorMessage(error));
       setLoading(false);
