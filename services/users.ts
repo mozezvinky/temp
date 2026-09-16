@@ -24,6 +24,7 @@ function usesOneShotDevFetch() {
 
 export function subscribeWorkers(callback: (items: UserProfile[]) => void, onError?: (error: Error) => void) {
   let stopped = false;
+  let busy = false;
   const load = async () => {
     if (typeof navigator !== "undefined" && !navigator.onLine) throw new Error("offline");
     const user = requireAuth().currentUser;
@@ -33,7 +34,7 @@ export function subscribeWorkers(callback: (items: UserProfile[]) => void, onErr
     if (!response.ok) throw new Error(payload.error ?? "Unable to load workers.");
     if (!stopped) callback((payload.users ?? []).map(normalizeWorker));
   };
-  const run = () => void load().catch(error => !stopped && onError?.(error instanceof Error ? error : new Error("Unable to load workers.")));
+  const run = () => { if (busy || document.hidden) return; busy = true; void load().catch(error => !stopped && onError?.(error instanceof Error ? error : new Error("Unable to load workers."))).finally(() => { busy = false; }); };
   run();
   if (usesOneShotDevFetch()) return () => {
     stopped = true;
@@ -41,7 +42,7 @@ export function subscribeWorkers(callback: (items: UserProfile[]) => void, onErr
   const interval = window.setInterval(() => {
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
     run();
-  }, 5000);
+  }, 30000);
   const resume = () => run();
   window.addEventListener("online", resume);
   window.addEventListener("offline", run);

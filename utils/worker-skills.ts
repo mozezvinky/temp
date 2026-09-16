@@ -22,3 +22,6 @@ export function skillVerificationLabel(value: unknown) {
   if (status === "rejected") return "Not approved";
   return "Verified";
 }
+
+/** Identity/skill review does not hide services; explicitly rejected services remain moderated. */
+export function visibleSkillProfiles(skills: WorkerSkillProfile[] | undefined | null) { return (skills ?? []).filter(skill => skill.verificationStatus !== "rejected"); }

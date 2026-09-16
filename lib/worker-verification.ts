@@ -1,4 +1,5 @@
 import "server-only";
+import { validLicence } from "@/functions/src/marketplace-policy";
 
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminDb } from "@/lib/firebase-admin";
@@ -22,38 +23,6 @@ export type WorkerEligibilityDecision = WorkerVerificationStatus & {
   reason: string;
 };
 
-function firstStatus(...values: unknown[]) {
-  const statuses = values.map(normalizeVerificationStatus);
-  if (statuses.includes("approved")) return "approved";
-  if (statuses.includes("pending")) return "pending";
-  if (statuses.includes("rejected")) return "rejected";
-  return "not_submitted";
-}
-
-function logIdentityVerificationResolution(input: {
-  uid: string;
-  source: string;
-  rawStatus: unknown;
-  normalizedStatus: VerificationStatus;
-  identityVerified: boolean;
-  action: string;
-}) {
-  console.info("[COPIC VERIFY DEBUG]", {
-    uid: input.uid,
-    authUid: input.uid,
-    profileUid: input.uid,
-    verificationDocumentUid: input.uid,
-    source: input.source,
-    verificationSource: input.source,
-    rawStatus: typeof input.rawStatus === "string" ? input.rawStatus : input.rawStatus == null ? null : String(input.rawStatus),
-    rawVerificationStatus: typeof input.rawStatus === "string" ? input.rawStatus : input.rawStatus == null ? null : String(input.rawStatus),
-    normalizedStatus: input.normalizedStatus,
-    normalizedVerificationStatus: input.normalizedStatus,
-    identityVerified: input.identityVerified,
-    action: input.action
-  });
-}
-
 export function getWorkerVerificationStatusFromRecords(
   uid: string,
   user: Partial<UserProfile> | Record<string, unknown> | null | undefined,
@@ -61,23 +30,15 @@ export function getWorkerVerificationStatusFromRecords(
   driverLicense: Record<string, unknown> | null | undefined
 ): WorkerVerificationStatus {
   const userRecord = user as (Partial<UserProfile> & Record<string, unknown>) | null | undefined;
-  const rawIdentityStatus = identity?.identityVerificationStatus ?? identity?.status ?? userRecord?.identityVerificationStatus ?? userRecord?.verificationStatus ?? userRecord?.kycStatus;
-  const identityVerificationStatus = firstStatus(identity?.identityVerificationStatus, identity?.status, userRecord?.identityVerificationStatus, userRecord?.verificationStatus, userRecord?.kycStatus);
-  const drivingLicenceStatus = firstStatus(driverLicense?.driverLicenseVerificationStatus, driverLicense?.status, userRecord?.driverLicenseVerificationStatus);
-  logIdentityVerificationResolution({
-    uid,
-    source: identity ? "verification_record" : userRecord ? "user_profile_fallback" : "missing",
-    rawStatus: rawIdentityStatus,
-    normalizedStatus: identityVerificationStatus,
-    identityVerified: identityVerificationStatus === "approved",
-    action: "worker_eligibility"
-  });
+
+  const identityVerificationStatus = normalizeVerificationStatus(identity ? identity.status ?? identity.identityVerificationStatus : userRecord?.verificationStatus ?? userRecord?.identityVerificationStatus ?? userRecord?.kycStatus);
+  const drivingLicenceStatus = normalizeVerificationStatus(driverLicense ? driverLicense.status ?? driverLicense.driverLicenseVerificationStatus : userRecord?.driverLicenseVerificationStatus);
   return {
     uid,
     identityVerificationStatus,
     identityVerified: identityVerificationStatus === "approved",
     drivingLicenceStatus,
-    drivingLicenceVerified: drivingLicenceStatus === "approved",
+    drivingLicenceVerified: validLicence(drivingLicenceStatus, driverLicense?.expiryDate ?? userRecord?.driverLicenseExpiryDate),
     user: userRecord ?? null
   };
 }
@@ -145,7 +106,8 @@ export function getWorkerEligibilityFromVerification(
 ): WorkerEligibilityDecision {
   const worker = {
     verificationStatus: verification.identityVerificationStatus,
-    driverLicenseVerificationStatus: verification.drivingLicenceStatus,
+    driverLicenseVerificationStatus: verification.drivingLicenceVerified ? "approved" as const : "not_submitted" as const,
+    driverLicenseExpiryDate: verification.drivingLicenceVerified ? "9999-12-31" : undefined,
     isLocked: verification.user?.isLocked === true,
     outstandingServiceFee: Number(verification.user?.outstandingServiceFee ?? 0)
   };
@@ -165,16 +127,4 @@ export async function getWorkerJobEligibility(uid: string, job: Pick<Job, "title
 
 export async function getWorkerWorkEligibility(uid: string): Promise<WorkerEligibilityDecision> {
   return getWorkerEligibilityFromVerification(await getWorkerVerificationStatus(uid), null);
-}
-
-export function logApplyEligibilityCheck(check: WorkerEligibilityDecision) {
-  console.info("[COPIC APPLY CHECK]", {
-    uid: check.uid,
-    identityVerificationStatus: check.identityVerificationStatus,
-    identityVerified: check.identityVerified,
-    drivingJob: check.drivingJob,
-    drivingLicenceStatus: check.drivingLicenceStatus,
-    drivingLicenceVerified: check.drivingLicenceVerified,
-    decision: check.decision
-  });
 }

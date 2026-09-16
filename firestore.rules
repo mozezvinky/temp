@@ -35,23 +35,14 @@ service cloud.firestore {
     function ticketAfter(ticketId) { return getAfter(/databases/$(database)/documents/supportTickets/$(ticketId)); }
 
     match /users/{userId} {
-      allow create: if (isSelf(userId)
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.role in ["worker", "client"]
-        && request.resource.data.verificationStatus == "not_submitted"
-        && request.resource.data.emailVerified is bool
-        && (request.resource.data.emailVerified == false
-          || request.resource.data.emailVerified == request.auth.token.email_verified)) || isAdmin();
-      allow read: if signedIn();
-      allow update: if (isSelf(userId)
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            "uid", "role", "isLocked", "lockReason",
-            "outstandingServiceFee", "ratingAverage", "ratingCount", "completedJobs", "badges",
-            "emailVerified", "emailVerifiedAt"
-          ])
-          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["verificationStatus"])
-            || request.resource.data.verificationStatus == "pending")) || isAdmin();
-      allow delete: if isAdmin();
+      // Profiles are created by authenticated server routes. Privileged fields are never client writable.
+      allow create, delete: if false;
+      allow read: if isSelf(userId) || isAdmin();
+      allow update: if isSelf(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "displayName", "bio", "phoneNumber", "photoURL", "photoPositionX", "photoPositionY", "photoZoom",
+          "availability", "companyName", "certificates", "workHistory", "fcmToken", "updatedAt"
+        ]);
 
       match /savedJobs/{jobId} {
         allow read, write: if isSelf(userId);
@@ -75,38 +66,12 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (isClient() && resource.data.clientId == request.auth.uid)
         || (isWorker() && (resource.data.status == "open" || resource.data.hiredWorkerId == request.auth.uid || resource.data.assignedWorkerId == request.auth.uid));
-      allow create: if (isClient()
-          && request.resource.data.id == jobId
-          && request.resource.data.clientId == request.auth.uid
-          && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.status == "open"
-          && validJobDuration()
-          && validJobContent()) || isAdmin();
-      allow update: if (isClient()
-          && resource.data.clientId == request.auth.uid
-          && request.resource.data.clientId == resource.data.clientId
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["status", "assignedWorkerId", "hiredWorkerId", "paymentType"])
-          && (request.resource.data.createdBy == resource.data.createdBy
-            || (!("createdBy" in resource.data) && request.resource.data.createdBy == request.auth.uid))
-          && validJobDuration()
-          && validJobContent()) || isAdmin();
-      allow delete: if (isClient() && resource.data.clientId == request.auth.uid) || isAdmin();
+      allow create, update, delete: if false; // Job mutations use server authorization and business rules.
     }
 
     match /applications/{applicationId} {
       allow read: if signedIn() && (resource.data.workerId == request.auth.uid || resource.data.clientId == request.auth.uid || isAdmin());
-      allow create: if isWorker()
-        && notLocked()
-        && hasCopicIdentityVerification()
-        && request.resource.data.workerId == request.auth.uid
-        && request.resource.data.clientId == get(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.clientId
-        && get(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.status == "open";
-      allow update: if isWorker()
-        && resource.data.workerId == request.auth.uid
-        && request.resource.data.status == "withdrawn"
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["workerId", "clientId", "jobId"])
-        || isAdmin();
-      allow delete: if false;
+      allow create, update, delete: if false; // Prevent deadline, eligibility and payment bypasses.
     }
 
     match /messages/{conversationId} {
@@ -257,5 +222,27 @@ service cloud.firestore {
     match /diditWebhookEvents/{eventId} {
       allow read, write: if false;
     }
+    // New marketplace business data is accessed through scoped server endpoints.
+    match /recruitmentCampaigns/{id} { allow read, write: if false; }
+    match /agentLinks/{id} { allow read, write: if false; }
+    match /agentReferrals/{id} { allow read, write: if false; }
+    match /acquisitionAttributions/{id} { allow read, write: if false; }
+    match /acquisitionEvents/{id} { allow read, write: if false; }
+    match /acquisitionFunnels/{id} { allow read, write: if false; }
+    match /acquisitionVisits/{id} { allow read, write: if false; }
+    match /acquisitionRateLimits/{id} { allow read, write: if false; }
+    match /commissionLedger/{id} { allow read, write: if false; }
+    match /commissionStates/{id} { allow read, write: if false; }
+    match /commissionEvents/{id} { allow read, write: if false; }
+    match /agentMetrics/{id} { allow read, write: if false; }
+    match /marketplaceConfig/{id} { allow read, write: if false; }
+    match /marketplaceMetrics/{id} { allow read, write: if false; }
+    match /marketplaceServices/{id} { allow read, write: if false; }
+    match /marketplaceCells/{id} { allow read, write: if false; }
+    match /marketplaceProjections/{id} { allow read, write: if false; }
+    match /servicePricing/{id} { allow read, write: if false; }
+    match /workerServiceOrigins/{id} { allow read, write: if false; }
+    match /workerServiceProgress/{id} { allow read, write: if false; }
+    match /serviceCompletions/{id} { allow read, write: if false; }
   }
 }

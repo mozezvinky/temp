@@ -13,12 +13,12 @@ import { subscribeWorkers } from "@/services/users";
 import type { Application, Conversation, LocationFields, Message, Role, UserProfile, WorkerSkillProfile } from "@/types";
 import { calculateDirectHirePricing, pluralUnit, quantityLabel, resolveSkillPricingType, resolveSkillUnit } from "@/utils/direct-hire-pricing";
 import { isActiveHireRequestStatus } from "@/utils/activity";
-import { clientCanPost, workerCanApplyToJob } from "@/utils/jobRules";
+import { clientCanPost } from "@/utils/jobRules";
 import { jobLocationLabel } from "@/utils/location-display";
 import { kes } from "@/utils/money";
 import { buildWorkerSearchSuggestions, clientRateParts, normalizeSearchTerm, scoreWorkerMatch, type WorkerSearchMatch, type WorkerSearchSuggestion } from "@/utils/worker-search";
 import { normalizeVerificationStatus } from "@/utils/verification";
-import { isApprovedSkill } from "@/utils/worker-skills";
+
 import dynamic from "next/dynamic";
 import { ArrowLeft, BriefcaseBusiness, Check, ChevronDown, MapPin, MessageCircle, Search, Send, SlidersHorizontal, Star } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -291,11 +291,6 @@ export default function WorkersPage() {
       toast.error("Verify your identity before posting jobs.");
       return;
     }
-    const allowedWorker = workerCanApplyToJob(worker, { title: skill.name, category: skill.chargeCategory ?? skill.category, requiredSkills: [skill.name] });
-    if (!allowedWorker.ok) {
-      toast.error(allowedWorker.reason);
-      return;
-    }
     setResultsScrollY(window.scrollY);
     setHireWorker(worker);
     setHireSkill(skill);
@@ -337,11 +332,6 @@ export default function WorkersPage() {
     setHireErrors(fieldErrors);
     if (Object.keys(fieldErrors).length) {
       toast.error("Please fix the highlighted fields.");
-      return;
-    }
-    const allowedWorker = workerCanApplyToJob(hireWorker, { title: hireSkill.name, category: hireSkill.chargeCategory ?? hireSkill.category, requiredSkills: [hireSkill.name] });
-    if (!allowedWorker.ok) {
-      toast.error(allowedWorker.reason);
       return;
     }
     if (!hireLocation.addressText || !Number.isFinite(hireLocation.latitude) || !Number.isFinite(hireLocation.longitude)) {
@@ -557,7 +547,7 @@ function WorkerResultCard({ match, active, requested, onHire, onMessage }: { mat
       <div className="worker-result-main">
         <div className="worker-result-title">
           <button type="button" onClick={onMessage}>{worker.displayName}</button>
-          {normalizeVerificationStatus(worker.verificationStatus) === "approved" && <span aria-label="Verified worker"><Check size={15} /></span>}
+          {normalizeVerificationStatus(worker.verificationStatus) === "approved" ? <span aria-label="Verified worker"><Check size={15} /></span> : <span className="copic-muted text-xs">Identity not verified</span>}
         </div>
         <p>{skill.name}</p>
         <div className="worker-result-meta">
@@ -680,7 +670,7 @@ function SuggestionText({ value, query }: { value: string; query: string }) {
 }
 
 function approvedWorkerSkillProfiles(worker: UserProfile): WorkerSkillProfile[] {
-  return workerSkillProfiles(worker).filter(skill => isApprovedSkill(skill) && Number(skill.chargeAmount ?? 0) > 0);
+  return workerSkillProfiles(worker).filter(skill => skill.verificationStatus !== "rejected" && Number(skill.chargeAmount ?? 0) > 0);
 }
 
 function workerSkillProfiles(worker: UserProfile): WorkerSkillProfile[] {

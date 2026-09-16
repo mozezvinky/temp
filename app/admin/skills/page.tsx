@@ -1,5 +1,6 @@
 "use client";
 
+import { SkillsAnalytics } from "@/components/admin/SkillsAnalytics";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
@@ -21,6 +22,8 @@ const filters: Array<WorkerSkillVerificationStatus | "all"> = ["pending", "appro
 
 export default function AdminSkillsPage() {
   const { user } = useAuth();
+  const [cursor, setCursor] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [filter, setFilter] = useState<WorkerSkillVerificationStatus | "all">("pending");
   const [skills, setSkills] = useState<AdminSkill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,20 +37,21 @@ export default function AdminSkillsPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/admin/skills?status=${filter}`, {
+      const response = await fetch(`/api/admin/skills?status=${filter}&cursor=${encodeURIComponent(cursor)}`, {
         headers: { Authorization: `Bearer ${await user.getIdToken()}` },
         cache: "no-store"
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to load skills.");
       setSkills(Array.isArray(payload.skills) ? payload.skills : []);
+      setNextCursor(payload.nextCursor ?? null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to load skills.");
       setSkills([]);
     } finally {
       setLoading(false);
     }
-  }, [filter, user]);
+  }, [filter, user, cursor]);
 
   useEffect(() => {
     if (!user) return;
@@ -138,7 +142,7 @@ export default function AdminSkillsPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5"><SkillsAnalytics /><div className="flex flex-wrap gap-3">{cursor && <Button onClick={() => setCursor("")}>First review page</Button>}{nextCursor && <Button onClick={() => setCursor(nextCursor)}>Next skill reviews</Button>}</div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">Verification</p>

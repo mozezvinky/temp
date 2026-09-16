@@ -1,0 +1,9 @@
+import { requireAdmin,adminErrorStatus,writeAdminAuditLog } from "@/lib/admin-security";
+import { adminDb } from "@/lib/firebase-admin";
+import { resolveService } from "@/lib/marketplace-server";
+import { z } from "zod";
+import { NextRequest,NextResponse } from "next/server";
+const schema=z.object({service:z.string().min(1).max(100),recommendedRate:z.number().positive(),unit:z.string().min(1).max(40),newWorkerMin:z.number().positive(),newWorkerMax:z.number().positive(),establishedMin:z.number().positive(),establishedMax:z.number().positive(),fullPricingUnlockJobs:z.number().int().min(1).max(1000),widerPricingUnlockJobs:z.number().int().min(1).max(1000)}).refine(v=>v.newWorkerMax>=v.newWorkerMin&&v.establishedMax>=v.establishedMin&&v.fullPricingUnlockJobs>v.widerPricingUnlockJobs,"Invalid pricing ranges or unlock thresholds.");
+export async function GET(request:NextRequest){try{await requireAdmin(request,"users:read");const data=await adminDb().collection("servicePricing").orderBy("__name__").limit(100).get();return NextResponse.json({policies:data.docs.map(doc=>({id:doc.id,...doc.data()}))});}catch(error){return failure(error);}}
+export async function POST(request:NextRequest){try{const admin=await requireAdmin(request,"users:write"),parsed=schema.safeParse(await request.json());if(!parsed.success)return NextResponse.json({error:parsed.error.issues[0].message},{status:400});const service=await resolveService(parsed.data.service);await adminDb().doc(`servicePricing/${service.serviceId}`).set({...parsed.data,...service});await writeAdminAuditLog(request,{admin,actionType:"pricing.configure",newValue:parsed.data,reason:"Configured service-specific pricing"});return NextResponse.json({success:true});}catch(error){return failure(error);}}
+function failure(error:unknown){return NextResponse.json({error:error instanceof Error?error.message:"Pricing request failed."},{status:adminErrorStatus(error)});}

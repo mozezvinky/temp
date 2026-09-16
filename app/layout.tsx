@@ -6,6 +6,7 @@ import { Shell } from "@/components/layout/Shell";
 import { LegalFooter } from "@/components/layout/LegalFooter";
 import { Toaster } from "sonner";
 import { PwaBootstrap } from "@/components/pwa/PwaBootstrap";
+import { ConnectionStatus } from "@/components/layout/ConnectionStatus";
 import type { ReactNode } from "react";
 import { homeSeo, siteUrl } from "@/lib/seo";
 
@@ -58,6 +59,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <AuthProvider>
           <PwaBootstrap />
+          <ConnectionStatus />
           <Shell>{children}</Shell>
           <LegalFooter />
           <Toaster richColors position="top-center" />

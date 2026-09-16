@@ -10,3 +10,4 @@ coverage
 *.sqlite-wal
 *.db-shm
 *.db-wal
+.artifacts/

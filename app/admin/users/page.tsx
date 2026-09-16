@@ -17,6 +17,8 @@ type UserActionPanel = "profile" | "role" | "moderate" | "auth";
 
 export default function AdminUsersPage() {
   const { user } = useAuth();
+  const [cursor, setCursor] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -32,16 +34,18 @@ export default function AdminUsersPage() {
       const query = new URLSearchParams();
       if (search.trim()) query.set("search", search.trim());
       query.set("role", "non-admin");
+      query.set("cursor", cursor);
       const response = await fetch(`/api/admin/users?${query}`, { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to load users.");
+      setNextCursor(payload.nextCursor ?? null);
       setUsers((payload.users ?? []).map((item: UserProfile) => ({ ...item, verificationStatus: normalizeVerificationStatus(item.verificationStatus) })));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to load users.");
     } finally {
       setLoading(false);
     }
-  }, [search, user]);
+  }, [search, user, cursor]);
 
   async function submitAdminAction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -122,6 +126,7 @@ export default function AdminUsersPage() {
         <h1 className="text-3xl font-black">Users</h1>
         <label className="temp-input flex min-h-11 min-w-72 items-center gap-2 rounded-xl px-3"><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search users" className="min-w-0 flex-1 bg-transparent outline-none" /></label>
       </div>
+      <div className="flex flex-wrap gap-3">{cursor && <Button variant="secondary" onClick={() => setCursor("")}>First page</Button>}{nextCursor && <Button variant="secondary" onClick={() => setCursor(nextCursor)}>Next users</Button>}</div><p className="copic-muted text-sm">Search filters the current page of users.</p>
       {users.length ? users.map(item => (
         <Card key={item.id}>
           <div className="flex flex-wrap items-start justify-between gap-3">

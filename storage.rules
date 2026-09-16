@@ -19,16 +19,15 @@ service firebase.storage {
       allow write: if isOwner(userId) && isSafeImage();
     }
     match /verification/{userId}/{allPaths=**} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create, update: if isOwner(userId) && isSafeImage();
-      allow delete: if isOwner(userId) || isAdmin();
+      allow read: if isAdmin();
+      allow create, update, delete: if false; // Private server upload and reviewed signed reads only.
     }
     match /jobs/{clientId}/{fileName} {
       allow read: if true;
       allow write: if isOwner(clientId) && isSafeAttachment();
     }
     match /skills/{userId}/{fileName} {
-      allow read: if signedIn();
+      allow read: if isOwner(userId) || isAdmin();
       allow create, update: if isOwner(userId) && isSafeAttachment();
       allow delete: if isOwner(userId) || isAdmin();
     }

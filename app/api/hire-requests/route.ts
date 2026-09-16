@@ -1,7 +1,7 @@
 import { isSqlBackend } from "@/lib/data-backend";
 import { getCurrentUserProfile } from "@/lib/current-user-profile";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
-import { createLocalDirectHireRequest, getLocalUser, hasLocalActiveDirectHireRequest, respondLocalDirectHireRequest } from "@/lib/local-sql";
+import { createLocalDirectHireRequest, localDb, getLocalUser, hasLocalActiveDirectHireRequest, respondLocalDirectHireRequest } from "@/lib/local-sql";
 import { sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatusFromRecords } from "@/lib/worker-verification";
 import type { WorkerSkillProfile } from "@/types";
@@ -39,10 +39,8 @@ export async function POST(request: NextRequest) {
       if (!canClientHire) return NextResponse.json({ error: "Use client mode to send hire requests." }, { status: 403 });
       const localClient = client as NonNullable<typeof client>;
       if (!clientCanPost(localClient)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
-      const allowedWorker = await getWorkerJobEligibility(input.workerId, { title: input.title, category: input.category, requiredSkills: [] });
-      if (allowedWorker.decision === "blocked") return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
       const savedSkill = selectedWorkerSkill(getLocalUser(input.workerId)?.skillProfiles, input.skillId);
-      if (!savedSkill) return NextResponse.json({ error: "Choose a verified worker skill." }, { status: 400 });
+      if (!savedSkill) return NextResponse.json({ error: "Choose an available worker service." }, { status: 400 });
       const pricing = calculateVerifiedPricing(savedSkill, input.quantity);
       if (hasLocalActiveDirectHireRequest(localClient.id, input.workerId, savedSkill.id)) {
         return NextResponse.json({ error: "You already have an active request for this worker skill." }, { status: 409 });
@@ -78,8 +76,6 @@ export async function POST(request: NextRequest) {
     };
     if (!clientCanPost(effectiveClient as { verificationStatus?: "not_submitted" | "pending" | "approved" | "rejected" } | null)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
     if (!workerSnap.exists || !hasRole(worker, "worker")) return NextResponse.json({ error: "Choose a valid worker." }, { status: 404 });
-    const allowedWorker = await getWorkerJobEligibility(input.workerId, { title: input.title, category: input.category, requiredSkills: [] });
-    if (allowedWorker.decision === "blocked") return NextResponse.json({ error: allowedWorker.reason }, { status: 403 });
     const savedSkill = selectedWorkerSkill(Array.isArray(worker?.skillProfiles) ? worker.skillProfiles as WorkerSkillProfile[] : [], input.skillId);
     if (!savedSkill) return NextResponse.json({ error: "Choose a verified worker skill." }, { status: 400 });
     const pricing = calculateVerifiedPricing(savedSkill, input.quantity);
@@ -186,6 +182,11 @@ export async function PATCH(request: NextRequest) {
     if (isSqlBackend()) {
       const worker = getLocalUser(decoded.uid);
       if (!worker || worker.role !== "worker") return NextResponse.json({ error: "Use a worker account to answer hire requests." }, { status: 403 });
+      if (response === "accept") {
+        const saved = localDb().prepare("SELECT * FROM applications WHERE id = ?").get(applicationId);
+        const allowed = await getWorkerJobEligibility(decoded.uid, { title: String(saved?.jobTitle ?? ""), category: String(saved?.jobCategory ?? ""), requiredSkills: [] });
+        if (allowed.decision === "blocked") return NextResponse.json({ error: allowed.reason }, { status: 403 });
+      }
       const application = respondLocalDirectHireRequest(applicationId, decoded.uid, response);
       if (!application) return NextResponse.json({ error: "Hire request was not found." }, { status: 404 });
       return NextResponse.json({ success: true, request: application });
@@ -297,7 +298,7 @@ function normalizeRequest(body: unknown) {
 }
 
 function selectedWorkerSkill(skills: WorkerSkillProfile[] | undefined | null, skillId: string) {
-  return (skills ?? []).find(skill => skill.id === skillId && normalizeSkillVerificationStatus(skill.verificationStatus) === "approved" && Number(skill.chargeAmount ?? 0) > 0) ?? null;
+  return (skills ?? []).find(skill => skill.id === skillId && normalizeSkillVerificationStatus(skill.verificationStatus) !== "rejected" && Number(skill.chargeAmount ?? 0) > 0) ?? null;
 }
 
 function calculateVerifiedPricing(skill: WorkerSkillProfile, quantity: number) {

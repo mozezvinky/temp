@@ -52,6 +52,7 @@ function publicVerification(record: Record<string, unknown> | undefined, kind = 
     id: String(record.id ?? record.userId ?? ""),
     userId: String(record.userId ?? ""),
     kind,
+    expiryDate: record.expiryDate ?? null,
     status: record.status,
     rejectionReason: record.rejectionReason ?? null,
     createdAt: record.createdAt ?? record.submittedAt ?? null,
@@ -115,7 +116,7 @@ async function assertVerificationUploadExists(path: string) {
 async function assertCanSubmitVerification(userId: string, kind: "identity" | "driver_license", nationalIdHashValue: string) {
   if (isSqlBackend()) {
     if (kind === "driver_license") {
-      const current = localDb().prepare("SELECT status FROM driver_license_verifications WHERE userId = ?").get(userId);
+      const current = localDb().prepare("SELECT status, expiryDate FROM driver_license_verifications WHERE userId = ?").get(userId);
       if (normalizeVerificationStatus(current?.status) === "pending") throw new SubmissionConflictError("Your driver's license is already awaiting review.");
       if (normalizeVerificationStatus(current?.status) === "approved") throw new SubmissionConflictError("Your driver's license is already verified.");
       return;
@@ -167,6 +168,8 @@ export async function POST(request: NextRequest) {
 
     const form = await request.formData();
     kind = form.get("kind") === "driver_license" ? "driver_license" : "identity";
+    const expiryDate = String(form.get("expiryDate") ?? "");
+    if (kind === "driver_license" && (!Number.isFinite(Date.parse(expiryDate)) || Date.parse(expiryDate) <= Date.now())) return NextResponse.json({ error: "Enter a future licence expiry date." }, { status: 400 });
     if (kind === "driver_license" && user.profile.role !== "worker") return NextResponse.json({ error: "Only workers can submit a driver's license." }, { status: 403 });
     fullName = String(form.get("fullName") ?? user.profile.displayName ?? "").trim();
     phoneNumber = String(form.get("phoneNumber") ?? user.profile.phoneNumber ?? "").trim();
@@ -221,7 +224,7 @@ export async function POST(request: NextRequest) {
       if (kind === "driver_license") {
         const current = localDb().prepare("SELECT status FROM driver_license_verifications WHERE userId = ?").get(user.uid);
         if (normalizeVerificationStatus(current?.status) === "pending") return NextResponse.json({ error: "Your driver's license is already awaiting review." }, { status: 409 });
-        if (normalizeVerificationStatus(current?.status) === "approved") return NextResponse.json({ error: "Your driver's license is already verified." }, { status: 409 });
+        if (normalizeVerificationStatus(current?.status) === "approved" && Date.parse(String(current?.expiryDate ?? "")) > Date.now()) return NextResponse.json({ error: "Your driver's license is already verified." }, { status: 409 });
         localDb().prepare(`
           INSERT INTO driver_license_verifications (userId, role, fullName, email, phoneNumber, username, licenseNumber, idFrontUrl, idBackUrl, selfieWithIdUrl, status, rejectionReason, reviewedBy, submittedAt, reviewedAt, updatedAt)
           VALUES (?, 'worker', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, NULL, ?)
@@ -230,6 +233,8 @@ export async function POST(request: NextRequest) {
             selfieWithIdUrl=excluded.selfieWithIdUrl, status='pending', rejectionReason=NULL, reviewedBy=NULL, submittedAt=excluded.submittedAt,
             reviewedAt=NULL, updatedAt=excluded.updatedAt
         `).run(user.uid, fullName, email, phoneNumber, username, nationalId, idFrontUrl, idBackUrl, selfieWithIdUrl, submittedAt, submittedAt);
+        localDb().prepare("UPDATE driver_license_verifications SET expiryDate = ? WHERE userId = ?").run(expiryDate, user.uid);
+        localDb().prepare("UPDATE users SET driverLicenseExpiryDate = ? WHERE uid = ?").run(expiryDate, user.uid);
         localDb().prepare("UPDATE users SET driverLicenseVerificationStatus = 'pending', phoneNumber = ?, updatedAt = ? WHERE uid = ?").run(phoneNumber, submittedAt, user.uid);
         return NextResponse.json({ success: true, status: "pending", message: "Your driver's license was submitted for manual review." });
       }
@@ -256,15 +261,15 @@ export async function POST(request: NextRequest) {
       const userRef = db.collection("users").doc(user.uid);
       const currentVerification = await verificationRef.get();
       if (normalizeVerificationStatus(currentVerification.data()?.status) === "pending") return NextResponse.json({ error: "Your driver's license is already awaiting review." }, { status: 409 });
-      if (normalizeVerificationStatus(currentVerification.data()?.status) === "approved") return NextResponse.json({ error: "Your driver's license is already verified." }, { status: 409 });
+      if (normalizeVerificationStatus(currentVerification.data()?.status) === "approved" && Date.parse(String(currentVerification.data()?.expiryDate ?? "")) > Date.now()) return NextResponse.json({ error: "Your driver's license is already verified." }, { status: 409 });
       await db.runTransaction(async transaction => {
         transaction.set(verificationRef, {
           id: verificationRef.id, userId: user.uid, kind, role: "worker", provider: "manual", fullName, email, phoneNumber, username,
-          licenseNumber: nationalId, idFrontUrl, idBackUrl, selfieWithIdUrl, status: "pending", driverLicenseVerificationStatus: "pending",
+          licenseNumber: nationalId, expiryDate, idFrontUrl, idBackUrl, selfieWithIdUrl, status: "pending", driverLicenseVerificationStatus: "pending",
           idFrontStoragePath: idFrontUrl, idBackStoragePath: idBackUrl, selfieWithIdStoragePath: selfieWithIdUrl,
           rejectionReason: null, reviewedBy: null, reviewedAt: null, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
-        transaction.set(userRef, { driverLicenseVerificationStatus: "pending", driverLicenseRejectionReason: null, phoneNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        transaction.set(userRef, { driverLicenseExpiryDate: expiryDate, driverLicenseVerificationStatus: "pending", driverLicenseRejectionReason: null, phoneNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       });
       return NextResponse.json({ success: true, status: "pending", message: "Your driver's license was submitted for manual review." });
     }

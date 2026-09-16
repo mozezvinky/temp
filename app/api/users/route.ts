@@ -2,7 +2,7 @@ import { isSqlBackend, logDataMode } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { countLocalActiveAcceptedApplications, listLocalWorkers } from "@/lib/local-sql";
 import type { WorkerSkillProfile } from "@/types";
-import { approvedSkillNames, approvedSkillProfiles } from "@/utils/worker-skills";
+import { visibleSkillProfiles } from "@/utils/worker-skills";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -92,10 +92,24 @@ function publicWorker(worker: Record<string, unknown>) {
     ratingCount: Number(worker.ratingCount ?? 0),
     verificationStatus: "approved"
   }));
-  const skillProfiles = approvedSkillProfiles(richSkills.length ? richSkills : legacyProfiles);
+  const skillProfiles = visibleSkillProfiles(richSkills.length ? richSkills : legacyProfiles);
   return {
-    ...worker,
-    skillProfiles,
-    skills: skillProfiles.length ? approvedSkillNames(skillProfiles) : legacySkills
+    id: worker.id, uid: worker.uid ?? worker.id, displayName: worker.displayName,
+    photoURL: worker.photoURL, photoPositionX: worker.photoPositionX, photoPositionY: worker.photoPositionY, photoZoom: worker.photoZoom,
+    bio: worker.bio, role: worker.role, roles: worker.roles, hourlyRate: worker.hourlyRate,
+    verificationStatus: worker.verificationStatus, availability: worker.availability,
+    isOccupied: worker.isOccupied, activeJobCount: worker.activeJobCount,
+    isLocked: worker.isLocked, outstandingServiceFee: worker.outstandingServiceFee,
+    completedJobs: worker.completedJobs, ratingAverage: worker.ratingAverage, ratingCount: worker.ratingCount,
+    location: publicLocation(worker.location),
+    skillProfiles: skillProfiles.map(skill => ({ id: skill.id, name: skill.name, description: skill.description, category: skill.category, level: skill.level, verificationStatus: skill.verificationStatus, chargeAmount: skill.chargeAmount, chargeCategory: skill.chargeCategory, chargeQuantity: skill.chargeQuantity, chargeUnit: skill.chargeUnit, chargeCustomUnit: skill.chargeCustomUnit, chargeTimeline: skill.chargeTimeline, chargeTimelineUnit: skill.chargeTimelineUnit, chargePayType: skill.chargePayType, completedJobs: skill.completedJobs, ratingAverage: skill.ratingAverage, ratingCount: skill.ratingCount })),
+    skills: skillProfiles.length ? skillProfiles.map(skill => skill.name) : legacySkills
   };
+}
+
+function publicLocation(value: unknown) {
+  if (!value || typeof value !== "object") return undefined;
+  const location = value as Record<string, unknown>;
+  const area = String(location.area ?? location.estateOrArea ?? location.town ?? "");
+  return { county: location.county, town: location.town, area, city: location.city, estateOrArea: area, displayLocation: area, addressText: area, latitude: Math.round(Number(location.latitude)*100)/100, longitude: Math.round(Number(location.longitude)*100)/100 };
 }

@@ -95,7 +95,7 @@ export function mergeFirestoreVerificationRecords<T extends Partial<UserProfile>
 
   const nextProfile = { ...profile };
   const identityStatus = normalizeVerificationStatus(identity?.identityVerificationStatus ?? identity?.status);
-  if (isVerificationStatus(identityStatus)) {
+  if (identity && isVerificationStatus(identityStatus)) {
     nextProfile.verificationStatus = identityStatus;
     nextProfile.verificationRejectionReason = identityStatus === "rejected"
       ? stringOrNull(identity?.rejectionReason)
@@ -103,8 +103,9 @@ export function mergeFirestoreVerificationRecords<T extends Partial<UserProfile>
   }
 
   const driverLicenseStatus = normalizeVerificationStatus(driverLicense?.driverLicenseVerificationStatus ?? driverLicense?.status);
-  if (isVerificationStatus(driverLicenseStatus)) {
+  if (driverLicense && isVerificationStatus(driverLicenseStatus)) {
     nextProfile.driverLicenseVerificationStatus = driverLicenseStatus;
+    nextProfile.driverLicenseExpiryDate = typeof driverLicense?.expiryDate === "string" ? driverLicense.expiryDate : profile.driverLicenseExpiryDate;
     nextProfile.driverLicenseRejectionReason = driverLicenseStatus === "rejected"
       ? stringOrNull(driverLicense?.rejectionReason)
       : null;

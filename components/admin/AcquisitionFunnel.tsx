@@ -1,0 +1,8 @@
+"use client";
+import { Card } from "@/components/ui/Card";
+import { funnelStages } from "@/functions/src/marketplace-policy";
+const labels: Record<string,string> = { link_clicked: "Link clicks", signup_started: "Signup starts", account_created: "Accounts", skill_added: "Services added", id_verification_started: "ID started", id_verification_submitted: "ID submissions", id_verified: "Verified workers", first_application: "First application", first_job: "First job", first_completed_job: "First completed job" };
+export function AcquisitionFunnel({ data, adSpend = 0 }: { data: Record<string, number>; adSpend?: number }) {
+  const conversions = [["link_clicked", "account_created"], ["account_created", "skill_added"], ["skill_added", "id_verified"], ["id_verified", "first_job"]];
+  return <div className="space-y-4"><div className="copic-funnel">{funnelStages.map(stage => <div key={stage}><p className="copic-muted text-sm">{labels[stage]}</p><p className="mt-2 text-3xl font-black">{data[stage] ?? 0}</p></div>)}</div><Card><h2 className="text-xl font-bold">Conversion rates</h2><dl className="mt-3 grid gap-3 sm:grid-cols-2">{conversions.map(([from,to]) => <div key={to}><dt className="copic-muted text-sm">{labels[from]} → {labels[to]}</dt><dd className="font-bold">{data[from] ? `${((data[to] ?? 0)/data[from]*100).toFixed(1)}%` : "—"}</dd></div>)}</dl></Card>{adSpend > 0 && <Card><h2 className="text-xl font-bold">Acquisition costs</h2>{["account_created", "skill_added", "id_verified", "first_job"].map(stage => <p className="mt-2" key={stage}>Cost per {labels[stage].toLowerCase()}: {data[stage] ? `KSh ${(adSpend/data[stage]).toFixed(2)}` : "—"}</p>)}</Card>}</div>;
+}

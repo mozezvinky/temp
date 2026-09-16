@@ -23,7 +23,6 @@ export function PwaBootstrap() {
     const mobileQuery = window.matchMedia("(max-width: 767px)");
     const userAgent = navigator.userAgent;
     const normalizedUserAgent = userAgent.toLowerCase();
-    let lostConnection = !navigator.onLine;
     setInstalled(isInstalled);
     setIsMobile(mobileQuery.matches);
     setIsIos(/iphone|ipad|ipod/.test(normalizedUserAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
@@ -43,23 +42,11 @@ export function PwaBootstrap() {
       setInstalled(true);
       setPrompt(null);
     };
-    const onOffline = () => {
-      lostConnection = true;
-    };
-    const onOnline = () => {
-      if (!lostConnection) return;
-      lostConnection = false;
-      window.location.reload();
-    };
     window.addEventListener("appinstalled", onInstalled);
-    window.addEventListener("offline", onOffline);
-    window.addEventListener("online", onOnline);
     return () => {
       mobileQuery.removeEventListener("change", syncMobile);
       window.removeEventListener("beforeinstallprompt", handler);
       window.removeEventListener("appinstalled", onInstalled);
-      window.removeEventListener("offline", onOffline);
-      window.removeEventListener("online", onOnline);
     };
   }, []);
 

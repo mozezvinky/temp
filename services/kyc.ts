@@ -7,6 +7,7 @@ export interface VerificationSubmission {
   userId: string;
   role: "client" | "worker";
   kind?: VerificationKind;
+  expiryDate?: string;
   fullName: string;
   phoneNumber: string;
   nationalId: string;
@@ -33,6 +34,7 @@ export async function submitVerification(input: VerificationSubmission, onProgre
 
   const form = new FormData();
   form.set("kind", input.kind ?? "identity");
+  if (input.expiryDate) form.set("expiryDate", input.expiryDate);
   form.set("fullName", input.fullName);
   form.set("phoneNumber", input.phoneNumber);
   form.set("nationalId", input.nationalId);

@@ -11,7 +11,9 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "functions:build": "tsc -p functions/tsconfig.json"
+    "functions:build": "tsc -p functions/tsconfig.json",
+    "test:marketplace": "tsx --test tests/marketplace*.test.ts",
+    "marketplace:backfill": "tsx scripts/backfill-marketplace.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

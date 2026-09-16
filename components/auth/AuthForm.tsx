@@ -1,4 +1,5 @@
 "use client";
+import { acquisitionReturnPath } from "@/utils/acquisition-return";
 
 import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
@@ -41,7 +42,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       window.sessionStorage.setItem("temp.profile.uid", signedInUser.uid);
       window.sessionStorage.setItem("temp.profile.role", savedRole);
       if (signedInUser.email) window.localStorage.setItem(`temp.accountRole.${signedInUser.email.toLowerCase()}`, savedRole);
-      window.location.assign(savedRole === "client" ? "/find-work" : savedRole === "worker" ? "/dashboard" : "/admin");
+      window.location.assign(acquisitionReturnPath(savedRole === "client" ? "/find-work" : savedRole === "worker" ? "/dashboard" : "/admin"));
     } catch (error) {
       toast.error(authErrorMessage(error));
       setLoading(false);

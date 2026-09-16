@@ -1,3 +1,4 @@
+import { applicationsOpen } from "@/functions/src/marketplace-policy";
 import { isSqlBackend, logDataMode } from "@/lib/data-backend";
 import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-user-profile";
 import { sendAppEmail } from "@/lib/app-email";
@@ -5,7 +6,7 @@ import { adminDb } from "@/lib/firebase-admin";
 import { acceptLocalApplication, cancelLocalApplication, cancelLocalLiveApplication, completeLocalApplication, confirmLocalWorkerPaid, countLocalAcceptedApplications, countLocalActiveAcceptedApplications, createLocalApplication, getLocalJob, getLocalUser, listLocalApplications, requestLocalApplicationCompletion } from "@/lib/local-sql";
 import { type CopicNotificationInput, safeAppLink, sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { serverDebug } from "@/lib/server-debug";
-import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatus, getWorkerVerificationStatusFromRecords, getWorkerWorkEligibility, logApplyEligibilityCheck } from "@/lib/worker-verification";
+import { getWorkerEligibilityFromVerification, getWorkerJobEligibility, getWorkerVerificationStatusFromRecords, getWorkerWorkEligibility } from "@/lib/worker-verification";
 import type { Role } from "@/types";
 import { resolveJobPaymentBreakdown } from "@/utils/money";
 import { normalizeVerificationStatus } from "@/utils/verification";
@@ -13,6 +14,7 @@ import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/time
 import { isLiveJob } from "@/utils/activity";
 import { FieldValue, type Transaction } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 
 export const runtime = "nodejs";
 
@@ -27,7 +29,6 @@ export async function GET(request: NextRequest) {
       const profile = currentUser.profile;
       if (!profile || (profile.role !== role && profile.role !== "admin")) return NextResponse.json({ applications: [] });
       const applications = listLocalApplications(currentUser.uid, role).filter(application => application.coverNote !== "Rehire request");
-      if (role === "worker") await logApplicationsPageCheck(currentUser.uid, applications);
       return NextResponse.json({ applications });
     }
 
@@ -40,7 +41,6 @@ export async function GET(request: NextRequest) {
       snapshot.docs.map<Record<string, unknown>>(doc => ({ id: doc.id, ...doc.data() })).filter(application => application.coverNote !== "Rehire request"),
       role
     );
-    if (role === "worker") await logApplicationsPageCheck(currentUser.uid, applications);
     return NextResponse.json({ applications });
   } catch (error) {
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
@@ -54,18 +54,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function logApplicationsPageCheck(uid: string, applications: Array<Record<string, unknown>>) {
-  const currentJob = applications.find(application => ["accepted", "completion_requested", "payment_sent"].includes(String(application.status)) && application.jobStatus !== "completed" && application.jobStatus !== "cancelled");
-  const verification = await getWorkerVerificationStatus(uid);
-  console.info("[COPIC APPLICATIONS]", {
-    uid,
-    currentJobId: typeof currentJob?.jobId === "string" ? currentJob.jobId : null,
-    currentJobStatus: typeof currentJob?.status === "string" ? currentJob.status : null,
-    identityVerified: verification.identityVerified,
-    showApplicationVerificationWarning: false
-  });
-}
-
 export async function POST(request: NextRequest) {
   try {
     const currentUser = await getCurrentUserProfile(request, "worker");
@@ -77,6 +65,7 @@ export async function POST(request: NextRequest) {
     if (isSqlBackend()) {
       const worker = currentUser.profile;
       const job = getLocalJob(jobId);
+      if (job && !applicationsOpen(job.applicationDeadline)) return NextResponse.json({ error: "Applications closed." }, { status: 409 });
       if (!worker || worker.role !== "worker") return NextResponse.json({ error: "Use a worker account to apply." }, { status: 403 });
       if (job?.rehireOfJobId) return NextResponse.json({ error: "This job is no longer available." }, { status: 400 });
       if (job?.clientId === worker.id) return NextResponse.json({ error: "You cannot apply to a job you posted as a client." }, { status: 403 });
@@ -85,7 +74,6 @@ export async function POST(request: NextRequest) {
       }
       if (!job || job.status !== "open") return NextResponse.json({ error: "This job is no longer accepting applications." }, { status: 400 });
       const allowed = await getWorkerJobEligibility(worker.uid, job);
-      logApplyEligibilityCheck(allowed);
       if (allowed.decision === "blocked") return NextResponse.json({ error: allowed.reason }, { status: 403 });
       if (countLocalAcceptedApplications(job.id) >= (job.workersNeeded ?? 1)) {
         return NextResponse.json({ error: "This job already has enough accepted workers." }, { status: 400 });
@@ -110,6 +98,7 @@ export async function POST(request: NextRequest) {
       db.collection("jobs").doc(jobId).get()
     ]);
     const job = jobSnap.data();
+    if (job && !applicationsOpen(job.applicationDeadline)) return NextResponse.json({ error: "Applications closed." }, { status: 409 });
     if (!workerSnap.exists || currentUser.profile?.role !== "worker") return NextResponse.json({ error: "Use a worker account to apply." }, { status: 403 });
     if (job?.rehireOfJobId) return NextResponse.json({ error: "This job is no longer available." }, { status: 400 });
     if (job?.clientId === currentUser.uid) return NextResponse.json({ error: "You cannot apply to a job you posted as a client." }, { status: 403 });
@@ -127,14 +116,13 @@ export async function POST(request: NextRequest) {
       requiredSkills: Array.isArray(job?.requiredSkills) ? job.requiredSkills.filter((item: unknown): item is string => typeof item === "string") : []
     };
     const allowed = await getWorkerJobEligibility(currentUser.uid, eligibilityJob);
-    logApplyEligibilityCheck(allowed);
     if (allowed.decision === "blocked") return NextResponse.json({ error: allowed.reason }, { status: 403 });
     const acceptedSnapshot = await db.collection("applications").where("jobId", "==", jobId).limit(120).get();
     const acceptedCount = acceptedSnapshot.docs.filter(doc => ["accepted", "completion_requested", "payment_sent"].includes(String(doc.data().status))).length;
     if (acceptedCount >= Number(job?.workersNeeded ?? 1)) return NextResponse.json({ error: "This job already has enough accepted workers." }, { status: 400 });
     const existing = await db.collection("applications").where("jobId", "==", jobId).where("workerId", "==", currentUser.uid).limit(1).get();
     if (!existing.empty) return NextResponse.json({ success: true, application: { id: existing.docs[0].id, ...existing.docs[0].data() } });
-    const applicationRef = db.collection("applications").doc();
+    const applicationRef = db.collection("applications").doc(createHash("sha256").update(`${jobId}:${currentUser.uid}`).digest("hex"));
     const activityRef = db.collection("activities").doc();
     const clientActivityRef = db.collection("activities").doc();
     const payload = {
@@ -158,7 +146,11 @@ export async function POST(request: NextRequest) {
       emailSubject: "New application on COPIC",
       eventId: `application:${applicationRef.id}:created`
     };
-    const batch = db.batch();
+    const duplicate = await db.runTransaction(async batch => {
+    const latestJob = await batch.get(db.collection("jobs").doc(jobId));
+    const currentApplication = await batch.get(applicationRef);
+    if (currentApplication.exists) return currentApplication.data();
+    if (latestJob.data()?.status !== "open" || !applicationsOpen(latestJob.data()?.applicationDeadline)) throw new AuthRouteError("Applications closed.", 409);
     batch.set(applicationRef, payload);
     batch.set(activityRef, {
       id: activityRef.id,
@@ -183,7 +175,9 @@ export async function POST(request: NextRequest) {
       createdAt: FieldValue.serverTimestamp()
     });
     setNotification(batch, db, notification);
-    await batch.commit();
+    return null;
+    });
+    if (duplicate) return NextResponse.json({ success: true, application: duplicate });
     await sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, application: payload });
   } catch (error) {

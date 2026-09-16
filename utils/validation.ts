@@ -2,6 +2,8 @@ import { z } from "zod";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 
 export const jobSchema = z.object({
+  workDate: z.string().datetime().optional(),
+  applicationDeadline: z.string().datetime().optional(),
   title: z.string().trim().min(1, "Please enter a job title.").max(90, "Job title is too long."),
   description: z.string().trim().min(1, "Please enter a job description.").max(2500, "Job description is too long."),
   category: z.string().trim().min(1, "Please select a category."),
@@ -42,6 +44,8 @@ export const jobSchema = z.object({
   }),
   requiredSkills: z.array(z.string()).max(12, "Please add no more than 12 skills.").default([])
 }).superRefine((value, context) => {
+  if (value.applicationDeadline && Date.parse(value.applicationDeadline) <= Date.now()) context.addIssue({ code: z.ZodIssueCode.custom, path: ["applicationDeadline"], message: "Application deadline must be in the future." });
+  if (value.workDate && value.applicationDeadline && Date.parse(value.applicationDeadline) > Date.parse(value.workDate)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["applicationDeadline"], message: "Applications must close before work starts." });
   if (value.locationDetails.locationSource === "current" && value.locationDetails.landmarkResolved === false && !value.locationDetails.locationDescription?.trim()) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

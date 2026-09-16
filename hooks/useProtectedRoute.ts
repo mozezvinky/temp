@@ -1,4 +1,5 @@
 "use client";
+import { acquisitionReturnPath } from "@/utils/acquisition-return";
 
 import { useAuth } from "@/context/AuthContext";
 import type { Role } from "@/types";
@@ -33,7 +34,7 @@ export function usePublicOnlyRoute(options?: { disabled?: boolean }) {
   useEffect(() => {
     if (options?.disabled) return;
     if (loading) return;
-    if (user) router.replace(homePath);
+    if (user) router.replace(acquisitionReturnPath(homePath));
   }, [homePath, loading, options?.disabled, router, user]);
 
   // Public pages must remain available while Firebase restores a session. A slow

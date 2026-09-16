@@ -26,11 +26,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ verifications: await Promise.all(rows.map(async row => signDocumentPaths({ ...row, id: row.kind === "driver_license" ? `driver-license-${row.userId}` : row.userId, createdAt: row.submittedAt }))) });
     }
     const collection = adminDb().collection("verifications");
-    const snapshot = status === "all" ? await collection.orderBy("createdAt", "desc").limit(100).get() : await collection.where("status", "==", status).limit(100).get();
-    const verifications = snapshot.docs
+    let query = status === "all" ? collection.orderBy("__name__").limit(21) : collection.where("status", "==", status).orderBy("__name__").limit(21);
+    const cursor = request.nextUrl.searchParams.get("cursor"); if (cursor) query = query.startAfter(cursor);
+    const snapshot = await query.get();
+    const verifications = snapshot.docs.slice(0,20)
       .map(doc => ({ id: doc.id, ...doc.data() } as Record<string, unknown>))
       .sort((first, second) => timestampMillis(second.createdAt) - timestampMillis(first.createdAt));
-    return NextResponse.json({ verifications: await Promise.all(verifications.map(record => signDocumentPaths(record))) });
+    const userIds = [...new Set(verifications.map(record => String(record.userId ?? "")).filter(Boolean))];
+    const profiles = userIds.length ? await adminDb().getAll(...userIds.map(uid => adminDb().doc(`users/${uid}`))) : [];
+    const profileById = new Map(profiles.map(profile => [profile.id, profile.data()]));
+    for (const record of verifications) {
+      const profile = profileById.get(String(record.userId));
+      record.services = Array.isArray(profile?.skillProfiles) ? profile.skillProfiles.map((skill: { name?: string }) => skill.name).filter(Boolean) : profile?.skills ?? [];
+      record.profileName = profile?.displayName ?? profile?.fullName ?? record.fullName;
+    }
+    return NextResponse.json({ verifications: await Promise.all(verifications.map(record => signDocumentPaths(record))), nextCursor: snapshot.size > 20 ? snapshot.docs[19].id : null });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load ID verification requests." }, { status: adminErrorStatus(error) });
   }
@@ -81,11 +91,13 @@ export async function PATCH(request: NextRequest) {
     const rejectionReason = String(body.rejectionReason ?? "").trim();
     if (!userId) return NextResponse.json({ error: "Choose a verification request." }, { status: 400 });
     if (status !== "approved" && status !== "rejected") return NextResponse.json({ error: "Choose approve or reject." }, { status: 400 });
+    if (status === "rejected" && !rejectionReason) return NextResponse.json({ error: "A rejection reason is required." }, { status: 400 });
     const reason = status === "approved" ? "Manual ID verification approved." : rejectionReason || "The submitted ID images could not be verified.";
 
     if (isSqlBackend()) {
       const table = kind === "driver_license" ? "driver_license_verifications" : "identity_verifications";
       const existing = localDb().prepare(`SELECT * FROM ${table} WHERE userId = ?`).get(userId);
+      if (kind === "driver_license" && status === "approved" && !(Date.parse(String(existing?.expiryDate ?? "")) > Date.now())) return NextResponse.json({ error: "An unexpired licence is required." }, { status: 400 });
       if (!existing) return NextResponse.json({ error: "Verification request not found." }, { status: 404 });
       const now = new Date().toISOString();
       localDb().exec("BEGIN");
@@ -113,6 +125,7 @@ export async function PATCH(request: NextRequest) {
     const userRef = db.collection("users").doc(userId);
     const existing = await verificationRef.get();
     if (!existing.exists) return NextResponse.json({ error: "Verification request not found." }, { status: 404 });
+    if (kind === "driver_license" && status === "approved" && !(Date.parse(String(existing.data()?.expiryDate ?? "")) > Date.now())) return NextResponse.json({ error: "An unexpired licence expiry date is required. Ask the worker to resubmit." }, { status: 400 });
     const notification = {
       userId,
       type: kind === "driver_license" ? `driver_license_${status}` : `identity_${status}`,
@@ -124,9 +137,12 @@ export async function PATCH(request: NextRequest) {
       essential: true
     };
     await db.runTransaction(async transaction => {
+      const current = await transaction.get(verificationRef);
+      if (!current.exists) throw new Error("Verification request was removed.");
+      if (kind === "driver_license" && status === "approved" && !(Date.parse(String(current.data()?.expiryDate ?? "")) > Date.now())) throw new Error("An unexpired licence is required.");
       transaction.set(verificationRef, { status, [kind === "driver_license" ? "driverLicenseVerificationStatus" : "identityVerificationStatus"]: status, rejectionReason: status === "rejected" ? reason : null, reviewedBy: admin.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       transaction.set(userRef, kind === "driver_license"
-        ? { driverLicenseVerificationStatus: status, driverLicenseRejectionReason: status === "rejected" ? reason : null, updatedAt: FieldValue.serverTimestamp() }
+        ? { driverLicenseExpiryDate: current.data()?.expiryDate ?? null, driverLicenseVerificationStatus: status, driverLicenseRejectionReason: status === "rejected" ? reason : null, updatedAt: FieldValue.serverTimestamp() }
         : { verificationStatus: status, identityVerificationStatus: status, verificationRejectionReason: status === "rejected" ? reason : null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       setNotification(transaction, db, notification);
     });

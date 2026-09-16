@@ -1,4 +1,5 @@
 "use client";
+import { validLicence } from "@/functions/src/marketplace-policy";
 
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -473,7 +474,7 @@ export default function DashboardPage() {
               <button type="button" onClick={() => { setJobsModalTab("live"); setOpenModal("jobs"); }}><Clock size={17} /> Live jobs <span>{liveApplications.length}</span></button>
               <button type="button" onClick={() => { setJobsModalTab("requests"); setOpenModal("jobs"); }}><MessageCircle size={17} /> Requests <span>{directHireRequests.length}</span></button>
               <button type="button" onClick={() => { setJobsModalTab("completed"); setOpenModal("jobs"); }}><CheckCircle2 size={17} /> Completed jobs <span>{completedJobsCount}</span></button>
-              <button type="button" onClick={() => setDriverLicenseOpen(true)}><Car size={17} /> Add driver&apos;s license <span>{normalizeVerificationStatus(profile.driverLicenseVerificationStatus) === "approved" ? "Verified" : normalizeVerificationStatus(profile.driverLicenseVerificationStatus) === "pending" ? "Pending" : "New"}</span></button>
+              <button type="button" onClick={() => setDriverLicenseOpen(true)}><Car size={17} /> Add driver&apos;s license <span>{normalizeVerificationStatus(profile.driverLicenseVerificationStatus) === "approved" ? (validLicence(profile.driverLicenseVerificationStatus, profile.driverLicenseExpiryDate) ? "Verified" : "Expired / needs renewal") : normalizeVerificationStatus(profile.driverLicenseVerificationStatus) === "pending" ? "Pending" : "New"}</span></button>
               <button type="button" onClick={() => setLocationOpen(true)}><MapPin size={17} /> {profile.location ? "Change Location" : "Set Up Your Location"} <span>{profile.location ? "Saved" : "New"}</span></button>
             </Card>
           </aside>

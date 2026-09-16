@@ -1,3 +1,4 @@
+import { validLicence } from "@/functions/src/marketplace-policy";
 import type { Job, UserProfile, VerificationStatus } from "@/types";
 import { normalizeVerificationStatus } from "@/utils/verification";
 
@@ -37,7 +38,7 @@ export function workerCanWork(profile: Pick<UserProfile, "verificationStatus" | 
     return { ok: false, reason: "Your identity verification was not approved. Please resubmit your verification." };
   }
   if (!isApprovedVerification(identityStatus)) {
-    return { ok: false, reason: "Verification required. Verify your identity before applying for jobs." };
+    return { ok: false, reason: "Verify your identity to accept this job." };
   }
   if (profile.isLocked || Number(profile.outstandingServiceFee ?? 0) > 0) {
     return { ok: false, reason: "Your account is locked. Open your dashboard for the next step." };
@@ -45,11 +46,11 @@ export function workerCanWork(profile: Pick<UserProfile, "verificationStatus" | 
   return { ok: true, reason: "" };
 }
 
-export function workerCanApplyToJob(worker: Pick<UserProfile, "verificationStatus" | "driverLicenseVerificationStatus" | "isLocked" | "outstandingServiceFee"> | null | undefined, job: Pick<Job, "title" | "category" | "requiredSkills">) {
+export function workerCanApplyToJob(worker: Pick<UserProfile, "verificationStatus" | "driverLicenseVerificationStatus" | "driverLicenseExpiryDate" | "isLocked" | "outstandingServiceFee"> | null | undefined, job: Pick<Job, "title" | "category" | "requiredSkills">) {
   const base = workerCanWork(worker);
   if (!base.ok) return base;
-  if (requiresDriverLicenseForJob(job) && !isApprovedVerification(worker?.driverLicenseVerificationStatus)) {
-    return { ok: false, reason: "Driving licence verification required. Your identity is verified, but you do not currently have a verified driving licence on COPIC." };
+  if (requiresDriverLicenseForJob(job) && !validLicence(worker?.driverLicenseVerificationStatus, worker?.driverLicenseExpiryDate)) {
+    return { ok: false, reason: "Driving licence verification required. Your identity is verified, but you need a verified, unexpired driving licence on COPIC." };
   }
   return { ok: true, reason: "" };
 }

@@ -13,28 +13,31 @@ import { toast } from "sonner";
 
 export default function AdminKycPage() {
   const { user } = useAuth();
-  const [items, setItems] = useState<VerificationRecord[]>([]);
+  const [cursor, setCursor] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [items, setItems] = useState<(VerificationRecord & { services?: string[]; profileName?: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"pending" | "all">("pending");
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [reviewing, setReviewing] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!user) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
-      const response = await fetch(`/api/admin/verifications?status=${filter}`, { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
-      const payload = await response.json().catch(() => ({})) as { verifications?: VerificationRecord[]; error?: string };
+      const response = await fetch(`/api/admin/verifications?status=${filter}&cursor=${encodeURIComponent(cursor)}`, { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
+      const payload = await response.json().catch(() => ({})) as { verifications?: (VerificationRecord & { services?: string[]; profileName?: string })[]; nextCursor?: string | null; error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to load verification requests.");
       setItems(payload.verifications ?? []);
+      setNextCursor(payload.nextCursor ?? null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to load verification requests.");
     } finally {
       setLoading(false);
     }
-  }, [filter, user]);
+  }, [filter, user, cursor]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); const refresh = () => { if (!document.hidden && navigator.onLine) void load(true); }; const timer = window.setInterval(refresh, 30000); window.addEventListener("online", refresh); return () => { clearInterval(timer); window.removeEventListener("online", refresh); }; }, [load]);
 
   async function review(item: VerificationRecord, status: "approved" | "rejected") {
     if (!user) return;
@@ -43,7 +46,7 @@ export default function AdminKycPage() {
       const response = await fetch("/api/admin/verifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` },
-        body: JSON.stringify({ id: item.id, userId: item.userId, kind: item.kind ?? "identity", status, rejectionReason: reasons[item.userId] ?? "" })
+        body: JSON.stringify({ id: item.id, userId: item.userId, kind: item.kind ?? "identity", status, rejectionReason: reasons[item.id || item.userId] ?? "" })
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to review verification.");
@@ -60,8 +63,9 @@ export default function AdminKycPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><p className="copic-eyebrow">Manual review</p><h1 className="text-3xl font-black">Verification Requests</h1></div>
-        <div className="flex gap-2"><Button variant={filter === "pending" ? "primary" : "secondary"} onClick={() => setFilter("pending")}>Pending</Button><Button variant={filter === "all" ? "primary" : "secondary"} onClick={() => setFilter("all")}>All requests</Button></div>
+        <div className="flex gap-2"><Button variant={filter === "pending" ? "primary" : "secondary"} onClick={() => { setCursor(""); setFilter("pending"); }}>Pending</Button><Button variant={filter === "all" ? "primary" : "secondary"} onClick={() => { setCursor(""); setFilter("all"); }}>All requests</Button></div>
       </div>
+      <div className="flex gap-3">{cursor && <Button onClick={() => setCursor("")}>First page</Button>}{nextCursor && <Button onClick={() => setCursor(nextCursor)}>Next requests</Button>}</div>
       {loading ? <LoadingSpinner label="Loading ID verification requests" /> : !items.length ? <EmptyState title="No verification requests" body={filter === "pending" ? "There are no ID submissions waiting for review." : "Submitted ID checks will appear here."} /> : items.map(item => (
         <Card key={item.id || item.userId} className="overflow-hidden">
           <div className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
@@ -70,13 +74,14 @@ export default function AdminKycPage() {
               <dl className="mt-5 grid gap-3 text-sm">
                 <Info label="Email" value={item.email} />
                 <Info label="Phone" value={item.phoneNumber} />
-                <Info label="Account" value={item.role} />
+                <Info label="Account" value={item.role} /><Info label="Services" value={item.services?.join(", ")} />
                 {item.kind === "driver_license" && <Info label="License number" value={item.licenseNumber} />}
+                {item.kind === "driver_license" && <Info label="Licence expiry" value={item.expiryDate ? new Date(item.expiryDate).toLocaleDateString() : "Missing — resubmission required"} />}
                 <Info label="Submitted" value={formatDate(item.createdAt)} />
               </dl>
               {item.status === "rejected" && item.rejectionReason && <p className="mt-4 rounded-xl bg-red-400/10 p-3 text-sm text-red-200">Reason: {item.rejectionReason}</p>}
               {item.status === "pending" && <div className="mt-5 grid gap-3">
-                <label className="temp-label">Optional rejection reason<textarea value={reasons[item.userId] ?? ""} onChange={event => setReasons(current => ({ ...current, [item.userId]: event.target.value }))} placeholder="Explain what the user should correct" className="temp-input min-h-24 p-3 outline-none" /></label>
+                <label className="temp-label">Rejection reason (required when rejecting)<textarea value={reasons[item.id || item.userId] ?? ""} onChange={event => setReasons(current => ({ ...current, [item.id || item.userId]: event.target.value }))} placeholder="Explain what the user should correct" className="temp-input min-h-24 p-3 outline-none" /></label>
                 <div className="flex flex-wrap gap-2"><Button disabled={reviewing === item.userId} onClick={() => void review(item, "approved")}><CheckCircle2 size={16} /> Approve verification</Button><button disabled={reviewing === item.userId} onClick={() => void review(item, "rejected")} className="inline-flex items-center gap-2 rounded-xl border border-red-400/30 px-5 py-2.5 text-sm font-bold text-red-200 disabled:opacity-50"><XCircle size={16} /> Reject</button></div>
               </div>}
             </div>

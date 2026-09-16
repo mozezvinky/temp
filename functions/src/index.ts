@@ -1,3 +1,4 @@
+import { validLicence } from "./marketplace-policy";
 import * as admin from "firebase-admin";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
@@ -37,6 +38,7 @@ export const reviewVerification = onCall(async request => {
   requireAuth(request.auth?.uid);
   await assertAdmin(request.auth!.uid);
   const { userId, status, rejectionReason } = request.data as { userId: string; status: "approved" | "rejected"; rejectionReason?: string };
+  if (status === "rejected" && !rejectionReason?.trim()) throw new HttpsError("invalid-argument", "A rejection reason is required.");
   if (!["approved", "rejected"].includes(status)) throw new HttpsError("invalid-argument", "Invalid verification status.");
   await db.runTransaction(async tx => {
     tx.update(db.doc(`verifications/${userId}`), { status, addressVerificationStatus: status, rejectionReason: rejectionReason ?? null, reviewedBy: request.auth!.uid, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
@@ -58,6 +60,8 @@ export const reviewKyc = reviewVerification;
 export const setAdminRole = onCall(async request => {
   requireAuth(request.auth?.uid);
   await assertAdmin(request.auth!.uid);
+  const actor = (await db.doc(`users/${request.auth!.uid}`).get()).data();
+  if (actor?.adminRole !== "super_admin" && actor?.email !== "kelvinodiambo@gmail.com") throw new HttpsError("permission-denied", "Super admin required.");
   const { userId, enabled } = request.data as { userId: string; enabled: boolean };
   await admin.auth().setCustomUserClaims(userId, { admin: enabled });
   await db.doc(`users/${userId}`).set({ role: enabled ? "admin" : "client", updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
@@ -79,6 +83,14 @@ export const acceptApplication = onCall(async request => {
     const jobSnapshot = await tx.get(jobRef);
     const job = jobSnapshot.data();
     if (!job || job.clientId !== request.auth!.uid || job.status !== "open") throw new HttpsError("failed-precondition", "This job is no longer open.");
+    const [workerSnap, identitySnap, licenceSnap] = await Promise.all([
+      tx.get(db.doc(`users/${application.workerId}`)), tx.get(db.doc(`verifications/${application.workerId}`)), tx.get(db.doc(`verifications/driver-license-${application.workerId}`))
+    ]);
+    const worker = workerSnap.data(), identity = identitySnap.data(), licence = licenceSnap.data();
+    const status = String(identity ? identity.status : worker?.verificationStatus).toLowerCase();
+    if (!["approved", "verified"].includes(status) || worker?.isLocked || Number(worker?.outstandingServiceFee ?? 0) > 0) throw new HttpsError("failed-precondition", "Verify your identity to accept this job.");
+    const driving = /driver|rider|courier|delivery|boda|tuk.?tuk|matatu|truck|chauffeur/i.test([job.title, job.category, ...(job.requiredSkills ?? [])].join(" "));
+    if (driving && !validLicence(licence?.status, licence?.expiryDate)) throw new HttpsError("failed-precondition", "A verified, unexpired driving licence is required.");
     const conversationId = `${application.jobId}_${application.workerId}`;
     tx.update(applicationRef, { status: "accepted", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     tx.update(jobRef, { status: "live", assignedWorkerId: application.workerId, hiredWorkerId: application.workerId, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
@@ -230,3 +242,5 @@ export const updateBadgesOnJobCompletion = onDocumentUpdated("jobs/{jobId}", asy
     tx.update(userRef, { completedJobs, badges: Array.from(badges), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
   });
 });
+
+export { marketplaceUserChanged,marketplaceVerificationChanged,marketplaceApplicationChanged,marketplaceJobChanged } from "./marketplace-triggers";

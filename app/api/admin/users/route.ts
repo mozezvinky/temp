@@ -45,9 +45,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const snapshot = await adminDb().collection("users").limit(limit).get();
-    const users = snapshot.docs.map(doc => ({ id: doc.id, uid: doc.id, ...doc.data() })).filter(user => matchesRole(user, roleFilter)).filter(user => matchesSearch(user, search));
-    return NextResponse.json({ users });
+    let query = adminDb().collection("users").orderBy("__name__").limit(limit + 1);
+    const cursor = request.nextUrl.searchParams.get("cursor");
+    if (cursor) query = query.startAfter(cursor);
+    const snapshot = await query.get();
+    const users = snapshot.docs.slice(0, limit).map(doc => ({ id: doc.id, uid: doc.id, ...doc.data() })).filter(user => matchesRole(user, roleFilter)).filter(user => matchesSearch(user, search));
+    return NextResponse.json({ users, nextCursor: snapshot.size > limit ? snapshot.docs[limit - 1].id : null });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load users." }, { status: adminErrorStatus(error) });
   }

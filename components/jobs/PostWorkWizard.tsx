@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useLiveVerificationStatus } from "@/hooks/useLiveVerificationStatus";
 import { defaultKenyaLocation } from "@/lib/location";
-import { jobCategoryOptions } from "@/lib/jobCategories";
+import { flatJobCategories, jobCategoryOptions } from "@/lib/jobCategories";
 import { createJob } from "@/services/jobs";
 import type { LocationFields, UserProfile } from "@/types";
 import { clientCanPost } from "@/utils/jobRules";
@@ -18,6 +18,9 @@ import { toast } from "sonner";
 const MapPicker = dynamic(() => import("@/components/location/MapPicker"), { ssr: false });
 
 type Draft = {
+  service: string;
+  workDate: string;
+  applicationDeadline: string;
   title: string;
   description: string;
   budget: string;
@@ -31,7 +34,7 @@ type Draft = {
   payType: "fixed" | "pay_per_timeline";
 };
 
-const emptyDraft: Draft = { title: "", description: "", budget: "", timeline: "", timelineUnit: "hours", workersNeeded: "1", quantity: "", unit: "", customUnit: "", category: "", payType: "fixed" };
+const emptyDraft: Draft = { service: "", workDate: "", applicationDeadline: "", title: "", description: "", budget: "", timeline: "", timelineUnit: "hours", workersNeeded: "1", quantity: "", unit: "", customUnit: "", category: "", payType: "fixed" };
 
 export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserProfile; onClose: () => void; onPosted?: () => void }) {
   const [step, setStep] = useState(1);
@@ -78,6 +81,8 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
       const duration = durationLabel(durationValue, draft.timelineUnit);
       await createJob(profile.id, {
         title: draft.title,
+        workDate: draft.workDate ? new Date(draft.workDate).toISOString() : undefined,
+        applicationDeadline: draft.applicationDeadline ? new Date(draft.applicationDeadline).toISOString() : undefined,
         description: draft.description,
         category: draft.category,
         duration,
@@ -95,7 +100,7 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
         location: location.addressText,
         county: location.county,
         locationDetails: location,
-        requiredSkills: []
+        requiredSkills: draft.service ? [draft.service] : []
       });
       toast.success("Work posted and matching workers alerted.");
       onPosted?.();
@@ -133,6 +138,9 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
           <form onSubmit={nextFromDetails} className="popup-form mt-6 grid gap-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="temp-label">{draft.payType === "pay_per_timeline" ? `Job price per ${perDurationUnit(draft.timelineUnit)}` : "Job price"}<input value={draft.budget} onChange={event => setValue("budget", event.target.value)} required type="number" min={draft.payType === "pay_per_timeline" ? 50 : 50} placeholder="KES" className="temp-input p-3 outline-none" /></label>
+              <label className="temp-label">Service (optional)<input list="job-services" value={draft.service} onChange={event => setValue("service", event.target.value)} className="temp-input w-full p-3" /><datalist id="job-services">{flatJobCategories.map(service => <option key={service}>{service}</option>)}</datalist></label>
+              <label className="temp-label">Work date<input type="datetime-local" required value={draft.workDate} onChange={event => setValue("workDate", event.target.value)} className="temp-input min-w-0 w-full p-3" /></label>
+              <label className="temp-label">Application deadline<input type="datetime-local" required value={draft.applicationDeadline} onChange={event => setValue("applicationDeadline", event.target.value)} className="temp-input min-w-0 w-full p-3" /></label>
               <label className="temp-label">Work timeline<div className="grid grid-cols-[1fr_auto] gap-2"><input value={draft.timeline} onChange={event => setValue("timeline", event.target.value)} required type="number" min={1} placeholder="Work timeline" className="temp-input min-w-0 p-3 outline-none" /><select value={draft.timelineUnit} onChange={event => setValue("timelineUnit", event.target.value as DurationUnit)} className="temp-input p-3 outline-none">{durationUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}</select></div></label>
               <label className="temp-label">Workers needed<input value={draft.workersNeeded} onChange={event => setValue("workersNeeded", event.target.value)} required type="number" min={1} max={100} className="temp-input p-3 outline-none" /></label>
               <label className="temp-label">Category<select value={draft.category} onChange={event => setValue("category", event.target.value)} required className="temp-input p-3 outline-none"><option value="">Select category</option>{jobCategoryOptions.map((option, index) => <option key={`${option}-${index}`} value={option}>{option}</option>)}</select></label>

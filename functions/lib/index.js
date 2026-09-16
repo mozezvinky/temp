@@ -33,7 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateBadgesOnJobCompletion = exports.auditUserUpdates = exports.alertMatchingWorkersOnJobCreate = exports.notifyOnNotificationCreate = exports.mpesaCallback = exports.payOutstandingFee = exports.markPaidInCash = exports.completeMpesaJob = exports.acceptApplication = exports.setAdminRole = exports.reviewKyc = exports.reviewVerification = exports.requestDeposit = void 0;
+exports.marketplaceJobChanged = exports.marketplaceApplicationChanged = exports.marketplaceVerificationChanged = exports.marketplaceUserChanged = exports.updateBadgesOnJobCompletion = exports.auditUserUpdates = exports.alertMatchingWorkersOnJobCreate = exports.notifyOnNotificationCreate = exports.mpesaCallback = exports.payOutstandingFee = exports.markPaidInCash = exports.completeMpesaJob = exports.acceptApplication = exports.setAdminRole = exports.reviewKyc = exports.reviewVerification = exports.requestDeposit = void 0;
+const marketplace_policy_1 = require("./marketplace-policy");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -68,6 +69,8 @@ exports.reviewVerification = (0, https_1.onCall)(async (request) => {
     requireAuth(request.auth?.uid);
     await assertAdmin(request.auth.uid);
     const { userId, status, rejectionReason } = request.data;
+    if (status === "rejected" && !rejectionReason?.trim())
+        throw new https_1.HttpsError("invalid-argument", "A rejection reason is required.");
     if (!["approved", "rejected"].includes(status))
         throw new https_1.HttpsError("invalid-argument", "Invalid verification status.");
     await db.runTransaction(async (tx) => {
@@ -88,6 +91,9 @@ exports.reviewKyc = exports.reviewVerification;
 exports.setAdminRole = (0, https_1.onCall)(async (request) => {
     requireAuth(request.auth?.uid);
     await assertAdmin(request.auth.uid);
+    const actor = (await db.doc(`users/${request.auth.uid}`).get()).data();
+    if (actor?.adminRole !== "super_admin" && actor?.email !== "kelvinodiambo@gmail.com")
+        throw new https_1.HttpsError("permission-denied", "Super admin required.");
     const { userId, enabled } = request.data;
     await admin.auth().setCustomUserClaims(userId, { admin: enabled });
     await db.doc(`users/${userId}`).set({ role: enabled ? "admin" : "client", updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
@@ -112,6 +118,16 @@ exports.acceptApplication = (0, https_1.onCall)(async (request) => {
         const job = jobSnapshot.data();
         if (!job || job.clientId !== request.auth.uid || job.status !== "open")
             throw new https_1.HttpsError("failed-precondition", "This job is no longer open.");
+        const [workerSnap, identitySnap, licenceSnap] = await Promise.all([
+            tx.get(db.doc(`users/${application.workerId}`)), tx.get(db.doc(`verifications/${application.workerId}`)), tx.get(db.doc(`verifications/driver-license-${application.workerId}`))
+        ]);
+        const worker = workerSnap.data(), identity = identitySnap.data(), licence = licenceSnap.data();
+        const status = String(identity ? identity.status : worker?.verificationStatus).toLowerCase();
+        if (!["approved", "verified"].includes(status) || worker?.isLocked || Number(worker?.outstandingServiceFee ?? 0) > 0)
+            throw new https_1.HttpsError("failed-precondition", "Verify your identity to accept this job.");
+        const driving = /driver|rider|courier|delivery|boda|tuk.?tuk|matatu|truck|chauffeur/i.test([job.title, job.category, ...(job.requiredSkills ?? [])].join(" "));
+        if (driving && !(0, marketplace_policy_1.validLicence)(licence?.status, licence?.expiryDate))
+            throw new https_1.HttpsError("failed-precondition", "A verified, unexpired driving licence is required.");
         const conversationId = `${application.jobId}_${application.workerId}`;
         tx.update(applicationRef, { status: "accepted", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
         tx.update(jobRef, { status: "live", assignedWorkerId: application.workerId, hiredWorkerId: application.workerId, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
@@ -263,4 +279,9 @@ exports.updateBadgesOnJobCompletion = (0, firestore_1.onDocumentUpdated)("jobs/{
         tx.update(userRef, { completedJobs, badges: Array.from(badges), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     });
 });
+var marketplace_triggers_1 = require("./marketplace-triggers");
+Object.defineProperty(exports, "marketplaceUserChanged", { enumerable: true, get: function () { return marketplace_triggers_1.marketplaceUserChanged; } });
+Object.defineProperty(exports, "marketplaceVerificationChanged", { enumerable: true, get: function () { return marketplace_triggers_1.marketplaceVerificationChanged; } });
+Object.defineProperty(exports, "marketplaceApplicationChanged", { enumerable: true, get: function () { return marketplace_triggers_1.marketplaceApplicationChanged; } });
+Object.defineProperty(exports, "marketplaceJobChanged", { enumerable: true, get: function () { return marketplace_triggers_1.marketplaceJobChanged; } });
 //# sourceMappingURL=index.js.map

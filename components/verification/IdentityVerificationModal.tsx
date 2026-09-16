@@ -38,6 +38,7 @@ export function IdentityVerificationModal({
   const [fullName, setFullName] = useState(profile.displayName);
   const [phoneNumber, setPhoneNumber] = useState(profile.phoneNumber ?? "");
   const [nationalId, setNationalId] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
 
   useEffect(() => {
     void loadMyVerification(kind).then(setVerification).catch(() => undefined);
@@ -57,7 +58,8 @@ export function IdentityVerificationModal({
 
   const isDriverLicense = kind === "driver_license";
   const status = normalizeVerificationStatus(verification?.status ?? (isDriverLicense ? profile.driverLicenseVerificationStatus ?? "not_submitted" : profile.verificationStatus));
-  const canSubmit = status === "not_submitted" || status === "rejected";
+  const canSubmit = status === "not_submitted" || status === "rejected" || (isDriverLicense && (!verification?.expiryDate || Date.parse(verification.expiryDate) <= Date.now()));
+  const expired = isDriverLicense && status === "approved" && (!verification?.expiryDate || Date.parse(verification.expiryDate) <= Date.now());
   const documentName = isDriverLicense ? "Driver's license" : "National ID";
   const selfieLabel = isDriverLicense ? "Selfie while holding driver's license" : "Selfie while holding ID";
 
@@ -89,6 +91,7 @@ export function IdentityVerificationModal({
         fullName: fullName.trim(),
         phoneNumber: phone,
         nationalId: nationalId.trim(),
+        expiryDate: isDriverLicense && expiryDate ? new Date(`${expiryDate}T00:00:00+03:00`).toISOString() : undefined,
         idFrontFile: uploads.idFront,
         idBackFile: uploads.idBack,
         selfieWithIdFile: uploads.selfieWithId
@@ -121,8 +124,9 @@ export function IdentityVerificationModal({
             </div>
             <VerificationBadge status={status} />
           </div>
+          {expired && <p className="mt-4 text-sm" role="status">Your licence is expired or needs an expiry date. Submit your current licence to accept driving work.</p>}
           {submitted || status === "pending" ? <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">Your {isDriverLicense ? "driver's license" : "identity"} verification has been submitted and is awaiting admin review.</p> : null}
-          {status === "approved" ? <p className="mt-4 rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-100"><CheckCircle2 className="mr-2 inline" size={16} />{isDriverLicense ? "Driver's License Verified" : "Verified Identity"}</p> : null}
+          {status === "approved" && !expired ? <p className="mt-4 rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-3 text-sm font-bold text-emerald-100"><CheckCircle2 className="mr-2 inline" size={16} />{isDriverLicense ? "Driver's License Verified" : "Verified Identity"}</p> : null}
           {status === "rejected" ? <p className="mt-4 rounded-xl border border-red-300/30 bg-red-400/10 p-3 text-sm font-bold text-red-100">{verification?.rejectionReason ?? (isDriverLicense ? profile.driverLicenseRejectionReason : profile.verificationRejectionReason) ?? "Your previous verification was rejected. Please upload clearer images."}</p> : null}
         </div>
 
@@ -133,6 +137,7 @@ export function IdentityVerificationModal({
               <label className="temp-label">Phone number<input value={phoneNumber} onChange={event => setPhoneNumber(event.target.value)} required placeholder="07XXXXXXXX" className="temp-input p-3 outline-none" /></label>
               <label className="temp-label md:col-span-2">{isDriverLicense ? "Driver's license number" : "National ID number"}<input value={nationalId} onChange={event => setNationalId(event.target.value)} required inputMode={isDriverLicense ? "text" : "numeric"} autoComplete="off" placeholder={isDriverLicense ? "Driver's license number" : "National ID number"} className="temp-input p-3 outline-none" /></label>
             </div>
+            {isDriverLicense && <label className="temp-label">Licence expiry date<input type="date" value={expiryDate} onChange={event => setExpiryDate(event.target.value)} required className="temp-input w-full p-3" /></label>}
             <div className="identity-upload-grid grid gap-3">
               <UploadBox label={`Front side of ${documentName}`} file={uploads.idFront} preview={previews.idFront} progress={progress.idFront} disabled={submitting} onFile={file => setUpload("idFront", file)} />
               <UploadBox label={`Back side of ${documentName}`} file={uploads.idBack} preview={previews.idBack} progress={progress.idBack} disabled={submitting} onFile={file => setUpload("idBack", file)} />

@@ -156,6 +156,8 @@ function profileFromDocument(user: User, data: Record<string, unknown>): UserPro
     completedJobs: Number(data.completedJobs ?? 0),
     verificationStatus: strongestVerificationStatus(data.verificationStatus, data.identityVerificationStatus, data.kycStatus),
     verificationRejectionReason: typeof data.verificationRejectionReason === "string" ? data.verificationRejectionReason : null,
+    agentEnabled: data.agentEnabled === true,
+    driverLicenseExpiryDate: typeof data.driverLicenseExpiryDate === "string" ? data.driverLicenseExpiryDate : undefined,
     driverLicenseVerificationStatus: normalizeVerificationStatus(data.driverLicenseVerificationStatus),
     driverLicenseRejectionReason: typeof data.driverLicenseRejectionReason === "string" ? data.driverLicenseRejectionReason : null,
     profileCompleted: Boolean(data.profileCompleted),
@@ -178,6 +180,7 @@ function profileDataWithVerificationRecords(data: Record<string, unknown>, ident
   if (driverLicense) {
     const status = normalizeVerificationStatus(driverLicense.status);
     merged.driverLicenseVerificationStatus = status;
+    merged.driverLicenseExpiryDate = driverLicense.expiryDate;
     merged.driverLicenseRejectionReason = status === "rejected" && typeof driverLicense.rejectionReason === "string" ? driverLicense.rejectionReason : null;
   }
   return merged;

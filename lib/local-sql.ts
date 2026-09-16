@@ -392,6 +392,10 @@ export function localDb() {
     CREATE INDEX IF NOT EXISTS idx_conversations_worker ON conversations(workerId, updatedAt);
     CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversationId, createdAt);
   `);
+  ensureColumn("jobs", "workDate", "TEXT");
+  ensureColumn("jobs", "applicationDeadline", "TEXT");
+  ensureColumn("driver_license_verifications", "expiryDate", "TEXT");
+  ensureColumn("users", "driverLicenseExpiryDate", "TEXT");
   ensureColumn("jobs", "workersNeeded", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn("jobs", "quantity", "REAL");
   ensureColumn("jobs", "unit", "TEXT");
@@ -501,6 +505,7 @@ export function rowToUser(row: Record<string, unknown>): UserProfile {
     ratingCount: Number(row.ratingCount ?? 0),
     completedJobs: Number(row.completedJobs ?? 0),
     verificationStatus: normalizeVerificationStatus(row.verificationStatus),
+    driverLicenseExpiryDate: typeof row.driverLicenseExpiryDate === "string" ? row.driverLicenseExpiryDate : undefined,
     driverLicenseVerificationStatus: normalizeVerificationStatus(row.driverLicenseVerificationStatus),
     driverLicenseRejectionReason: typeof row.driverLicenseRejectionReason === "string" ? row.driverLicenseRejectionReason : null,
     profileCompleted: Number(row.profileCompleted ?? 0) === 1,
@@ -526,6 +531,8 @@ function rowToJob(row: Record<string, unknown>): Job {
   const paymentSummary = isPayPerTimeline(payType) ? timelinePaymentSummaryFromRecord(row, Number(row.timelineCount ?? durationValue ?? 1)) : null;
   return {
     id: String(row.id),
+    workDate: typeof row.workDate === "string" ? row.workDate : undefined,
+    applicationDeadline: typeof row.applicationDeadline === "string" ? row.applicationDeadline : undefined,
     clientId: String(row.clientId),
     clientName: String(row.clientName),
     clientVerificationStatus: typeof row.clientVerificationStatus === "string" ? row.clientVerificationStatus as Job["clientVerificationStatus"] : undefined,

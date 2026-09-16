@@ -30,6 +30,11 @@ export type WorkerSkillProofType = "certificate" | "license" | "reference" | "wo
 export type WorkerSkillVerificationStatus = "pending" | "approved" | "rejected";
 
 export interface WorkerSkillProfile {
+  sourceType?: "recruitment";
+  campaignId?: string;
+  initialRate?: number;
+  initialUnit?: string;
+  priceRestrictionLevel?: 1 | 2 | 3;
   id: string;
   name: string;
   description?: string;
@@ -109,6 +114,8 @@ export interface LocationFields {
 }
 
 export interface UserProfile {
+  agentEnabled?: boolean;
+  driverLicenseExpiryDate?: string;
   id: string;
   uid: string;
   role: Role;
@@ -181,6 +188,7 @@ export interface AdminSession {
 }
 
 export interface VerificationRecord {
+  expiryDate?: string;
   id: string;
   userId: string;
   kind?: VerificationKind;
@@ -220,6 +228,10 @@ export interface VerificationRecord {
 }
 
 export interface Job {
+  workDate?: string;
+  applicationDeadline?: string;
+  serviceId?: string;
+  requiresDriving?: boolean;
   id: string;
   clientId: string;
   clientName: string;

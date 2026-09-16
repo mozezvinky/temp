@@ -15,7 +15,7 @@ import { BriefcaseBusiness, Search } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-type JobsPayload = { jobs?: Job[]; applications?: Application[]; error?: string };
+type JobsPayload = { nextCursor?: string | null; jobs?: Job[]; applications?: Application[]; error?: string };
 type AdminTimeline = {
   id: string;
   jobId: string;
@@ -31,6 +31,8 @@ const jobStatuses: Job["status"][] = ["draft", "open", "pending", "live", "assig
 
 export default function AdminJobsPage() {
   const { user } = useAuth();
+  const [cursor, setCursor] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [jobs, setJobs] = useState<AdminJob[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,9 +45,10 @@ export default function AdminJobsPage() {
     if (!user) return;
     setError("");
     try {
-      const response = await fetch("/api/admin/jobs", { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
+      const response = await fetch(`/api/admin/jobs?cursor=${encodeURIComponent(cursor)}`, { headers: { Authorization: `Bearer ${await user.getIdToken()}` }, cache: "no-store" });
       const payload = await response.json() as JobsPayload;
       if (!response.ok) throw new Error(payload.error ?? "Unable to load jobs.");
+      setNextCursor(payload.nextCursor ?? null);
       setJobs(payload.jobs ?? []);
       setApplications(payload.applications ?? []);
     } catch (loadError) {
@@ -53,7 +56,7 @@ export default function AdminJobsPage() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, cursor]);
 
   useEffect(() => {
     void loadJobs();
@@ -136,15 +139,16 @@ export default function AdminJobsPage() {
           <p className="text-sm font-black uppercase tracking-[.2em] text-[#959087]">Operations</p>
           <h1 className="mt-2 text-3xl font-black">Posted jobs</h1>
         </div>
-        <label className="temp-input flex min-h-11 min-w-72 items-center gap-2 rounded-xl px-3"><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search jobs, clients, status" className="min-w-0 flex-1 bg-transparent outline-none" /></label>
+        <label className="temp-input flex min-h-11 w-full sm:w-auto sm:min-w-72 items-center gap-2 rounded-xl px-3"><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search jobs, clients, status" className="min-w-0 flex-1 bg-transparent outline-none" /></label>
       </div>
       <Card>
         <BriefcaseBusiness />
-        <p className="mt-4 text-sm text-[#959087]">All posted jobs</p>
+        <p className="mt-4 text-sm text-[#959087]">Jobs on this page</p>
         <p className="text-3xl font-black">{jobs.length}</p>
       </Card>
       <div className="grid gap-3">
-        {filteredJobs.length ? filteredJobs.map(job => {
+        <div className="flex flex-wrap gap-3">{cursor && <Button onClick={() => setCursor("")}>First page</Button>}{nextCursor && <Button onClick={() => setCursor(nextCursor)}>Next jobs</Button>}</div>
+      {filteredJobs.length ? filteredJobs.map(job => {
           const related = jobApplications(job.id);
           const live = related.filter(application => ["accepted", "completion_requested", "payment_sent"].includes(application.status));
           const requests = related.filter(application => application.status === "completion_requested");

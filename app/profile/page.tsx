@@ -182,6 +182,7 @@ export default function ProfilePage() {
         <Link href="/profile" className="block rounded-full bg-bone px-4 py-3 text-sm font-black text-[#1E1B13]">Profile</Link>
       </aside>
       <main className="space-y-5">
+        <Link className="copic-surface mb-4 flex min-h-11 items-center rounded-xl p-4 font-bold" href="/agent">{profile.agentEnabled ? "My COPIC Agent dashboard" : "Become a COPIC Agent"}</Link>
         <Card className="p-7 md:p-9">
           <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">Profile</p>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#4A463F] bg-[#2A2A2B] p-4">
@@ -295,6 +296,7 @@ export default function ProfilePage() {
               )) : <p className="text-sm font-bold text-[#959087]">No skills yet.</p>}
             </div>
           </Card>
+
           <RatingHistory userId={profile.id} />
         </>
       ) : <RatingHistory userId={profile.id} />}
@@ -357,7 +359,7 @@ export default function ProfilePage() {
         </div>
       )}
       {verificationOpen && <IdentityVerificationModal profile={profile} onClose={() => setVerificationOpen(false)} onSubmitted={refreshProfile} />}
-      {skillOpen && <AddSkillModal skill={editingSkill} onClose={() => { setSkillOpen(false); setEditingSkill(null); }} onSaved={() => void refreshProfile()} />}
+      {skillOpen && <AddSkillModal skill={editingSkill} onClose={() => { setSkillOpen(false); setEditingSkill(null); }} onSaved={async () => { await refreshProfile(); if (profile.verificationStatus !== "approved") setVerificationOpen(true); }} />}
     </div>
   );
 }

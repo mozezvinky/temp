@@ -1,4 +1,5 @@
 "use client";
+import { acquisitionReturnPath } from "@/utils/acquisition-return";
 
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
@@ -23,7 +24,7 @@ export default function CompleteProfilePage() {
     if (loading) return;
     if (!user) router.replace("/auth/login");
     if (profile) {
-      router.replace(roleHome(profile.role));
+      router.replace(acquisitionReturnPath(roleHome(profile.role)));
     }
   }, [loading, profile, router, user]);
 
@@ -39,7 +40,7 @@ export default function CompleteProfilePage() {
         user.phoneNumber ?? undefined
       );
       toast.success("Account profile saved.");
-      window.location.assign(roleHome(savedRole));
+      window.location.assign(acquisitionReturnPath(roleHome(savedRole)));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save your account profile.";
       toast.error(message);

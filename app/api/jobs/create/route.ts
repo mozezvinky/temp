@@ -1,8 +1,9 @@
 import { isSqlBackend } from "@/lib/data-backend";
 import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-user-profile";
 import { adminDb } from "@/lib/firebase-admin";
-import { createLocalJob, markLocalEmailVerified } from "@/lib/local-sql";
+import { createLocalJob, markLocalEmailVerified, localDb } from "@/lib/local-sql";
 import { jobSchema } from "@/utils/validation";
+import { serviceKey } from "@/functions/src/marketplace-policy";
 import { clientCanPost } from "@/utils/jobRules";
 import { normalizeVerificationStatus } from "@/utils/verification";
 import { isPayPerTimeline, timelinePaymentSummaryFromRecord } from "@/utils/timeline-payments";
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
         totalPlatformFee: timelineData.totalPlatformFee,
         requiredSkills: data.requiredSkills
       });
+      localDb().prepare("UPDATE jobs SET workDate = ?, applicationDeadline = ? WHERE id = ?").run(data.workDate ?? null, data.applicationDeadline ?? null, jobId);
       return NextResponse.json({ success: true, jobId: job?.id });
     }
 
@@ -105,6 +107,7 @@ export async function POST(request: NextRequest) {
     batch.set(jobRef, {
       id: jobRef.id,
       ...data,
+      ...(data.requiredSkills.length === 1 ? { serviceId: serviceKey(data.requiredSkills[0]), serviceName: data.requiredSkills[0] } : {}),
       ...(timelineSummary ?? {}),
       clientId: currentUser.uid,
       clientName: userData.displayName ?? currentUser.displayName ?? currentUser.email ?? "Copic client",

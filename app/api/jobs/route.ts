@@ -184,6 +184,7 @@ export async function PATCH(request: NextRequest) {
     if (!id) return NextResponse.json({ error: "Choose posted work to edit." }, { status: 400 });
     const body = await request.json().catch(() => ({}));
     const patch = normalizeJobPatch(body);
+    if (patch.status && !["open", "cancelled"].includes(patch.status)) return NextResponse.json({ error: "Use the job acceptance/completion workflow to change this status." }, { status: 400 });
 
     if (isSqlBackend()) {
       const profile = currentUser.profile;

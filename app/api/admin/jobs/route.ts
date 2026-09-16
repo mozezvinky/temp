@@ -53,11 +53,16 @@ export async function GET(request: NextRequest) {
       }));
       return NextResponse.json({ jobs: jobsWithTimelines, applications });
     }
-    const [jobSnapshot, applicationSnapshot, timelineSnapshot] = await Promise.all([
-      adminDb().collection("jobs").limit(150).get(),
-      adminDb().collection("applications").limit(500).get(),
-      adminDb().collection("jobTimelines").limit(1000).get()
-    ]);
+    const db = adminDb();
+    let query = db.collection("jobs").orderBy("__name__").limit(21);
+    const cursor = request.nextUrl.searchParams.get("cursor"); if (cursor) query = query.startAfter(cursor);
+    const page = await query.get();
+    const jobSnapshot = { docs: page.docs.slice(0,20) };
+    const jobIds = jobSnapshot.docs.map(doc => doc.id);
+    const [applicationSnapshot, timelineSnapshot] = jobIds.length ? await Promise.all([
+      db.collection("applications").where("jobId", "in", jobIds).limit(2000).get(),
+      db.collection("jobTimelines").where("jobId", "in", jobIds).limit(2400).get()
+    ]) : [{ docs: [] }, { docs: [] }];
     const timelines = timelineSnapshot.docs.map<AdminTimelineRecord>(doc => ({ id: doc.id, ...doc.data() }));
     const workerIds = [...new Set(timelines.map(item => String(item.workerId ?? "")).filter(Boolean))];
     const workerSnaps = await Promise.all(workerIds.map(id => adminDb().collection("users").doc(id).get()));
@@ -86,7 +91,7 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => dateMillis(b.createdAt) - dateMillis(a.createdAt))
       .slice(0, 120);
     const applications = applicationSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    return NextResponse.json({ jobs, applications });
+    return NextResponse.json({ jobs, applications, nextCursor: page.size > 20 ? page.docs[19].id : null });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load admin jobs." }, { status: adminErrorStatus(error) });
   }

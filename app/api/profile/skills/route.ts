@@ -1,3 +1,5 @@
+import { serviceKey } from "@/functions/src/marketplace-policy";
+import { enforceServicePrice } from "@/lib/service-pricing";
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { deleteLocalWorkerSkill, getLocalUser, saveLocalWorkerSkill } from "@/lib/local-sql";
@@ -65,7 +67,7 @@ export async function POST(request: NextRequest) {
     const chargeTimelineUnit = String(body.chargeTimelineUnit ?? "hours");
     const chargePayType = String(body.chargePayType ?? "fixed");
 
-    if (!name) return NextResponse.json({ error: "Enter a skill." }, { status: 400 });
+    if (!name || name.length > 100) return NextResponse.json({ error: "Enter a skill." }, { status: 400 });
     if (!categories.includes(category) || !levels.includes(level) || !proofTypes.includes(proofType)) {
       return NextResponse.json({ error: "Complete the skill details." }, { status: 400 });
     }
@@ -109,7 +111,7 @@ export async function POST(request: NextRequest) {
       const profile = getLocalUser(decoded.uid);
       if (!hasRole(profile, "worker")) return NextResponse.json({ error: "Worker access required." }, { status: 403 });
       const workerProfile = profile as NonNullable<typeof profile>;
-      const existingSkill = (workerProfile.skillProfiles ?? []).find(item => item.id === id || item.name.toLowerCase() === name.toLowerCase());
+      const existingSkill = (workerProfile.skillProfiles ?? []).find(item => item.id === id || serviceKey(item.name) === serviceKey(name));
       const materialChanged = hasMaterialSkillChange(existingSkill, skill);
       const skillProfiles = saveLocalWorkerSkill(decoded.uid, {
         ...existingSkill,
@@ -133,12 +135,15 @@ export async function POST(request: NextRequest) {
       const snapshot = await transaction.get(ref);
       if (!snapshot.exists || !hasRole(snapshot.data(), "worker")) throw new Error("Worker access required.");
       const existing = Array.isArray(snapshot.data()?.skillProfiles) ? snapshot.data()!.skillProfiles as WorkerSkillProfile[] : [];
-      const existingSkill = existing.find(item => item.id === skill.id || item.name.toLowerCase() === name.toLowerCase());
+      const existingSkill = existing.find(item => item.id === skill.id || serviceKey(item.name) === serviceKey(name));
+      if (!existingSkill && existing.length >= 50) throw new Error("A profile can have up to 50 services.");
+      const pricingMetadata = await enforceServicePrice(transaction, decoded.uid, snapshot.data()!, skill, existingSkill);
       const mergedProofUrl = proofUrl || existingSkill?.proofUrl;
       const materialChanged = hasMaterialSkillChange(existingSkill, skill);
       const mergedSkill = {
         ...existingSkill,
         ...skill,
+        ...pricingMetadata,
         verificationStatus: materialChanged ? "pending" : normalizeSkillVerificationStatus(existingSkill?.verificationStatus),
         reviewedBy: materialChanged ? null : existingSkill?.reviewedBy ?? null,
         reviewedAt: materialChanged ? null : existingSkill?.reviewedAt ?? null,
@@ -149,7 +154,7 @@ export async function POST(request: NextRequest) {
         ratingCount: existingSkill?.ratingCount ?? skill.ratingCount,
         createdAt: existingSkill?.createdAt ?? skill.createdAt
       };
-      const next = removeUndefinedFields([...existing.filter(item => item.id !== skill.id && item.name.toLowerCase() !== name.toLowerCase()), mergedSkill]);
+      const next = removeUndefinedFields([...existing.filter(item => item.id !== skill.id && serviceKey(item.name) !== serviceKey(name)), mergedSkill]);
       savedSkillProfiles = next;
       transaction.update(ref, {
         skillProfiles: next,

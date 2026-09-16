@@ -13,7 +13,7 @@ export function VerificationReminder({ profile, onVerify }: { profile: UserProfi
       <span className="verification-reminder-icon"><ShieldCheck size={22} /></span>
       <div>
         <h2>Verify Your Identity</h2>
-        <p>Verified workers gain more trust and visibility on the platform.</p>
+        <p>Your services are visible and you can receive requests. Verify your identity to accept work.</p>
       </div>
       <Button type="button" className="temp-success-button" onClick={onVerify}>Verify Now</Button>
     </aside>

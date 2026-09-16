@@ -2,6 +2,7 @@ import { isSqlBackend } from "@/lib/data-backend";
 import { adminDb } from "@/lib/firebase-admin";
 import { localDb } from "@/lib/local-sql";
 import { adminErrorStatus, requireAdmin } from "@/lib/admin-security";
+import { AggregateField } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -29,10 +30,27 @@ export async function GET(request: NextRequest) {
       db.collection("reports").count().get(),
       db.collection("admin_audit_logs").count().get(),
       db.collection("verifications").where("status", "==", "pending").count().get(),
-      db.collection("service_fee_payments").where("status", "==", "approved").get()
+      db.collection("service_fee_payments").where("status", "==", "approved").aggregate({ revenue: AggregateField.sum("amount") }).get()
     ]);
-    const revenue = fees.docs.reduce((sum, item) => sum + Number(item.data().amount ?? 0), 0);
+    const revenue = fees.data().revenue;
+    const [projection, liveJobs, completedJobs, applications, jobsToday, approved, rejected] = await Promise.all([
+      db.doc("marketplaceMetrics/overview").get(),
+      db.collection("jobs").where("status", "in", ["live", "active", "assigned", "in_progress"]).count().get(),
+      db.collection("jobs").where("status", "==", "completed").count().get(),
+      db.collection("applications").count().get(),
+      db.collection("jobs").where("createdAt", ">=", new Date(new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" }) + "T00:00:00+03:00")).count().get(),
+      db.collection("verifications").where("status", "==", "approved").count().get(),
+      db.collection("verifications").where("status", "==", "rejected").count().get()
+    ]);
     return NextResponse.json({
+      ...projection.data(),
+      projectionReady: !!projection.data()?.backfillCompletedAt,
+      liveJobs: liveJobs.data().count,
+      completedJobs: completedJobs.data().count,
+      applications: applications.data().count,
+      jobsToday: jobsToday.data().count,
+      approvedVerifications: approved.data().count,
+      rejectedVerifications: rejected.data().count,
       users: users.data().count,
       activeJobs: activeJobs.data().count,
       serviceFeePayments: serviceFeePayments.data().count,

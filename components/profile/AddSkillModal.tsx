@@ -1,5 +1,6 @@
 "use client";
 
+import { ServicePricingNotice } from "./ServicePricingNotice";
 import { AppModal } from "@/components/ui/AppModal";
 import { Button } from "@/components/ui/Button";
 import { jobCategoryOptions } from "@/lib/jobCategories";
@@ -17,8 +18,8 @@ const suggestions: Record<WorkerSkillCategory, string[]> = {
   credentials_licenses: ["CPA", "Project Management Professional (PMP)", "Driver's License", "Food Handler's Permit", "Electrician License"]
 };
 
-export function AddSkillModal({ onClose, onSaved, skill }: { onClose: () => void; onSaved?: (skillProfiles: WorkerSkillProfile[] | null, savedSkill: WorkerSkillProfile) => void; skill?: WorkerSkillProfile | null }) {
-  const [name, setName] = useState(skill?.name ?? "");
+export function AddSkillModal({ onClose, onSaved, skill, initialName }: { initialName?: string; onClose: () => void; onSaved?: (skillProfiles: WorkerSkillProfile[] | null, savedSkill: WorkerSkillProfile) => void; skill?: WorkerSkillProfile | null }) {
+  const [name, setName] = useState(skill?.name ?? initialName ?? "");
   const [category, setCategory] = useState<WorkerSkillCategory>(skill?.category ?? "services_trades");
   const [level, setLevel] = useState<WorkerSkillLevel>(skill?.level ?? "independent");
   const [proofType, setProofType] = useState<WorkerSkillProofType>(skill?.proofType ?? "reference");
@@ -96,6 +97,7 @@ export function AddSkillModal({ onClose, onSaved, skill }: { onClose: () => void
   return (
     <AppModal eyebrow="Worker profile" title={skill ? "Edit skill" : "Add a skill"} onClose={onClose}>
         <form onSubmit={submit} className="add-skill-form mt-6 grid gap-5">
+            <ServicePricingNotice name={skill?.name ?? initialName ?? ""} />
           <label className="temp-label">Skill type
             <input value={name} onChange={event => setName(event.target.value)} required className="temp-input p-3 outline-none" placeholder="Start typing a skill" />
           </label>

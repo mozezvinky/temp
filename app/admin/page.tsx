@@ -5,35 +5,23 @@ import { useAuth } from "@/context/AuthContext";
 import { kes } from "@/utils/money";
 import { Activity, AlertTriangle, BriefcaseBusiness, Coins, ShieldCheck, UsersRound } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useOperationalData } from "@/hooks/useOperationalData";
 import { Button } from "@/components/ui/Button";
 import { FormEvent } from "react";
 import { toast } from "sonner";
 
-type Stats = { users: number; activeJobs: number; serviceFeePayments: number; reports: number; auditLogs: number; pendingVerifications: number; revenue: number };
+type Stats = { [key: string]: number | boolean; users: number; activeJobs: number; serviceFeePayments: number; reports: number; auditLogs: number; pendingVerifications: number; revenue: number };
 
 export default function AdminPage() {
   const { user } = useAuth();
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!user) return;
-    user.getIdToken().then(token => fetch("/api/admin/stats", { headers: { Authorization: `Bearer ${token}` } }))
-      .then(async response => {
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to load platform statistics.");
-        setStats(payload as Stats);
-      })
-      .catch(error => setError(error instanceof Error ? error.message : "Unable to load platform statistics."));
-  }, [user]);
-
-  const value = (key: keyof Stats) => stats ? stats[key] : "--";
+  const { data: stats, error } = useOperationalData<Stats>("/api/admin/stats");
+  const value = (key: string) => stats?.[key] == null ? "--" : String(stats[key]);
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!user) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const response = await fetch("/api/admin/change-password", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` },
@@ -41,7 +29,7 @@ export default function AdminPage() {
     });
     const payload = await response.json() as { error?: string };
     if (!response.ok) return toast.error(payload.error ?? "Unable to change password.");
-    event.currentTarget.reset();
+    formElement.reset();
     toast.success("Admin password changed.");
   }
 
@@ -57,6 +45,8 @@ export default function AdminPage() {
         <Card><AlertTriangle /><p className="mt-4">Reports</p><p className="text-3xl font-black">{value("reports")}</p></Card>
         <Card><Activity /><p className="mt-4">Audit logs</p><p className="text-3xl font-black">{value("auditLogs")}</p></Card>
       </div>
+      {stats && stats.projectionReady === false && <p role="status" className="copic-muted text-sm">Service and capability metrics are awaiting the marketplace backfill.</p>}
+      <div className="copic-marketplace-grid">{Object.entries({ workers: "Workers", clients: "Clients", agents: "Agents", verifiedUsers: "Verified users", unverifiedUsers: "Unverified users", workersWithSkills: "Workers with skills", workersWithoutSkills: "Workers without skills", totalSkills: "Total skills", verifiedSkills: "Verified skills", unverifiedSkills: "Unverified skills", applications: "Applications", liveJobs: "Active jobs", completedJobs: "Completed jobs", jobsToday: "Jobs today", approvedVerifications: "Approved verifications", rejectedVerifications: "Rejected verifications" }).map(([key, label]) => <Card key={key}><p className="copic-muted text-sm">{label}</p><p className="mt-2 text-3xl font-black">{value(key)}</p></Card>)}</div>
       <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">{["kyc", "skills", "support", "service-fees", "disputes", "reports", "jobs", "users", "admins", "audit", "settings"].map(item => <Link className="copic-surface rounded-xl p-5 text-center font-bold capitalize" href={`/admin/${item}`} key={item}>{item.replace("-", " ")}</Link>)}</div>
       <Card>
         <h2 className="text-xl font-black text-[#FFFBFF]">Admin password</h2>

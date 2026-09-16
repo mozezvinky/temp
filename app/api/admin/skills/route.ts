@@ -22,13 +22,11 @@ export async function GET(request: NextRequest) {
     const status = normalizeStatusFilter(request.nextUrl.searchParams.get("status"));
     if (isSqlBackend()) return NextResponse.json({ skills: localAdminSkills(status) });
 
-    const [roleSnapshot, rolesSnapshot] = await Promise.all([
-      adminDb().collection("users").where("role", "==", "worker").limit(200).get(),
-      adminDb().collection("users").where("roles", "array-contains", "worker").limit(200).get()
-    ]);
-    const docs = new Map([...roleSnapshot.docs, ...rolesSnapshot.docs].map(doc => [doc.id, doc]));
-    const skills = [...docs.values()].flatMap(doc => skillsForUser(doc.id, doc.data() as UserProfile, status));
-    return NextResponse.json({ skills: sortSkills(skills) });
+    let query = adminDb().collection("users").orderBy("__name__").limit(51);
+    const cursor = request.nextUrl.searchParams.get("cursor"); if (cursor) query = query.startAfter(cursor);
+    const snapshot = await query.get();
+    const skills = snapshot.docs.slice(0, 50).flatMap(doc => skillsForUser(doc.id, doc.data() as UserProfile, status));
+    return NextResponse.json({ skills: sortSkills(skills), nextCursor: snapshot.size > 50 ? snapshot.docs[49].id : null });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load skills." }, { status: adminErrorStatus(error) });
   }

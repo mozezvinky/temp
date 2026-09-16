@@ -1,5 +1,6 @@
 "use client";
 
+import { applicationsOpen } from "@/functions/src/marketplace-policy";
 import type { Job } from "@/types";
 import { kes } from "@/utils/money";
 import { workerVisiblePay } from "@/utils/pricing";
@@ -32,11 +33,13 @@ export function JobCard({ job, workerView = false, menuSlot, infoActionSlot }: {
   const [postedAgo, setPostedAgo] = useState(() => timeAgo(job.createdAt));
   useEffect(() => {
     setPostedAgo(timeAgo(job.createdAt));
-    const intervalId = window.setInterval(() => setPostedAgo(timeAgo(job.createdAt)), 1_000);
+    const intervalId = window.setInterval(() => setPostedAgo(timeAgo(job.createdAt)), 60_000);
     return () => window.clearInterval(intervalId);
   }, [job.createdAt]);
   return (
     <article className="reference-job-card">
+      {job.workDate && <p className="text-sm">Work date: {new Date(job.workDate).toLocaleString()}</p>}
+      {job.applicationDeadline && <p className="text-sm">{applicationsOpen(job.applicationDeadline) ? `Applications close: ${new Date(job.applicationDeadline).toLocaleString()}` : "Applications closed"}</p>}
       <div className="reference-job-card-top">
         <p className="reference-job-category">{job.category}</p>
         <div className="reference-job-badges">
