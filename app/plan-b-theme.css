@@ -3689,3 +3689,23 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
   .copic-admin td { padding: .5rem .75rem; overflow-wrap: anywhere; }
   .copic-admin td::before { content: attr(data-label); display: block; color: var(--text-secondary); font-size: .75rem; }
 }
+
+/* Recruitment and agent controls: scoped to the acquisition experience. */
+.recruitment-page { width: 100%; max-width: 42rem; min-width: 0; margin-inline: auto; padding-block: clamp(1rem, 4vw, 3rem); display: grid; gap: 1.5rem; overflow-wrap: anywhere; }
+.recruitment-title { font-size: clamp(1.75rem, 5vw, 2.75rem); font-weight: 800; line-height: 1.12; letter-spacing: -.035em; text-wrap: balance; }
+.recruitment-page p { line-height: 1.6; }
+.recruitment-opportunity.copic-card { border-top: 6px solid var(--copic-lime) !important; padding: clamp(1.25rem, 4vw, 2rem); }
+.recruitment-rate { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem .65rem; font-size: clamp(1.75rem, 5vw, 2.25rem); font-weight: 800; line-height: 1.2; letter-spacing: -.025em; }
+.recruitment-unit { color: var(--copic-muted); font-size: 1rem; font-weight: 500; letter-spacing: normal; }
+.recruitment-primary, .recruitment-primary.copic-button { display: inline-flex; justify-content: center; align-items: center; gap: .75rem; min-height: 56px; padding: .85rem 1.25rem; border: 1px solid transparent !important; border-radius: var(--copic-radius-lg) !important; background: var(--copic-lime) !important; color: var(--copic-lime-ink) !important; font-weight: 800; text-align: center; line-height: 1.4; text-decoration: none; transition: filter .2s, transform .2s; }
+.recruitment-link, .recruitment-opportunity .recruitment-primary { width: 100%; }
+.recruitment-primary:hover:not(:disabled) { filter: brightness(.94); }
+.recruitment-primary:active:not(:disabled) { transform: scale(.98); }
+.recruitment-primary:disabled { transform: none; opacity: .55; }
+.recruitment-secondary, .agent-navigation a { display: inline-flex; min-height: 48px; align-items: center; justify-content: center; padding: .65rem 1rem; border: 1px solid var(--copic-border); border-radius: var(--copic-radius-lg); background: var(--copic-surface-low); color: var(--copic-text); font-weight: 600; text-align: center; text-decoration: none; overflow-wrap: anywhere; }
+.recruitment-secondary:hover, .agent-navigation a:hover { background: var(--copic-surface-high); }
+.agent-navigation { display: flex; flex-wrap: wrap; gap: .5rem; }
+.agent-navigation a[aria-current="page"] { background: var(--copic-lime); border-color: var(--copic-lime-ink); color: var(--copic-lime-ink); }
+.recruitment-page a:focus-visible, .recruitment-primary.copic-button:focus-visible, .agent-navigation a:focus-visible { outline: 3px solid var(--copic-text); outline-offset: 3px; box-shadow: none !important; }
+@media (max-width: 430px) { .recruitment-onboarding .recruitment-primary, .recruitment-onboarding .recruitment-secondary { width: 100%; } .agent-navigation a { flex: 1 1 8rem; } }
+@media (prefers-reduced-motion: reduce) { .recruitment-primary { transition: none !important; } }

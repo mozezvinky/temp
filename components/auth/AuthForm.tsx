@@ -1,5 +1,5 @@
 "use client";
-import { acquisitionReturnPath } from "@/utils/acquisition-return";
+import { acquisitionReturnPath, recruitmentVerificationPath } from "@/utils/acquisition-return";
 
 import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
@@ -55,12 +55,23 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     const form = new FormData(event.currentTarget);
     try {
       if (mode === "register") {
-        const user = await registerWithEmail(String(form.get("email")), String(form.get("password")), String(form.get("displayName")));
+        const recruitment = acquisitionReturnPath("");
+        const user = await registerWithEmail(String(form.get("email")), String(form.get("password")), String(form.get("displayName")), recruitment ? "recruitment-link" : "code");
+        if (recruitment) {
+          window.location.assign(user.emailVerified ? recruitment : recruitmentVerificationPath(recruitment));
+          return;
+        }
         setRegisteredUser(user);
         toast.success("Verification code sent. Check your email to finish sign up.");
         setLoading(false);
       } else {
         const credential = await loginWithEmail(String(form.get("email")), String(form.get("password")));
+        const recruitment = acquisitionReturnPath("");
+        if (recruitment) {
+          await credential.user.reload();
+          window.location.assign(credential.user.emailVerified ? recruitment : recruitmentVerificationPath(recruitment));
+          return;
+        }
         window.sessionStorage.removeItem("temp.profile.uid");
         window.sessionStorage.removeItem("temp.profile.role");
         setSignedInUser(credential.user);

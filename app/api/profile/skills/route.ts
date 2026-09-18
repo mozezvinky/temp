@@ -50,6 +50,14 @@ export async function POST(request: NextRequest) {
   try {
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
     const decoded = await adminAuth().verifyIdToken(token);
+    // Agent recruitment uses this shared service form after acquisition attachment.
+    // Never trust a client-supplied recruitment flag to decide whether to enforce it.
+    if (!isSqlBackend()) {
+      const attribution = await adminDb().doc(`acquisitionAttributions/${decoded.uid}`).get();
+      if (attribution.exists && !(await adminAuth().getUser(decoded.uid)).emailVerified) {
+        return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
+      }
+    }
     const body = await request.json().catch(() => ({}));
     const name = String(body.name ?? "").trim();
     const category = String(body.category ?? "") as WorkerSkillCategory;

@@ -104,10 +104,12 @@ export async function activateProfileRole(user: User, role: Role, displayName: s
   return role;
 }
 
-export async function registerWithEmail(email: string, password: string, displayName: string) {
+export async function registerWithEmail(email: string, password: string, displayName: string, verification: "code" | "recruitment-link" = "code") {
   const auth = requireAuth();
   const credential = await createUserWithEmailAndPassword(auth, email, password);
   await updateProfile(credential.user, { displayName });
+  // Recruitment sends a Firebase verification link on the shared verification screen.
+  if (verification === "recruitment-link") return credential.user;
   try {
     const response = await fetch("/api/auth/send-email-otp", {
       method: "POST",

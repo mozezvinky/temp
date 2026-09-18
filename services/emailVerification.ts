@@ -1,8 +1,30 @@
 "use client";
 
 import { requireAuth } from "@/lib/firebase";
+import { sendEmailVerification } from "firebase/auth";
+import { recruitmentVerificationPath } from "@/utils/acquisition-return";
 
 export const EMAIL_VERIFICATION_MESSAGE = "Please verify your email before using this feature.";
+
+export async function sendRecruitmentVerificationEmail(returnPath: string) {
+  const user = requireAuth().currentUser;
+  if (!user?.email) throw new Error("Sign in with an email account first.");
+  // The origin comes from the running app, never from a supplied redirect URL.
+  await sendEmailVerification(user, {
+    url: new URL(recruitmentVerificationPath(returnPath), window.location.origin).href,
+    handleCodeInApp: false
+  });
+}
+
+export async function reloadVerifiedRecruitmentUser() {
+  const user = requireAuth().currentUser;
+  if (!user) throw new Error("Please sign in again to continue your application.");
+  await user.reload();
+  if (requireAuth().currentUser?.uid !== user.uid) throw new Error("Your account changed. Please sign in again.");
+  if (!user.emailVerified) return false;
+  await user.getIdToken(true);
+  return true;
+}
 
 export async function sendEmailVerificationCode() {
   const user = requireAuth().currentUser;

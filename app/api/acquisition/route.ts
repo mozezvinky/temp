@@ -45,9 +45,15 @@ export async function POST(request: NextRequest) {
       response.cookies.set("copic_acquisition_visit", visitId, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 7*86400 });
       return response;
     }
+    // Read the current Auth record: profile flags and cached token claims can be stale.
+    const token = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
+    if (!token) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
+    const decoded = await adminAuth().verifyIdToken(token);
+    const authUser = await adminAuth().getUser(decoded.uid);
+    if (!authUser.emailVerified) return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const user = await requireServerUser(request);
+    assertActiveLink((await db.doc(`${collection}/${id}`).get()).data());
     if (action === "attach") {
-      const authUser = await adminAuth().getUser(user.uid);
       const visitId = request.cookies.get("copic_acquisition_visit")?.value;
       const newAccount = await db.runTransaction(async tx => {
         const userRef = db.doc(`users/${user.uid}`), attrRef = db.doc(`acquisitionAttributions/${user.uid}`);

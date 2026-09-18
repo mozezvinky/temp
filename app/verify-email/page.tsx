@@ -8,8 +8,17 @@ import { sendEmailVerificationCode, verifyEmailCode } from "@/services/emailVeri
 import { MailCheck } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { acquisitionReturnPath } from "@/utils/acquisition-return";
+import { RecruitmentEmailVerification } from "@/components/auth/RecruitmentEmailVerification";
 
 export default function VerifyEmailPage() {
+  const [recruitment, setRecruitment] = useState<string | null>(null);
+  useEffect(() => { setRecruitment(acquisitionReturnPath("")); }, []);
+  if (recruitment === null) return <LoadingSpinner label="Opening email verification" />;
+  return recruitment ? <RecruitmentEmailVerification returnPath={recruitment} /> : <StandardEmailVerification />;
+}
+
+function StandardEmailVerification() {
   const { user, profile, loading, isAuthorized, refreshProfile } = useProtectedRoute(["client", "worker"]);
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
