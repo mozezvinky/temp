@@ -3709,3 +3709,30 @@ body.continue-as-active .temp-main { max-width: none !important; padding-top: 0 
 .recruitment-page a:focus-visible, .recruitment-primary.copic-button:focus-visible, .agent-navigation a:focus-visible { outline: 3px solid var(--copic-text); outline-offset: 3px; box-shadow: none !important; }
 @media (max-width: 430px) { .recruitment-onboarding .recruitment-primary, .recruitment-onboarding .recruitment-secondary { width: 100%; } .agent-navigation a { flex: 1 1 8rem; } }
 @media (prefers-reduced-motion: reduce) { .recruitment-primary { transition: none !important; } }
+
+/* Agent setup and the existing responsive Admin layout. */
+.agent-program-steps { display: grid; gap: 1rem; }
+.agent-program-steps li { display: flex; gap: .75rem; align-items: center; }
+.agent-program-steps li > span { display: grid; place-items: center; flex: 0 0 2rem; height: 2rem; border-radius: 50%; background: var(--copic-surface-low); font-weight: 700; }
+#agent-terms { accent-color: var(--copic-lime-ink); }
+.copic-admin-login { overflow-wrap: anywhere; }
+.copic-admin-login label, .copic-admin-login form, .copic-admin-login input { min-width: 0; max-width: 100%; }
+.copic-admin-login input { width: 100%; font-size: 1rem; }
+.copic-admin-login .temp-input:focus-within { outline: 2px solid var(--copic-text); outline-offset: 3px; }
+.copic-admin-login svg { flex-shrink: 0; }
+.copic-admin :is(form, label, .grid, .flex, .copic-card) { min-width: 0; }
+.copic-admin label { overflow-wrap: anywhere; }
+.copic-admin button, .copic-admin .recruitment-secondary { white-space: normal; max-width: 100%; }
+.copic-admin .copic-modal { max-height: 88dvh; overflow-wrap: anywhere; }
+.copic-admin .copic-modal input, .copic-admin .copic-modal select { width: 100%; min-width: 0; }
+.copic-admin input[type="checkbox"], .copic-admin input[type="radio"] { width: auto; }
+.copic-admin input[type="datetime-local"] { display: block; width: 100%; min-width: 0; }
+@media (max-width: 1023px) { .copic-admin-navigation { max-height: 65dvh; overflow-y: auto; overscroll-behavior: contain; } }
+@media (max-width: 639px) { .copic-admin .copic-modal > div { padding-inline: 1rem; } .copic-admin form.flex { flex-wrap: wrap; } .copic-admin form.flex > input { flex-basis: 100%; } }
+
+/* Keep the added Agent destination reachable at tablet widths. */
+@media (min-width: 768px) and (max-width: 1099px) {
+  .temp-navbar.is-app-nav .temp-navbar-inner { grid-template-columns: minmax(0, 1fr) auto; }
+  .temp-navbar.is-app-nav .temp-navbar-links { grid-column: 1 / -1; grid-row: 2; min-width: 0; flex-wrap: wrap; }
+  .temp-navbar.is-app-nav .temp-navbar-link { flex: 1 1 auto; min-width: 0; justify-content: center; }
+}

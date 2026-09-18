@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { requireServerUser } from "@/lib/server-auth";
-import { adminDb } from "@/lib/firebase-admin";
+import { AGENT_TERMS_VERSION } from "@/lib/agent-program";
+import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { resolveService,MarketplaceError,validId } from "@/lib/marketplace-server";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest,NextResponse } from "next/server";
@@ -21,7 +22,18 @@ export async function GET(request:NextRequest){
 export async function POST(request:NextRequest){
   try{const user=await requireServerUser(request),body=await request.json(),db=adminDb();
     if(body.action==="register"){
-      await db.runTransaction(async tx=>{const ref=db.doc(`users/${user.uid}`),snapshot=await tx.get(ref);if(snapshot.data()?.isLocked||snapshot.data()?.role==="admin")throw new MarketplaceError("This account cannot become an agent.",403);tx.update(ref,{agentEnabled:true,agentSince:snapshot.data()?.agentSince??FieldValue.serverTimestamp()});});
+      const authUser = await adminAuth().getUser(user.uid);
+      if (!authUser.emailVerified || authUser.disabled) throw new MarketplaceError("Verify your email before activating your Agent account.", 403);
+      if (body.acceptTerms !== true || body.termsVersion !== AGENT_TERMS_VERSION) throw new MarketplaceError("Accept the current COPIC Agent Terms to continue.", 400);
+      await db.runTransaction(async tx => {
+        const ref = db.doc(`users/${user.uid}`);
+        const [snapshot, referral, attribution] = await Promise.all([tx.get(ref), tx.get(db.doc(`agentReferrals/${user.uid}`)), tx.get(db.doc(`acquisitionAttributions/${user.uid}`))]);
+        const profile = snapshot.data();
+        if (!profile || profile.isLocked || profile.role === "admin" || profile.roles?.includes("admin")) throw new MarketplaceError("This account cannot become an agent.", 403);
+        if (referral.exists || attribution.data()?.sourceType === "agent_referral" || attribution.data()?.agentId) throw new MarketplaceError("This account already has a worker referral relationship. Contact COPIC support before becoming an Agent.", 409);
+        if (profile.agentEnabled === true) return;
+        tx.update(ref, { agentEnabled: true, agentSince: profile.agentSince ?? FieldValue.serverTimestamp(), agentTermsVersion: AGENT_TERMS_VERSION, agentTermsAcceptedAt: FieldValue.serverTimestamp() });
+      });
       return NextResponse.json({success:true});
     }
     if(!user.profile.agentEnabled||user.profile.isLocked)throw new MarketplaceError("Active agent access required.",403);
@@ -34,4 +46,4 @@ export async function POST(request:NextRequest){
     return NextResponse.json({id:ref.id,url:`/join/${ref.id}`});
   }catch(error){return failure(error);}
 }
-function failure(error:unknown){return NextResponse.json({error:error instanceof Error?error.message:"Agent request failed."},{status:error instanceof MarketplaceError?error.status:400});}
+function failure(error:unknown){return NextResponse.json({error:error instanceof MarketplaceError?error.message:"Unable to complete the Agent request. Please sign in again or try later."},{status:error instanceof MarketplaceError?error.status:400});}

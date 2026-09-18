@@ -1,5 +1,6 @@
 "use client";
 
+import { AgentProgramCard } from "@/components/admin/AgentProgramCard";
 import { Card } from "@/components/ui/Card";
 import { useAuth } from "@/context/AuthContext";
 import { kes } from "@/utils/money";
@@ -46,7 +47,7 @@ export default function AdminPage() {
         <Card><Activity /><p className="mt-4">Audit logs</p><p className="text-3xl font-black">{value("auditLogs")}</p></Card>
       </div>
       {stats && stats.projectionReady === false && <p role="status" className="copic-muted text-sm">Service and capability metrics are awaiting the marketplace backfill.</p>}
-      <div className="copic-marketplace-grid">{Object.entries({ workers: "Workers", clients: "Clients", agents: "Agents", verifiedUsers: "Verified users", unverifiedUsers: "Unverified users", workersWithSkills: "Workers with skills", workersWithoutSkills: "Workers without skills", totalSkills: "Total skills", verifiedSkills: "Verified skills", unverifiedSkills: "Unverified skills", applications: "Applications", liveJobs: "Active jobs", completedJobs: "Completed jobs", jobsToday: "Jobs today", approvedVerifications: "Approved verifications", rejectedVerifications: "Rejected verifications" }).map(([key, label]) => <Card key={key}><p className="copic-muted text-sm">{label}</p><p className="mt-2 text-3xl font-black">{value(key)}</p></Card>)}</div>
+      <AgentProgramCard /><div className="copic-marketplace-grid">{Object.entries({ workers: "Workers", clients: "Clients", agents: "Agents", verifiedUsers: "Verified users", unverifiedUsers: "Unverified users", workersWithSkills: "Workers with skills", workersWithoutSkills: "Workers without skills", totalSkills: "Total skills", verifiedSkills: "Verified skills", unverifiedSkills: "Unverified skills", applications: "Applications", liveJobs: "Active jobs", completedJobs: "Completed jobs", jobsToday: "Jobs today", approvedVerifications: "Approved verifications", rejectedVerifications: "Rejected verifications" }).map(([key, label]) => <Card key={key}><p className="copic-muted text-sm">{label}</p><p className="mt-2 text-3xl font-black">{value(key)}</p></Card>)}</div>
       <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">{["kyc", "skills", "support", "service-fees", "disputes", "reports", "jobs", "users", "admins", "audit", "settings"].map(item => <Link className="copic-surface rounded-xl p-5 text-center font-bold capitalize" href={`/admin/${item}`} key={item}>{item.replace("-", " ")}</Link>)}</div>
       <Card>
         <h2 className="text-xl font-black text-[#FFFBFF]">Admin password</h2>

@@ -14,7 +14,7 @@ export function useProtectedRoute(roles?: Role[]) {
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      router.replace("/auth/login");
+      router.replace(pathname.startsWith("/admin") ? "/auth/admin" : "/auth/login");
       return;
     }
     if (!profile && pathname !== "/complete-profile") {

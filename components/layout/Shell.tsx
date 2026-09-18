@@ -1,5 +1,6 @@
 "use client";
 
+import { agentDestination } from "@/lib/agent-program";
 import { useAuth } from "@/context/AuthContext";
 import { ActivityHub } from "@/components/activity/ActivityHub";
 import { AppModal } from "@/components/ui/AppModal";
@@ -298,6 +299,7 @@ export function Shell({ children }: { children: ReactNode }) {
         { href: "/workers", label: "Workers", icon: UsersRound },
         { href: "/chat", label: "Chat", icon: MessageCircle },
         { href: "/notifications", label: "Alerts", icon: Bell },
+        { href: agentDestination(profile?.agentEnabled), label: "Agent", icon: UsersRound },
         { href: "/help", label: "Help", icon: CircleHelp }
       ]
     : [
@@ -305,13 +307,15 @@ export function Shell({ children }: { children: ReactNode }) {
         { href: "/jobs", label: "Jobs", icon: BriefcaseBusiness },
         { href: "/chat", label: "Chat", icon: MessageCircle },
         { href: "/notifications", label: "Alerts", icon: Bell },
+        { href: agentDestination(profile?.agentEnabled), label: "Agent", icon: UsersRound },
         { href: "/help", label: "Help", icon: CircleHelp }
       ];
 
   const publicLinks: Array<{ href: string; label: string; icon: typeof Home }> = [
     { href: "/", label: "Home", icon: Home },
     { href: "/about", label: "About", icon: UsersRound },
-    { href: "/help", label: "Help", icon: CircleHelp }
+    { href: agentDestination(profile?.agentEnabled), label: "Agent", icon: UsersRound },
+        { href: "/help", label: "Help", icon: CircleHelp }
   ];
   const links = showAppNav && profile ? nav : publicLinks;
   const profilePhoto = profile?.photoURL
@@ -419,7 +423,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 const Icon = item.icon;
                 const active = item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
                 return (
-                  <Link key={item.href} href={item.href} className={`temp-navbar-link relative inline-flex items-center ${isAdmin ? "temp-navbar-link-admin gap-1.5" : "gap-2"} ${active ? "is-active" : ""}`}>
+                  <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`temp-navbar-link relative inline-flex items-center ${isAdmin ? "temp-navbar-link-admin gap-1.5" : "gap-2"} ${active ? "is-active" : ""}`}>
                     <Icon size={isAdmin ? 12 : 15} className="temp-navbar-link-icon shrink-0" aria-hidden="true" />
                     <span>{item.label}</span>
                     {item.href === "/notifications" && visibleTopAlerts.length > 0 && <span className="temp-alert-dot" />}
@@ -510,7 +514,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 const Icon = item.icon;
                 const active = item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
                 return (
-                  <Link onClick={() => setDrawerOpen(false)} key={item.href} href={item.href} className={`copic-button relative flex items-center gap-3 rounded-xl px-4 py-3 font-bold ${active ? "bg-bone text-smoky" : "bg-tertiary text-bone"}`}>
+                  <Link onClick={() => setDrawerOpen(false)} key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`copic-button relative flex items-center gap-3 rounded-xl px-4 py-3 font-bold ${active ? "bg-bone text-smoky" : "bg-tertiary text-bone"}`}>
                     <Icon size={18} /> {item.label}
                     {item.href === "/notifications" && visibleTopAlerts.length > 0 && <span className="temp-alert-dot" />}
                   </Link>

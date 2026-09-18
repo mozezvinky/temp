@@ -8,3 +8,4 @@ export function requireDb(){throw new Error("UI fixtures do not connect to Fires
 export function requireStorage(){throw new Error("UI fixtures do not upload files.");}
 export function requireFunctions(){throw new Error("UI fixtures do not call Functions.");}
 export async function messaging(){return null;}
+export const googleProvider=null;

@@ -2,7 +2,7 @@ const key = "copic.acquisition.return";
 
 /** Only these relative paths may override authentication or verification redirects. */
 export function safeAcquisitionPath(value: unknown): string | null {
-  return typeof value === "string" && value === value.trim() && /^\/(recruit|join)\/[A-Za-z0-9_-]{1,100}$/.test(value) ? value : null;
+  return typeof value === "string" && value === value.trim() && (value === "/become-agent" || /^\/(recruit|join)\/[A-Za-z0-9_-]{1,100}$/.test(value)) ? value : null;
 }
 
 export function rememberAcquisitionReturn(value: string) {

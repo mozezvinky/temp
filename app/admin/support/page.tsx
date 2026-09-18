@@ -168,7 +168,7 @@ export default function AdminSupportPage() {
           <h1 className="mt-1 text-3xl font-black">Support & Control Center</h1>
         </div>
         <div className="flex flex-wrap gap-2">
-          <input value={search} onChange={event => setSearch(event.target.value)} className="temp-input min-h-11 min-w-72 rounded-xl px-3 outline-none" placeholder="Search user, phone, job, payment, ticket..." />
+          <input value={search} onChange={event => setSearch(event.target.value)} className="temp-input min-h-11 w-full min-w-0 sm:w-auto sm:min-w-72 rounded-xl px-3 outline-none" placeholder="Search user, phone, job, payment, ticket..." />
           <select value={status} onChange={event => setStatus(event.target.value as SupportTicketStatus | "all")} className="temp-input min-h-11 rounded-xl px-3 outline-none">
             {statuses.map(item => <option key={item} value={item}>{item}</option>)}
           </select>
@@ -206,7 +206,7 @@ export default function AdminSupportPage() {
                   </div>
                 </div>
                 <form onSubmit={assignTicket} className="mt-4 flex flex-wrap gap-2">
-                  <input name="assignedAdminId" defaultValue={selectedTicket.assignedAdminId ?? ""} className="temp-input min-h-11 min-w-72 rounded-xl px-3 outline-none" placeholder="Assign to admin UID" />
+                  <input name="assignedAdminId" defaultValue={selectedTicket.assignedAdminId ?? ""} className="temp-input min-h-11 w-full min-w-0 sm:w-auto sm:min-w-72 rounded-xl px-3 outline-none" placeholder="Assign to admin UID" />
                   <Button type="submit" variant="secondary">Assign ticket</Button>
                 </form>
               </Card>

@@ -39,12 +39,12 @@ export async function requireAdmin(request: NextRequest, permission?: AdminPermi
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   if (!token) throw new AdminAccessError("Admin sign in is required.", 401);
-  const decoded = await adminAuth().verifyIdToken(token).catch(() => { throw new AdminAccessError("Admin session is invalid or expired.", 401); });
+  const decoded = await adminAuth().verifyIdToken(token, true).catch(() => { throw new AdminAccessError("Admin session is invalid or expired.", 401); });
   const email = decoded.email ?? "";
   const profile: Record<string, unknown> | null = isSqlBackend()
     ? getLocalUser(decoded.uid) as unknown as Record<string, unknown> | null
     : await adminDb().collection("users").doc(decoded.uid).get().then(snapshot => snapshot.exists ? ({ id: snapshot.id, ...snapshot.data() } as Record<string, unknown>) : null);
-  if (!profile || profile.role !== "admin") throw new AdminAccessError("Admin access required.", 403);
+  if (!profile || profile.role !== "admin" || profile.isLocked === true) throw new AdminAccessError("Admin access required.", 403);
   const mainAdmin = isMainAdmin({ email });
   const role = mainAdmin ? "super_admin" : normalizeAdminRole("adminRole" in profile ? profile.adminRole : undefined);
   const configured = Array.isArray("adminPermissions" in profile ? profile.adminPermissions : undefined)

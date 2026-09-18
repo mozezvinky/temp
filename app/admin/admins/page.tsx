@@ -106,7 +106,7 @@ export default function AdminsPage() {
           <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">Admin control</p>
           <h1 className="mt-1 text-3xl font-black">Admins</h1>
         </div>
-        <label className="temp-input flex min-h-11 min-w-72 items-center gap-2 rounded-xl px-3"><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search admins" className="min-w-0 flex-1 bg-transparent outline-none" /></label>
+        <label className="temp-input flex min-h-11 w-full min-w-0 sm:w-auto sm:min-w-72 items-center gap-2 rounded-xl px-3"><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search admins" className="min-w-0 flex-1 bg-transparent outline-none" /></label>
       </div>
       {admins.length ? admins.map(item => (
         <Card key={item.id}>

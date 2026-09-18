@@ -83,11 +83,13 @@ export function RecruitmentEmailVerification({ returnPath }: { returnPath: strin
     const [, kind, id] = returnPath.split("/");
     void (async () => {
       try {
+        if (returnPath !== "/become-agent") {
         const response = await fetch(`/api/acquisition?id=${encodeURIComponent(id)}&type=${kind === "join" ? "agent_referral" : "admin_campaign"}`, { cache: "no-store" });
         if (!response.ok) {
           setUnavailable(true);
           setMessage("This recruitment link is unavailable or has ended. Please contact the person who shared it.");
           return;
+        }
         }
         if (requireAuth().currentUser?.uid !== user.uid) return;
         if (!await check(false)) await send();
@@ -104,7 +106,7 @@ export function RecruitmentEmailVerification({ returnPath }: { returnPath: strin
   return <Card className="recruitment-page mx-auto max-w-lg">
     <MailCheck className="text-lime" aria-hidden="true" /><p className="copic-eyebrow">Onboarding process</p>
     <h1 className="mt-4 text-3xl font-black">Verify your email</h1>
-    <p className="mt-2 break-words text-sm copic-muted">{sent ? "We've sent a verification link to " : "Verify the email address "}<strong>{user.email}</strong>. Verify your email to continue your application.</p>
+    <p className="mt-2 break-words text-sm copic-muted">{sent ? "We've sent a verification link to " : "Verify the email address "}<strong>{user.email}</strong>. {returnPath === "/become-agent" ? "Verify your email to continue setting up your COPIC Agent account." : "Verify your email to continue your application."}</p>
     <p className="mt-3 text-sm copic-muted">If the link has expired, request a new email below. You can also verify on another device and return here.</p>
     {message && <p role="status" className="mt-4 text-sm">{message}</p>}
     <div className="mt-5 grid gap-3">

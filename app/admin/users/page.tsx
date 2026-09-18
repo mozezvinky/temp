@@ -124,7 +124,7 @@ export default function AdminUsersPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-black">Users</h1>
-        <label className="temp-input flex min-h-11 min-w-72 items-center gap-2 rounded-xl px-3"><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search users" className="min-w-0 flex-1 bg-transparent outline-none" /></label>
+        <label className="temp-input flex min-h-11 w-full min-w-0 sm:w-auto sm:min-w-72 items-center gap-2 rounded-xl px-3"><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search users" className="min-w-0 flex-1 bg-transparent outline-none" /></label>
       </div>
       <div className="flex flex-wrap gap-3">{cursor && <Button variant="secondary" onClick={() => setCursor("")}>First page</Button>}{nextCursor && <Button variant="secondary" onClick={() => setCursor(nextCursor)}>Next users</Button>}</div><p className="copic-muted text-sm">Search filters the current page of users.</p>
       {users.length ? users.map(item => (

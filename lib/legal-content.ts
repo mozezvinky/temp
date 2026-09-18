@@ -1,6 +1,8 @@
+import { AGENT_TERMS_VERSION, agentProgramRules } from "./agent-program";
 export type LegalPolicy = { slug: string; title: string; source: string; paragraphs: readonly string[] };
 
 export const legalPolicies = [
+  { slug: "agent-terms", title: "COPIC Agent Terms", source: "COPIC Agent Program", paragraphs: ["COPIC AGENT TERMS", `Version: ${AGENT_TERMS_VERSION}`, ...agentProgramRules, "Agent is an additional COPIC capability. Your existing worker or client profile remains available."] },
   {
     "slug": "terms",
     "title": "Terms",
