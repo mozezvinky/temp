@@ -77,7 +77,38 @@ export default function BecomeAgentPage() {
     <header className="space-y-3"><p className="copic-eyebrow">COPIC Agent Program</p><h1 className="recruitment-title">{user ? "You're almost ready." : "Become a COPIC Agent"}</h1><p className="copic-muted">Help genuine service providers join COPIC and earn commission from eligible work completed by workers you successfully refer.</p></header>
     <Card className="recruitment-opportunity">
       <p className="copic-eyebrow">Your commission</p>
-      {rate !== null ? <><h2 className="recruitment-rate mt-3">Earn {(rate * 100).toLocaleString("en-KE", { maximumFractionDigits: 4 })}% commission</h2><p className="mt-3 copic-muted">For an eligible KSh 1,000 completed job, your commission is KSh {(1000 * rate).toLocaleString("en-KE", { maximumFractionDigits: 2 })}.</p><p className="mt-2 text-sm copic-muted">For every eligible job successfully completed according to COPIC&apos;s completion rules by a worker validly referred to you, you earn {(rate * 100).toLocaleString("en-KE", { maximumFractionDigits: 4 })}% commission on the eligible job amount.</p></> : <p role="status" className="mt-3 copic-muted">{rateError ? "Commission information is temporarily unavailable. Please try again later." : "Loading the current commission…"}</p>}
+      {rate !== null ? <>
+        <h2 className="recruitment-rate mt-3">Earn {(rate * 100).toLocaleString("en-KE", { maximumFractionDigits: 4 })}% commission</h2>
+        <div className="mt-4 space-y-4 leading-relaxed">
+          <p>For every eligible job successfully completed by a worker you validly referred to COPIC, <strong>you earn 1% of the eligible job amount.</strong></p>
+          <p>For example, if your worker completes an eligible job worth <strong>KSh 1,000</strong>, you earn <strong>KSh 10</strong>.</p>
+          <h3 className="pt-3 text-xl font-bold">Your Referrals Can Add Up</h3>
+          <p>The more active workers you successfully bring to COPIC, the more completed jobs can contribute to your commission.</p>
+          <section className="space-y-3 pt-2" aria-labelledby="agent-example-one">
+            <h4 id="agent-example-one" className="font-bold">Example 1 — 100 active workers</h4>
+            <p>If you have <strong>100 referred workers</strong>, and each completes one eligible <strong>KSh 1,000 job per day</strong>:</p>
+            <p><strong>KSh 10 commission × 100 workers = KSh 1,000 per day</strong></p>
+            <p>If that level of activity continued for 30 days, that would equal approximately <strong>KSh 30,000 in commission.</strong></p>
+          </section>
+          <section className="space-y-3 pt-2" aria-labelledby="agent-example-two">
+            <h4 id="agent-example-two" className="font-bold">Example 2 — Build Your Network Consistently</h4>
+            <p>If your goal is to recruit just <strong>1 genuine worker per day</strong>, after one year you could have <strong>365 referred workers</strong>.</p>
+            <p>Even if only <strong>120 of those workers</strong> completed one eligible KSh 1,000 job on a given day:</p>
+            <p><strong>120 workers × KSh 10 = KSh 1,200 in commission that day.</strong></p>
+            <p>If that level of activity occurred every day for 30 days, that would equal <strong>KSh 36,000.</strong></p>
+          </section>
+          <section className="space-y-3 pt-2" aria-labelledby="agent-example-three">
+            <h4 id="agent-example-three" className="font-bold">Example 3 — Recruit 3 Workers a Day</h4>
+            <p>Recruit <strong>3 genuine workers per day for 30 days</strong>, and you could build a network of:</p>
+            <p><strong>3 × 30 = 90 referred workers.</strong></p>
+            <p>As those workers complete eligible jobs on COPIC, <strong>you earn your 1% commission on each qualifying completed job.</strong></p>
+          </section>
+          <h3 className="pt-3 text-xl font-bold">Start Building Your Network</h3>
+          <p>You don&apos;t need hundreds of referrals on your first day. Start with one genuine worker, then another.</p>
+          <p><strong>Refer workers. Help them get started. Grow your network. Earn 1% from their eligible completed jobs.</strong></p>
+          <p className="text-sm copic-muted"><em>The figures above are examples based on the stated assumptions. Actual commission depends on the number and value of eligible jobs successfully completed by your referred workers.</em></p>
+        </div>
+      </> : <p role="status" className="mt-3 copic-muted">{rateError ? "Commission information is temporarily unavailable. Please try again later." : "Loading the current commission…"}</p>}
     </Card>
     {!user ? <Card><h2 className="text-xl font-bold">How it works</h2><ol className="agent-program-steps mt-4">{["Become an Agent", "Share your referral links", "Refer genuine workers", "Earn eligible commissions"].map((step, i) => <li key={step}><span aria-hidden="true">{i + 1}</span>{step}</li>)}</ol><div className="mt-7"><RecruitmentApplyLink href="/auth/register?returnTo=%2Fbecome-agent" onClick={() => rememberAcquisitionReturn(AGENT_ONBOARDING_PATH)}>Become a COPIC Agent</RecruitmentApplyLink></div><p className="mt-4 text-center copic-muted">Already registered? <Link href="/auth/login?returnTo=%2Fbecome-agent" className="inline-flex min-h-11 items-center px-2 font-bold underline">Sign in</Link></p></Card> : !profile ? <Card><p>Complete your COPIC profile before activating your Agent account.</p><div className="mt-5"><RecruitmentApplyLink href="/complete-profile?returnTo=%2Fbecome-agent">Complete my account</RecruitmentApplyLink></div></Card> : <Card>
       <h2 className="text-xl font-bold">Your role and program rules</h2>
