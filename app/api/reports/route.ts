@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
       .commit();
     return NextResponse.json({ success: true, reportId: id, ticketId });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to submit report." }, { status: authErrorStatus(error) });
   }
 }

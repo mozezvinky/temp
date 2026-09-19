@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     const snapshot = await adminDb().collection("verifications").doc(verificationDocId(user.uid, kind)).get();
     return NextResponse.json({ verification: snapshot.exists ? publicVerification({ id: snapshot.id, ...snapshot.data() }, kind) : null });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load verification." }, { status: authErrorStatus(error) });
   }
 }
@@ -293,6 +294,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ success: true, status: "pending", message: "Your ID verification was submitted for manual review." });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const message = error instanceof Error ? error.message : "Unable to submit verification.";
     return NextResponse.json({ error: message }, { status: error instanceof SubmissionConflictError ? error.status : message.includes("already attached") ? 409 : authErrorStatus(error) });
   }

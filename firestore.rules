@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
     function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
     function userDoc(uid) { return get(/databases/$(database)/documents/users/$(uid)); }
     function isAdmin() { return signedIn() && userDoc(request.auth.uid).data.role == "admin"; }
@@ -13,7 +13,7 @@ service cloud.firestore {
         && (userDoc(request.auth.uid).data.verificationStatus in ["approved", "verified", "Approved", "Verified", "APPROVED", "VERIFIED"]
           || userDoc(request.auth.uid).data.identityVerificationStatus in ["approved", "verified", "Approved", "Verified", "APPROVED", "VERIFIED"]);
     }
-    function hasVerifiedEmail() { return signedIn() && userDoc(request.auth.uid).data.emailVerified == true; }
+    function hasVerifiedEmail() { return signedIn(); }
     function validJobDuration() { return request.resource.data.durationHours > 0 && request.resource.data.durationHours <= 8760; }
     function validJobContent() {
       return request.resource.data.title is string
@@ -37,7 +37,7 @@ service cloud.firestore {
     match /users/{userId} {
       // Profiles are created by authenticated server routes. Privileged fields are never client writable.
       allow create, delete: if false;
-      allow read: if isSelf(userId) || isAdmin();
+      allow read: if (request.auth != null && request.auth.uid == userId) || isAdmin();
       allow update: if isSelf(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           "displayName", "bio", "phoneNumber", "photoURL", "photoPositionX", "photoPositionY", "photoZoom",

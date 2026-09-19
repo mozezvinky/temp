@@ -1,3 +1,7 @@
+import { useProtectedRoute as useRealProtectedRoute } from "../../hooks/useProtectedRoute";
+import VerifyEmail from "@/app/verify-email/page";
+import { AuthForm } from "@/components/auth/AuthForm";
+import CompleteProfile from "@/app/complete-profile/page";
 import "./fixtures";
 import { Suspense } from "react";
 import { createRoot } from "react-dom/client";
@@ -12,7 +16,6 @@ import ServiceFees from "@/app/admin/service-fees/page";
 import Reports from "@/app/admin/reports/page";
 import Audit from "@/app/admin/audit/page";
 import Disputes from "@/app/admin/disputes/page";
-import { RecruitmentEmailVerification } from "@/components/auth/RecruitmentEmailVerification";
 import AdminLayout from "@/app/admin/layout";
 import Overview from "@/app/admin/page";
 import Skills from "@/app/admin/skills/page";
@@ -28,8 +31,9 @@ import { AgentRecords } from "@/components/profile/AgentRecords";
 import { RecruitmentLanding } from "@/components/profile/RecruitmentLanding";
 import { ConnectionStatus } from "@/components/layout/ConnectionStatus";
 import MarketplaceMap from "@/components/admin/MarketplaceMap";
+function ProtectedCheck(){const {isAuthorized}=useRealProtectedRoute();return <h1>{isAuthorized?"Protected page":"Checking verified account"}</h1>;}
 const campaignParams=Promise.resolve({campaignId:"campaign-demo"});
-const pages:Record<string,React.ReactNode>={"/navigation":<Shell><h1>Navigation fixture</h1></Shell>,"/become-agent":<BecomeAgent/>,"/verify-email":<RecruitmentEmailVerification returnPath="/become-agent"/>,"/auth/admin":<AdminLogin/>,"/admin/agent-program":<AdminProgram/>,"/admin/admins":<Admins/>,"/admin/support":<Support/>,"/admin/settings":<AdminSettings/>,"/admin/service-fees":<ServiceFees/>,"/admin/reports":<Reports/>,"/admin/audit":<Audit/>,"/admin/disputes":<Disputes/>,"/admin":<Overview/>,"/admin/skills":<Skills/>,"/admin/recruitment":<Recruitment/>,"/admin/recruitment/campaign-demo":<Campaign params={campaignParams}/>,"/admin/agents":<Agents/>,"/admin/analytics":<Analytics/>,"/admin/verification":<Verification/>,"/admin/kyc":<Verification/>,"/admin/jobs":<Jobs/>,"/admin/users":<Users/>,"/admin/map":<MarketplaceMap/>,"/agent":<Agent/>,"/agent/referrals":<AgentRecords view="referrals"/>,"/agent/earnings":<AgentRecords view="earnings"/>,"/recruit/campaign-demo":<RecruitmentLanding id="campaign-demo" type="admin_campaign"/>,"/join/agent-link":<RecruitmentLanding id="agent-link" type="agent_referral"/>};
+const pages:Record<string,React.ReactNode>={"/protected-check":<ProtectedCheck/>,"/navigation":<Shell><h1>Navigation fixture</h1></Shell>,"/become-agent":<BecomeAgent/>,"/verify-email":<VerifyEmail/>,"/auth/register":<AuthForm mode="register"/>,"/auth/login":<AuthForm mode="login"/>,"/complete-profile":<CompleteProfile/>,"/auth/admin":<AdminLogin/>,"/admin/agent-program":<AdminProgram/>,"/admin/admins":<Admins/>,"/admin/support":<Support/>,"/admin/settings":<AdminSettings/>,"/admin/service-fees":<ServiceFees/>,"/admin/reports":<Reports/>,"/admin/audit":<Audit/>,"/admin/disputes":<Disputes/>,"/admin":<Overview/>,"/admin/skills":<Skills/>,"/admin/recruitment":<Recruitment/>,"/admin/recruitment/campaign-demo":<Campaign params={campaignParams}/>,"/admin/agents":<Agents/>,"/admin/analytics":<Analytics/>,"/admin/verification":<Verification/>,"/admin/kyc":<Verification/>,"/admin/jobs":<Jobs/>,"/admin/users":<Users/>,"/admin/map":<MarketplaceMap/>,"/agent":<Agent/>,"/agent/referrals":<AgentRecords view="referrals"/>,"/agent/earnings":<AgentRecords view="earnings"/>,"/recruit/campaign-demo":<RecruitmentLanding id="campaign-demo" type="admin_campaign"/>,"/join/agent-link":<RecruitmentLanding id="agent-link" type="agent_referral"/>};
 const theme=new URLSearchParams(location.search).get("theme")??"light";
 document.documentElement.dataset.uiTheme=theme;
 const page=pages[location.pathname]??<p>Choose a fixture route.</p>;

@@ -1,5 +1,6 @@
+import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { isSqlBackend } from "@/lib/data-backend";
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
 import { updateLocalProfilePhoto } from "@/lib/local-sql";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -11,7 +12,7 @@ export async function PATCH(request: NextRequest) {
     const authorization = request.headers.get("authorization") ?? "";
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!token) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await verifyVerifiedIdToken(token);
     const body = await request.json().catch(() => ({}));
     const photoURL = typeof body.photoURL === "string" ? body.photoURL.trim() : "";
     const photoPositionX = clampPosition(body.photoPositionX);
@@ -31,6 +32,7 @@ export async function PATCH(request: NextRequest) {
     const userSnap = await userRef.get();
     return NextResponse.json({ success: true, profile: { id: userSnap.id, ...userSnap.data() } });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update profile picture." }, { status: 500 });
   }
 }

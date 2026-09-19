@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { verificationPath } from "@/utils/verification-return";
 import { loginAsAdmin } from "@/services/auth";
 import { LockKeyhole, UserRound } from "lucide-react";
 import { FormEvent, useState } from "react";
@@ -17,8 +18,8 @@ export default function AdminLoginPage() {
     setLoading(true);
     setError("");
     try {
-      await loginAsAdmin(String(form.get("username") ?? ""), String(form.get("password") ?? ""), String(form.get("twoFactorCode") ?? ""));
-      window.location.assign("/admin");
+      const credential = await loginAsAdmin(String(form.get("username") ?? ""), String(form.get("password") ?? ""), String(form.get("twoFactorCode") ?? ""));
+      window.location.assign(credential.user.emailVerified ? "/admin" : verificationPath("/auth/admin"));
     } catch (error) {
       const knownErrors = ["Invalid admin username or password.", "Invalid admin verification code.", "Too many failed attempts. Try again later.", "Admin email verification is required."];
       const message = error instanceof Error && knownErrors.includes(error.message) ? error.message : "Admin sign in is unavailable. Check your details or try again shortly.";

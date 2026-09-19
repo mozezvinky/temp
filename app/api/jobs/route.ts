@@ -107,6 +107,7 @@ export async function GET(request: NextRequest) {
       jobs: responseJobs
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("[api/jobs] load failed", error);
     return NextResponse.json({ success: false, message: "Unable to load jobs.", error: "Unable to load jobs." }, { status: 500 });
@@ -274,6 +275,7 @@ export async function PATCH(request: NextRequest) {
     const updatedSnap = await jobSnap.ref.get();
     return NextResponse.json({ success: true, job: { id: updatedSnap.id, ...updatedSnap.data() } });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     const status = error instanceof AuthRouteError ? error.status : 500;
     const message = error instanceof Error ? error.message : "Unable to edit posted work.";
@@ -321,6 +323,7 @@ export async function DELETE(request: NextRequest) {
     await jobSnap.ref.delete();
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     const status = error instanceof AuthRouteError ? error.status : 500;
     const message = error instanceof Error ? error.message : "Unable to delete posted work.";

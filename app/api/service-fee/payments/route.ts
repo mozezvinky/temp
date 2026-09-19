@@ -1,5 +1,6 @@
+import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { isSqlBackend } from "@/lib/data-backend";
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
 import { getLatestLocalServiceFeePayment, getLocalUser, submitLocalServiceFeePayment } from "@/lib/local-sql";
 import { sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
 import { isServiceFeeScreenshot, saveServiceFeeScreenshot } from "@/lib/service-fee-upload-storage";
@@ -16,6 +17,7 @@ export async function GET(request: NextRequest) {
     const payment = snapshot.docs.map<Record<string, unknown>>(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => timestampMillis(b.submittedAt) - timestampMillis(a.submittedAt))[0] ?? null;
     return NextResponse.json({ payment });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load payment details." }, { status: 500 });
   }
 }
@@ -81,6 +83,7 @@ export async function POST(request: NextRequest) {
     await sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, payment: payload });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to submit payment." }, { status: 500 });
   }
 }
@@ -89,7 +92,7 @@ async function requireUser(request: NextRequest) {
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   if (!token) throw new Error("Sign in is required.");
-  return adminAuth().verifyIdToken(token);
+  return verifyVerifiedIdToken(token);
 }
 
 function usernameForUser(uid: string, data?: Record<string, unknown>) {

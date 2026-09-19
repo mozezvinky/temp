@@ -1,5 +1,6 @@
+import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { isSqlBackend, logDataMode } from "@/lib/data-backend";
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
 import { countLocalActiveAcceptedApplications, listLocalWorkers } from "@/lib/local-sql";
 import type { WorkerSkillProfile } from "@/types";
 import { visibleSkillProfiles } from "@/utils/worker-skills";
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
     logDataMode();
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
     if (!token) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await verifyVerifiedIdToken(token);
     const role = request.nextUrl.searchParams.get("role");
     if (role !== "worker") return NextResponse.json({ users: [] });
 
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json({ users: users.filter(worker => worker.isLocked !== true && Number(worker.outstandingServiceFee ?? 0) <= 0) });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     console.error("[api/users] load failed", error);
     return NextResponse.json({ success: false, users: [], message: "Unable to load workers.", error: "Unable to load workers." }, { status: 500 });
   }

@@ -1,3 +1,4 @@
+import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import "server-only";
 
 import { shouldUseFirebase } from "@/lib/data-backend";
@@ -21,11 +22,12 @@ export type CurrentUserProfile = {
   decoded: DecodedIdToken;
 };
 
-export async function getCurrentUserProfile(request: NextRequest, fallbackRole?: Role | null): Promise<CurrentUserProfile> {
+export async function getCurrentUserProfile(request: NextRequest, fallbackRole?: Role | null, allowUnverified = false): Promise<CurrentUserProfile> {
   const token = authTokenFromRequest(request);
   if (!token) throw new CurrentUserProfileError("Sign in is required.", 401);
 
-  const decoded = await adminAuth().verifyIdToken(token);
+  const decoded = allowUnverified ? await adminAuth().verifyIdToken(token, true) : await verifyVerifiedIdToken(token);
+  if (allowUnverified) { const account = await adminAuth().getUser(decoded.uid); decoded.email_verified = account.emailVerified; decoded.email = account.email; }
   const email = typeof decoded.email === "string" ? decoded.email : undefined;
   const displayName = typeof decoded.name === "string" && decoded.name.trim()
     ? decoded.name.trim()
@@ -33,7 +35,7 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
 
   if (!shouldUseFirebase()) {
     const roleHint = fallbackRole ?? roleFromRequest(request);
-    const profile = ensureLocalUserProfile(decoded, roleHint);
+    const profile = decoded.email_verified === true ? ensureLocalUserProfile(decoded, roleHint) : getLocalUser(decoded.uid);
     return {
       id: profile?.id ?? decoded.uid,
       uid: profile?.uid ?? decoded.uid,
@@ -41,7 +43,7 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
       username: usernameFor(profile?.displayName ?? displayName, profile?.email ?? email, decoded.uid),
       role: profile?.role,
       displayName: profile?.displayName ?? displayName,
-      emailVerified: profile?.emailVerified ?? decoded.email_verified === true,
+      emailVerified: decoded.email_verified === true,
       localProfileFound: Boolean(profile),
       profile,
       decoded
@@ -52,7 +54,7 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
   const data = snapshot.exists ? snapshot.data() as Partial<UserProfile> : null;
   const role = activeRoleFor(data, fallbackRole ?? roleFromRequest(request));
   const activeRoles = rolesFor(data, role);
-  const emailVerified = data?.emailVerified === true || decoded.email_verified === true;
+  const emailVerified = decoded.email_verified === true;
   const baseProfile = snapshot.exists && data
     ? ({ id: snapshot.id, uid: snapshot.id, ...data, role, roles: activeRoles, emailVerified } as UserProfile)
     : null;

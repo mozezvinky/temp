@@ -56,12 +56,6 @@ function rememberAvailableRoles(userId: string, roles: Role[]) {
   window.localStorage.setItem(`temp.profile.roles.${userId}`, JSON.stringify(Array.from(new Set(validRoles))));
 }
 
-function storedEmailVerified(userId: string) {
-  if (typeof window === "undefined") return false;
-  return window.sessionStorage.getItem("temp.emailVerified.uid") === userId &&
-    window.sessionStorage.getItem("temp.emailVerified") === "true";
-}
-
 function storedPhoto(userId: string) {
   if (typeof window === "undefined") return {};
   try {
@@ -89,7 +83,7 @@ function recoveredProfile(user: User, role: Role): UserProfile {
     roles: role === "admin" ? ["admin"] : [role],
     displayName: user.displayName ?? user.email?.split("@")[0] ?? "Copic user",
     email: user.email ?? "",
-    emailVerified: storedEmailVerified(user.uid) || user.emailVerified,
+    emailVerified: user.emailVerified,
     emailVerifiedAt: null,
     phoneNumber: user.phoneNumber ?? undefined,
     photoURL: photo.photoURL ?? user.photoURL ?? undefined,
@@ -116,7 +110,7 @@ function recoveredProfile(user: User, role: Role): UserProfile {
 
 function profileFromDocument(user: User, data: Record<string, unknown>): UserProfile {
   const cachedPhoto = storedPhoto(user.uid);
-  const emailVerified = data.emailVerified === true || user.emailVerified || storedEmailVerified(user.uid);
+  const emailVerified = user.emailVerified;
   const storedRole = storedRecoveredRole(user.uid);
   const pendingRole = typeof window !== "undefined" ? window.localStorage.getItem(`temp.profile.pendingRole.${user.uid}`) : null;
   const documentRole = data.role as UserProfile["role"];

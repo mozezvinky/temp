@@ -1,4 +1,6 @@
 "use client";
+import { validSignupEmail } from "@/utils/email-validation";
+import { verificationPath, verificationReturnPath } from "@/utils/verification-return";
 
 import { googleProvider, requireAuth, requireDb } from "@/lib/firebase";
 import type { Role } from "@/types";
@@ -12,7 +14,6 @@ import {
   signOut,
   linkWithPhoneNumber,
   sendPasswordResetEmail,
-  deleteUser,
   type ConfirmationResult,
   type User,
   updateProfile
@@ -21,6 +22,12 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 export function authErrorMessage(error: unknown) {
   const code = typeof error === "object" && error && "code" in error ? String((error as { code?: string }).code) : "";
+  if (code === "auth/invalid-email") return "Enter a valid email address.";
+  if (code === "auth/email-already-in-use") return "This email is already registered. Sign in or reset your password.";
+  if (["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found"].includes(code)) return "The email or password is incorrect.";
+  if (code === "auth/network-request-failed") return "Check your connection and try again.";
+  if (code === "auth/too-many-requests") return "Too many attempts. Please wait and try again.";
+
   if (code === "auth/configuration-not-found") {
     return "Sign in is not available right now. Please contact support.";
   }
@@ -80,6 +87,7 @@ export async function createProfile(uid: string, role: Role, displayName: string
 }
 
 export async function activateProfileRole(user: User, role: Role, displayName: string, email?: string, phone?: string): Promise<Role> {
+  if (!user.emailVerified) throw new Error("Verify your email before continuing.");
   const cachedRoles = storedAvailableRoles(user.uid);
   const pendingRole = window.localStorage.getItem(pendingRoleKey(user.uid));
   if (cachedRoles.includes(role) && pendingRole !== role) {
@@ -104,26 +112,12 @@ export async function activateProfileRole(user: User, role: Role, displayName: s
   return role;
 }
 
-export async function registerWithEmail(email: string, password: string, displayName: string, verification: "code" | "recruitment-link" = "code") {
+export async function registerWithEmail(email: string, password: string, displayName: string) {
+  if (!validSignupEmail(email)) throw new Error("Enter a valid email address.");
   const auth = requireAuth();
-  const credential = await createUserWithEmailAndPassword(auth, email, password);
+  const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
   await updateProfile(credential.user, { displayName });
-  // Recruitment sends a Firebase verification link on the shared verification screen.
-  if (verification === "recruitment-link") return credential.user;
-  try {
-    const response = await fetch("/api/auth/send-email-otp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await credential.user.getIdToken()}` },
-      body: JSON.stringify({ uid: credential.user.uid, email: credential.user.email })
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(typeof payload.error === "string" ? payload.error : "Email does not exist or cannot receive verification codes.");
-    }
-  } catch (error) {
-    await deleteUser(credential.user).catch(() => signOut(auth));
-    throw new Error(error instanceof Error ? error.message : "Email does not exist or cannot receive verification codes.");
-  }
+  // The global verification screen sends/retries the email. Never delete an account on delivery failure.
   return credential.user;
 }
 
@@ -168,6 +162,8 @@ export async function loginAsAdmin(username: string, password: string, twoFactor
   const payload = await response.json().catch(() => ({})) as { token?: string; error?: string };
   if (!response.ok || !payload.token) throw new Error(payload.error ?? "Admin sign in failed.");
   const credential = await signInWithCustomToken(requireAuth(), payload.token);
+  await credential.user.reload();
+  if (!credential.user.emailVerified) return credential;
   try {
     window.sessionStorage.setItem("temp.profile.uid", credential.user.uid);
     window.sessionStorage.setItem("temp.profile.role", "admin");
@@ -191,6 +187,8 @@ export async function loginWithGoogle(role: Role = "worker") {
   const db = requireDb();
   if (!googleProvider) throw new Error("This sign-in method is not available right now.");
   const credential = await signInWithPopup(auth, googleProvider);
+  await credential.user.reload();
+  if (!credential.user.emailVerified) { window.location.assign(verificationPath(verificationReturnPath(`/complete-profile?role=${role === "client" ? "client" : "worker"}`))); return; }
   const existing = await getDoc(doc(db, "users", credential.user.uid));
   if (existing.exists()) return;
   await createProfile(credential.user.uid, role, credential.user.displayName ?? "Copic user", credential.user.email ?? undefined);

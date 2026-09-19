@@ -1,3 +1,4 @@
+import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { isSqlBackend } from "@/lib/data-backend";
 import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-user-profile";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
@@ -9,7 +10,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   try {
-    const currentUser = await getCurrentUserProfile(request);
+    const currentUser = await getCurrentUserProfile(request, undefined, true);
 
     if (isSqlBackend()) {
       if (currentUser.profile) return NextResponse.json({ profile: currentUser.profile });
@@ -40,6 +41,7 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json({ profile: currentUser.profile });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     const message = error instanceof Error ? error.message : "Unable to load account profile.";
     if (message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded")) {
@@ -55,7 +57,7 @@ export async function POST(request: NextRequest) {
     const authorization = request.headers.get("authorization") ?? "";
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!token) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await verifyVerifiedIdToken(token);
     const authUser = await adminAuth().getUser(decoded.uid);
     const body = await request.json().catch(() => ({}));
     const role = body.role === "client" ? "client" : body.role === "worker" ? "worker" : null;
@@ -72,6 +74,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, profile });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const message = error instanceof Error ? error.message : "Unable to save account profile.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -18,13 +18,14 @@ function requireAuth(uid?: string) {
 }
 
 async function assertAdmin(uid: string) {
+  await assertEmailVerified(uid);
   const user = await db.doc(`users/${uid}`).get();
   if (user.data()?.role !== "admin") throw new HttpsError("permission-denied", "Admin role required.");
 }
 
 async function assertEmailVerified(uid: string) {
-  const user = await db.doc(`users/${uid}`).get();
-  if (user.data()?.emailVerified !== true) {
+  const user = await admin.auth().getUser(uid);
+  if (user.disabled || !user.emailVerified) {
     throw new HttpsError("failed-precondition", "Please verify your email before using this feature.");
   }
 }

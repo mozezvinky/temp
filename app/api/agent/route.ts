@@ -17,7 +17,8 @@ export async function GET(request:NextRequest){
     }
     const [metrics,links,referrals]=await Promise.all([db.doc(`agentMetrics/${user.uid}`).get(),db.collection("agentLinks").where("agentId","==",user.uid).limit(50).get(),db.collection("agentReferrals").where("agentId","==",user.uid).count().get()]);
     return NextResponse.json({enabled:true,metrics:{...metrics.data(),peopleReferred:referrals.data().count},links:links.docs.map(doc=>({id:doc.id,...doc.data()}))});
-  }catch(error){return failure(error);}
+  }catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });return failure(error);}
 }
 export async function POST(request:NextRequest){
   try{const user=await requireServerUser(request),body=await request.json(),db=adminDb();
@@ -44,6 +45,7 @@ export async function POST(request:NextRequest){
     const ref=db.collection("agentLinks").doc(createHash("sha256").update(`${user.uid}:${key}`).digest("hex").slice(0,40));
     await db.runTransaction(async tx=>{const existing=await tx.get(ref);if(!existing.exists)tx.create(ref,{agentId:user.uid,sourceType:"agent_referral",name:service?`Join COPIC as a ${service.service} worker`:"Join COPIC",...(service??{}),active:true,createdAt:FieldValue.serverTimestamp()});});
     return NextResponse.json({id:ref.id,url:`/join/${ref.id}`});
-  }catch(error){return failure(error);}
+  }catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });return failure(error);}
 }
 function failure(error:unknown){return NextResponse.json({error:error instanceof MarketplaceError?error.message:"Unable to complete the Agent request. Please sign in again or try later."},{status:error instanceof MarketplaceError?error.status:400});}

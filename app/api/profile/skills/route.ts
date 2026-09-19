@@ -1,3 +1,4 @@
+import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { serviceKey } from "@/functions/src/marketplace-policy";
 import { enforceServicePrice } from "@/lib/service-pricing";
 import { isSqlBackend } from "@/lib/data-backend";
@@ -27,7 +28,7 @@ function removeUndefinedFields<T>(value: T): T {
 export async function GET(request: NextRequest) {
   try {
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await verifyVerifiedIdToken(token);
 
     if (isSqlBackend()) {
       const profile = getLocalUser(decoded.uid);
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
     const skillProfiles = Array.isArray(snapshot.data()?.skillProfiles) ? snapshot.data()!.skillProfiles as WorkerSkillProfile[] : [];
     return NextResponse.json({ skillProfiles: removeUndefinedFields(skillProfiles) });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const message = error instanceof Error ? error.message : "Unable to load skills.";
     return NextResponse.json({ error: message }, { status: message.includes("access") ? 403 : 500 });
   }
@@ -49,7 +51,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await verifyVerifiedIdToken(token);
     // Agent recruitment uses this shared service form after acquisition attachment.
     // Never trust a client-supplied recruitment flag to decide whether to enforce it.
     if (!isSqlBackend()) {
@@ -172,6 +174,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ success: true, skillProfiles: savedSkillProfiles });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const message = error instanceof Error ? error.message : "Unable to save this skill.";
     return NextResponse.json({ error: message }, { status: message.includes("access") ? 403 : 500 });
   }
@@ -180,7 +183,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await verifyVerifiedIdToken(token);
     const skillId = request.nextUrl.searchParams.get("id") ?? "";
     if (!skillId) return NextResponse.json({ error: "Choose a skill to delete." }, { status: 400 });
 
@@ -206,6 +209,7 @@ export async function DELETE(request: NextRequest) {
     });
     return NextResponse.json({ success: true, skillProfiles: savedSkillProfiles });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const message = error instanceof Error ? error.message : "Unable to delete this skill.";
     return NextResponse.json({ error: message }, { status: message.includes("access") ? 403 : 500 });
   }

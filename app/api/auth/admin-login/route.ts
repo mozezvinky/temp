@@ -41,12 +41,15 @@ export async function POST(request: NextRequest) {
     let adminUser;
     try {
       adminUser = await auth.getUserByEmail(email);
-    } catch {
-      adminUser = await auth.createUser({ email, displayName: "Copic Admin", emailVerified: true });
+    } catch (error) {
+      if ((error as { code?: string }).code !== "auth/user-not-found") throw error;
+      adminUser = await auth.createUser({ email, displayName: "Copic Admin", emailVerified: false });
     }
-    if (!adminUser.emailVerified && process.env.NODE_ENV === "production") {
-      await logAdminLoginAttempt(username, false, ip, userAgent, "email_not_verified");
-      return NextResponse.json({ error: "Admin email verification is required." }, { status: 403 });
+    if (adminUser.disabled) return NextResponse.json({ error: "Admin sign in is unavailable." }, { status: 403 });
+    if (!adminUser.emailVerified) {
+      // Credentials were checked, but grant no Admin profile, claims, or session until verification.
+      await logAdminLoginAttempt(username, true, ip, userAgent, "email_verification_required");
+      return NextResponse.json({ token: await auth.createCustomToken(adminUser.uid), requiresEmailVerification: true });
     }
     await auth.setCustomUserClaims(adminUser.uid, { admin: true });
 

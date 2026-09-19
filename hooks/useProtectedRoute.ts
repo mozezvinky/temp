@@ -1,5 +1,5 @@
 "use client";
-import { acquisitionReturnPath, recruitmentVerificationPath } from "@/utils/acquisition-return";
+import { safeVerificationPath, verificationPath, verificationReturnPath } from "@/utils/verification-return";
 
 import { useAuth } from "@/context/AuthContext";
 import type { Role } from "@/types";
@@ -17,14 +17,18 @@ export function useProtectedRoute(roles?: Role[]) {
       router.replace(pathname.startsWith("/admin") ? "/auth/admin" : "/auth/login");
       return;
     }
+    if (!user.emailVerified) {
+      router.replace(verificationPath(safeVerificationPath(pathname) || "/complete-profile"));
+      return;
+    }
     if (!profile && pathname !== "/complete-profile") {
-      router.replace("/complete-profile");
+      router.replace(`/complete-profile?returnTo=${encodeURIComponent(safeVerificationPath(pathname) || "/dashboard")}`);
       return;
     }
     if (roles?.length && profile && !roles.includes(profile.role)) router.replace("/dashboard");
   }, [loading, pathname, profile, roles, router, user]);
 
-  return { user, profile, loading, refreshProfile, isAuthorized: !!user && (!roles?.length || (!!profile && roles.includes(profile.role))) };
+  return { user, profile, loading, refreshProfile, isAuthorized: !!user && user.emailVerified && (!roles?.length || (!!profile && roles.includes(profile.role))) };
 }
 
 export function usePublicOnlyRoute(options?: { disabled?: boolean }) {
@@ -35,10 +39,10 @@ export function usePublicOnlyRoute(options?: { disabled?: boolean }) {
     if (options?.disabled) return;
     if (loading) return;
     if (user) {
-      const recruitment = acquisitionReturnPath("");
-      router.replace(recruitment && !user.emailVerified ? recruitmentVerificationPath(recruitment) : recruitment || homePath);
+      const destination = verificationReturnPath(profile ? homePath : "/complete-profile");
+      router.replace(!user.emailVerified ? verificationPath(destination) : destination);
     }
-  }, [homePath, loading, options?.disabled, router, user]);
+  }, [homePath, loading, options?.disabled, profile, router, user]);
 
   // Public pages must remain available while Firebase restores a session. A slow
   // or blocked auth request should not turn the whole public site into a spinner.

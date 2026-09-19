@@ -40,6 +40,8 @@ export async function requireAdmin(request: NextRequest, permission?: AdminPermi
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   if (!token) throw new AdminAccessError("Admin sign in is required.", 401);
   const decoded = await adminAuth().verifyIdToken(token, true).catch(() => { throw new AdminAccessError("Admin session is invalid or expired.", 401); });
+  const account = await adminAuth().getUser(decoded.uid);
+  if (!account.emailVerified || account.disabled) throw new AdminAccessError("EMAIL_NOT_VERIFIED", 403);
   const email = decoded.email ?? "";
   const profile: Record<string, unknown> | null = isSqlBackend()
     ? getLocalUser(decoded.uid) as unknown as Record<string, unknown> | null

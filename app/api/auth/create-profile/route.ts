@@ -1,3 +1,4 @@
+import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { isSqlBackend } from "@/lib/data-backend";
 import { upsertLocalUser } from "@/lib/local-sql";
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!token) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
 
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await verifyVerifiedIdToken(token);
     const authUser = await adminAuth().getUser(decoded.uid);
     const body = await request.json().catch(() => ({}));
     const role = String(body.role ?? "") as Role;
@@ -89,6 +90,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, role: savedProfile.role, roles: savedProfile.roles });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const message = error instanceof Error ? error.message : "Could not create account profile.";
     return NextResponse.json({ error: message }, { status: message.includes("Sign in") ? 401 : 400 });
   }

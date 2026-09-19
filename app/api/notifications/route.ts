@@ -1,5 +1,6 @@
+import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { isSqlBackend, logDataMode } from "@/lib/data-backend";
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
 import { archiveLocalNotification, deleteLocalNotification, listLocalApplications, listLocalNotificationArchives, listLocalNotificationDeletes, listLocalNotifications, markLocalNotificationRead, restoreLocalNotification } from "@/lib/local-sql";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
     const authorization = request.headers.get("authorization") ?? "";
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!token) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await verifyVerifiedIdToken(token);
     const archivedView = request.nextUrl.searchParams.get("archived") === "true";
 
     if (isSqlBackend()) {
@@ -43,6 +44,7 @@ export async function GET(request: NextRequest) {
     const deletes = deleteSnapshot.docs.map(doc => ({ id: String(doc.data().notificationId ?? doc.id), deletedAt: doc.data().deletedAt }));
     return NextResponse.json({ notifications: filterArchived(mergeNotifications(notifications, []), archives, archivedView, deletes) });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const message = error instanceof Error ? error.message : "Unable to load alerts.";
     console.error("[api/notifications] load failed", error);
     if (message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded")) {
@@ -55,7 +57,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await verifyVerifiedIdToken(token);
     const body = await request.json().catch(() => ({}));
     const notificationId = String(body.notificationId ?? "").trim();
     const action = String(body.action ?? "");
@@ -87,6 +89,7 @@ export async function PATCH(request: NextRequest) {
     else await archiveRef.delete();
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update this alert." }, { status: 500 });
   }
 }

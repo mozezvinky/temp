@@ -155,6 +155,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, jobId: jobRef.id });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) {
       return NextResponse.json({ error: error.message === "Sign in is required." ? "Please sign in before posting work." : error.message }, { status: error.status });
     }

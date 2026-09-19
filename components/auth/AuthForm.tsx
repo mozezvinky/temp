@@ -1,13 +1,14 @@
 "use client";
-import { acquisitionReturnPath, recruitmentVerificationPath } from "@/utils/acquisition-return";
+import { acquisitionReturnPath } from "@/utils/acquisition-return";
 
 import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { usePublicOnlyRoute } from "@/hooks/useProtectedRoute";
 import { activateProfileRole, authErrorMessage, loginWithEmail, registerWithEmail, sendPasswordReset } from "@/services/auth";
-import { verifyEmailCode } from "@/services/emailVerification";
+import { verificationPath, verificationReturnPath } from "@/utils/verification-return";
+import { validSignupEmail } from "@/utils/email-validation";
 import type { Role } from "@/types";
-import { BriefcaseBusiness, Eye, EyeOff, LockKeyhole, Mail, MailCheck, Search, UserRound } from "lucide-react";
+import { BriefcaseBusiness, Eye, EyeOff, LockKeyhole, Mail, Search, UserRound } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -20,9 +21,10 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [emailValue, setEmailValue] = useState("");
   const [signedInUser, setSignedInUser] = useState<User | null>(null);
   const [signedInEmail, setSignedInEmail] = useState("");
-  const [registeredUser, setRegisteredUser] = useState<User | null>(null);
-  const [emailCode, setEmailCode] = useState("");
-  const { shouldRender } = usePublicOnlyRoute({ disabled: loading || !!signedInUser || !!registeredUser });
+  const [emailError, setEmailError] = useState("");
+  const [notice, setNotice] = useState("");
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("emailChanged") === "1") setNotice("Your email address was updated. Sign in with your new email and verify it to continue."); }, []);
+  const { shouldRender } = usePublicOnlyRoute({ disabled: loading || !!signedInUser });
 
   useEffect(() => {
     document.body.classList.toggle("continue-as-active", mode === "login" && !!signedInUser);
@@ -51,27 +53,25 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setLoading(true);
     const form = new FormData(event.currentTarget);
+    if (!validSignupEmail(String(form.get("email")))) { setEmailError("Enter a valid email address."); return; }
+    setEmailError("");
+    setLoading(true);
     try {
       if (mode === "register") {
-        const recruitment = acquisitionReturnPath("");
-        const user = await registerWithEmail(String(form.get("email")), String(form.get("password")), String(form.get("displayName")), recruitment ? "recruitment-link" : "code");
-        if (recruitment) {
-          window.location.assign(user.emailVerified ? recruitment : recruitmentVerificationPath(recruitment));
-          return;
-        }
-        setRegisteredUser(user);
-        toast.success("Verification code sent. Check your email to finish sign up.");
-        setLoading(false);
+        const destination = verificationReturnPath("/complete-profile");
+        const user = await registerWithEmail(String(form.get("email")), String(form.get("password")), String(form.get("displayName")));
+        window.location.assign(user.emailVerified ? destination : verificationPath(destination));
+        return;
       } else {
         const credential = await loginWithEmail(String(form.get("email")), String(form.get("password")));
-        const recruitment = acquisitionReturnPath("");
-        if (recruitment) {
-          await credential.user.reload();
-          window.location.assign(credential.user.emailVerified ? recruitment : recruitmentVerificationPath(recruitment));
+        await credential.user.reload();
+        const destination = verificationReturnPath("");
+        if (!credential.user.emailVerified) {
+          window.location.assign(verificationPath(destination || "/complete-profile"));
           return;
         }
+        if (destination) { window.location.assign(destination); return; }
         window.sessionStorage.removeItem("temp.profile.uid");
         window.sessionStorage.removeItem("temp.profile.role");
         setSignedInUser(credential.user);
@@ -80,21 +80,6 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       }
     } catch (error) {
       toast.error(authErrorMessage(error));
-      setLoading(false);
-    }
-  }
-
-  async function verifyRegisteredEmail(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!registeredUser) return;
-    setLoading(true);
-    try {
-      toast.success(await verifyEmailCode(emailCode.trim()));
-      window.sessionStorage.setItem("temp.profile.uid", registeredUser.uid);
-      window.sessionStorage.removeItem("temp.profile.role");
-      window.location.assign("/complete-profile");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to verify this code.");
       setLoading(false);
     }
   }
@@ -116,7 +101,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     }
   }
 
-  if (!signedInUser && !registeredUser && (!shouldRender || loading)) return <LoadingSpinner label={loading ? "Signing you in" : "Checking session"} />;
+  if (!signedInUser && (!shouldRender || loading)) return <LoadingSpinner label={loading ? "Signing you in" : "Checking session"} />;
 
   return (
     <div className="copic-auth-layout">
@@ -129,42 +114,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           {mode === "login" ? "Built for flexible work." : "Find temporary jobs, hire trusted workers, and manage work opportunities easily in one place."}
         </p>
       </div>
-      {mode === "register" && registeredUser ? (
-        <form onSubmit={verifyRegisteredEmail} className="copic-auth-card">
-          <p className="copic-eyebrow">Email verification</p>
-          <h1>Check Your Email</h1>
-          <p className="copic-auth-copy">Enter the 6-digit code sent to {registeredUser.email ?? emailValue}. Your account details are saved after this step.</p>
-          <label className="copic-auth-field mt-6">
-            <MailCheck size={18} />
-            <input
-              name="otp"
-              required
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              value={emailCode}
-              onChange={event => setEmailCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-              placeholder="000000"
-              className="min-w-0 flex-1 bg-transparent text-center text-xl font-black tracking-[.35em] outline-none placeholder:text-smoky/45"
-            />
-          </label>
-          <Button disabled={loading || emailCode.length !== 6} className="mt-5 w-full rounded-2xl py-4 text-base">
-            <MailCheck size={18} /> {loading ? "Verifying..." : "Verify & Continue"}
-          </Button>
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => {
-              setRegisteredUser(null);
-              setEmailCode("");
-            }}
-            className="mt-4 text-sm font-black text-black disabled:opacity-60"
-          >
-            Back to sign up
-          </button>
-        </form>
-      ) : mode === "login" && signedInUser ? (
+      {mode === "login" && signedInUser ? (
         <div className="copic-auth-card">
             <p className="copic-eyebrow">Account mode</p>
             <h1>Continue as</h1>
@@ -182,6 +132,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         </div>
       ) : (
       <form onSubmit={submit} className="copic-auth-card">
+          {notice && <p role="status" className="copic-muted">{notice}</p>}
+          {emailError && <p id="email-error" role="alert" className="copic-error">{emailError}</p>}
           <p className="copic-eyebrow">{mode === "login" ? "Account access" : "Create profile"}</p>
           <h1>{mode === "login" ? "Welcome Back" : "Sign Up"}</h1>
           <p className="copic-auth-copy">{mode === "login" ? "Built for flexible work." : "Find work or hire help in minutes."}</p>
@@ -195,7 +147,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       )}
           <label className="copic-auth-field mt-4">
             <Mail size={18} />
-            <input name="email" type="email" required value={emailValue} onChange={event => setEmailValue(event.target.value)} placeholder="Email" className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-smoky/45" />
+            <input name="email" type="email" required pattern="[^\s@]+@[^\s@.]+(\.[^\s@.]+)+" aria-label="Email address" aria-invalid={!!emailError} aria-describedby={emailError ? "email-error" : undefined} onInvalid={() => setEmailError("Enter a valid email address.")} value={emailValue} onChange={event => setEmailValue(event.target.value)} placeholder="Email" className="min-w-0 flex-1 bg-transparent font-semibold outline-none placeholder:text-smoky/45" />
           </label>
           <label className="copic-auth-field mt-4">
             <LockKeyhole size={18} />

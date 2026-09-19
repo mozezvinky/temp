@@ -63,7 +63,7 @@ test("A/B/C/D/F: checks freshly reloaded Firebase email state, refreshes token, 
   const services = await load("services/emailVerification.ts", {
     "@/lib/firebase": { requireAuth: () => auth },
     "firebase/auth": { sendEmailVerification: async (_user: unknown, options: typeof settings) => { settings = options; } }
-  }, { window: { location: { origin: "https://copic.example" } } });
+  }, { window: { location: { origin: "https://copic.example" }, sessionStorage: storage(), localStorage: storage() } });
   assert.equal(await services.reloadVerifiedRecruitmentUser(), false); // Cached true must not bypass verification.
   assert.equal(refreshes, 0);
   verifiedOnServer = true; // Verification in a separate tab/device, or a verified Google account.
@@ -73,7 +73,7 @@ test("A/B/C/D/F: checks freshly reloaded Firebase email state, refreshes token, 
   await services.sendRecruitmentVerificationEmail("/join/original-agent");
   assert.equal(settings?.url, "https://copic.example/verify-email?returnTo=%2Fjoin%2Foriginal-agent");
   assert.equal(settings?.handleCodeInApp, false);
-  await assert.rejects(services.sendRecruitmentVerificationEmail("https://evil.test"), /Invalid recruitment/);
+  await assert.rejects(services.sendRecruitmentVerificationEmail("https://evil.test"), /Invalid verification/);
   user.reload = async () => { auth.currentUser = null; };
   await assert.rejects(services.reloadVerifiedRecruitmentUser(), /account changed/);
   await assert.rejects(services.reloadVerifiedRecruitmentUser(), /sign in again/);

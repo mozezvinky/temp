@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
       return { id: item.id, ...data, fromUserRole: fromUser.data()?.role, stars: Number(data.stars), jobTitle: job.data()?.title ?? "Completed job" };
     }));
     return NextResponse.json({ ratings, aggregate: ratingAggregate(ratings) });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     return NextResponse.json({ error: "Unable to load ratings." }, { status: 500 });
   }
 }
@@ -119,6 +120,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ success: true, id: ratingRef.id });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to save rating." }, { status: 500 });
   }

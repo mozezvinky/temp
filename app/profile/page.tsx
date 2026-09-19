@@ -1,4 +1,5 @@
 "use client";
+import { logout } from "@/services/auth";
 
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -157,6 +158,11 @@ export default function ProfilePage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to update account settings.");
+      if (payload.requiresEmailVerification) {
+        await logout();
+        window.location.assign("/auth/login?returnTo=%2Fprofile&emailChanged=1");
+        return;
+      }
       await auth?.currentUser?.reload();
       await refreshProfile();
       setSettingsMessage("Account settings updated.");

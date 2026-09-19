@@ -7,9 +7,7 @@ import Link from "next/link";
 
 export function EmailVerificationRequired() {
   const { user } = useAuth();
-  if (typeof window !== "undefined" && user && window.sessionStorage.getItem("temp.emailVerified.uid") === user.uid && window.sessionStorage.getItem("temp.emailVerified") === "true") {
-    return null;
-  }
+  if (user?.emailVerified) return null;
 
   return (
     <Card className="mx-auto max-w-lg text-center">

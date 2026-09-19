@@ -1,5 +1,6 @@
+import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { isSqlBackend } from "@/lib/data-backend";
-import { adminAuth, adminDb, adminStorage } from "@/lib/firebase-admin";
+import { adminDb, adminStorage } from "@/lib/firebase-admin";
 import { firebaseStorageBucketCandidates } from "@/lib/firebase-storage-bucket";
 import { createLocalMessage, getLocalConversation, listLocalConversations, listLocalMessages } from "@/lib/local-sql";
 import { sendNotificationEmailsAfterCommit, setNotification } from "@/lib/notifications-server";
@@ -51,6 +52,7 @@ export async function GET(request: NextRequest) {
     const conversations = await enrichConversations(availableDocs.map<Record<string, unknown>>(doc => ({ id: doc.id, ...doc.data() })));
     return NextResponse.json({ conversations });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const message = error instanceof Error ? error.message : "Unable to load chat.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -158,6 +160,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ success: true, message: { id: messageRef.id } });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const message = error instanceof Error ? error.message : "Unable to send message.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -269,7 +272,7 @@ async function requireDecodedUser(request: NextRequest) {
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   if (!token) throw new Error("Sign in is required.");
-  return adminAuth().verifyIdToken(token);
+  return verifyVerifiedIdToken(token);
 }
 
 function timestampMillis(value: unknown) {

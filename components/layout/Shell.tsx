@@ -45,7 +45,8 @@ function serviceFeeAmountFromAlert(item: AppNotification) {
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile: authenticatedProfile, refreshProfile } = useAuth();
+  const profile = user?.emailVerified ? authenticatedProfile : null;
   const isAdmin = profile?.role === "admin";
   const isLanding = pathname === "/";
   const [drawerOpen, setDrawerOpen] = useState(false);

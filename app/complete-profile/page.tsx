@@ -1,5 +1,5 @@
 "use client";
-import { acquisitionReturnPath } from "@/utils/acquisition-return";
+import { verificationPath, verificationReturnPath, clearVerificationReturn } from "@/utils/verification-return";
 
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
@@ -15,6 +15,13 @@ function roleHome(role: Role) {
   return role === "admin" ? "/admin" : role === "client" ? "/workers" : "/dashboard";
 }
 
+
+function setupDestination(fallback: string) {
+  const destination = verificationReturnPath(fallback);
+  clearVerificationReturn();
+  return destination.startsWith("/complete-profile") ? fallback : destination;
+}
+
 export default function CompleteProfilePage() {
   const router = useRouter();
   const { user, profile, loading } = useAuth();
@@ -22,14 +29,15 @@ export default function CompleteProfilePage() {
 
   useEffect(() => {
     if (loading) return;
-    if (!user) router.replace("/auth/login");
+    if (!user) { router.replace("/auth/login"); return; }
+    if (!user.emailVerified) { router.replace(verificationPath(verificationReturnPath("/complete-profile"))); return; }
     if (profile) {
-      router.replace(acquisitionReturnPath(roleHome(profile.role)));
+      router.replace(setupDestination(roleHome(profile.role)));
     }
   }, [loading, profile, router, user]);
 
   async function finish(role: Role) {
-    if (!user || savingRole) return;
+    if (!user || !user.emailVerified || savingRole) return;
     setSavingRole(role);
     try {
       const savedRole = await createProfile(
@@ -40,7 +48,7 @@ export default function CompleteProfilePage() {
         user.phoneNumber ?? undefined
       );
       toast.success("Account profile saved.");
-      window.location.assign(acquisitionReturnPath(roleHome(savedRole)));
+      window.location.assign(setupDestination(roleHome(savedRole)));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save your account profile.";
       toast.error(message);
@@ -48,7 +56,7 @@ export default function CompleteProfilePage() {
     }
   }
 
-  if (loading || !user || profile) return <LoadingSpinner label="Checking account" />;
+  if (loading || !user || !user.emailVerified || profile) return <LoadingSpinner label="Checking account" />;
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-3xl items-center justify-center">

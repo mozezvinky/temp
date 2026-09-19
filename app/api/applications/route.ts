@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
     );
     return NextResponse.json({ applications });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     const status = error instanceof AuthRouteError ? error.status : 500;
     const message = error instanceof Error ? error.message : "Unable to load applications.";
@@ -181,6 +182,7 @@ export async function POST(request: NextRequest) {
     await sendNotificationEmailsAfterCommit(db, [notification]);
     return NextResponse.json({ success: true, application: payload });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     const status = error instanceof AuthRouteError ? error.status : 500;
     const message = error instanceof Error ? error.message : "Unable to submit application.";
@@ -753,6 +755,7 @@ export async function PATCH(request: NextRequest) {
     }]);
     return NextResponse.json({ success: true, application: result });
   } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     const message = error instanceof Error ? error.message : "Unable to update application.";
     if (isQuotaError(message)) {

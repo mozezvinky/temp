@@ -1,4 +1,5 @@
 "use client";
+import { rememberVerificationReturn, clearVerificationReturn } from "@/utils/verification-return";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MailCheck } from "lucide-react";
@@ -7,8 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { createProfile, logout } from "@/services/auth";
-import { reloadVerifiedRecruitmentUser, sendRecruitmentVerificationEmail } from "@/services/emailVerification";
-import { rememberAcquisitionReturn } from "@/utils/acquisition-return";
+import { reloadVerifiedRecruitmentUser, sendRecruitmentVerificationEmail, verificationSendError } from "@/services/emailVerification";
+import { rememberAcquisitionReturn, safeAcquisitionPath } from "@/utils/acquisition-return";
 import { requireAuth } from "@/lib/firebase";
 
 export function RecruitmentEmailVerification({ returnPath }: { returnPath: string }) {
@@ -30,12 +31,12 @@ export function RecruitmentEmailVerification({ returnPath }: { returnPath: strin
     setChecking(true);
     try {
       if (!await reloadVerifiedRecruitmentUser()) {
-        if (manual) setMessage("Your email hasn't been verified yet. Open the verification email and complete verification first.");
+        if (manual) setMessage("Your email hasn't been verified yet. Open the verification email and click the link, then try again.");
         return false;
       }
       // New email/link accounts may not have completed COPIC profile creation yet.
-      if (!profile?.role) await createProfile(user.uid, "worker", user.displayName ?? "Copic user", user.email ?? undefined);
-      if (requireAuth().currentUser?.uid === user.uid) window.location.replace(returnPath);
+      if (!profile?.role && safeAcquisitionPath(returnPath)) await createProfile(user.uid, "worker", user.displayName ?? "Copic user", user.email ?? undefined);
+      if (requireAuth().currentUser?.uid === user.uid) { clearVerificationReturn(); window.location.replace(returnPath); }
       return true;
     } catch {
       setMessage("We couldn't check your email verification. Please try again.");
@@ -58,11 +59,9 @@ export function RecruitmentEmailVerification({ returnPath }: { returnPath: strin
     try {
       await sendRecruitmentVerificationEmail(returnPath);
       setSent(true);
+      setMessage("Verification email sent.");
     } catch (error) {
-      const code = (error as { code?: string }).code;
-      setMessage(code === "auth/too-many-requests"
-        ? "Too many requests. Please wait before resending your verification email."
-        : "We couldn't send your verification email. Please try again shortly.");
+      setMessage(verificationSendError(error));
     } finally {
       sendingRef.current = false;
       setSending(false);
@@ -70,7 +69,8 @@ export function RecruitmentEmailVerification({ returnPath }: { returnPath: strin
   }, [user, returnPath]);
 
   useEffect(() => {
-    rememberAcquisitionReturn(returnPath);
+    rememberVerificationReturn(returnPath);
+    if (safeAcquisitionPath(returnPath)) rememberAcquisitionReturn(returnPath);
     if (loading) return;
     if (!user) {
       window.location.replace(`/auth/login?returnTo=${encodeURIComponent(returnPath)}`);
@@ -83,7 +83,7 @@ export function RecruitmentEmailVerification({ returnPath }: { returnPath: strin
     const [, kind, id] = returnPath.split("/");
     void (async () => {
       try {
-        if (returnPath !== "/become-agent") {
+        if (kind === "join" || kind === "recruit") {
         const response = await fetch(`/api/acquisition?id=${encodeURIComponent(id)}&type=${kind === "join" ? "agent_referral" : "admin_campaign"}`, { cache: "no-store" });
         if (!response.ok) {
           setUnavailable(true);
@@ -106,7 +106,7 @@ export function RecruitmentEmailVerification({ returnPath }: { returnPath: strin
   return <Card className="recruitment-page mx-auto max-w-lg">
     <MailCheck className="text-lime" aria-hidden="true" /><p className="copic-eyebrow">Onboarding process</p>
     <h1 className="mt-4 text-3xl font-black">Verify your email</h1>
-    <p className="mt-2 break-words text-sm copic-muted">{sent ? "We've sent a verification link to " : "Verify the email address "}<strong>{user.email}</strong>. {returnPath === "/become-agent" ? "Verify your email to continue setting up your COPIC Agent account." : "Verify your email to continue your application."}</p>
+    <p className="mt-2 break-words text-sm copic-muted">{sent ? "We've sent a verification link to " : "Verify the email address "}<strong>{user.email}</strong>. {returnPath === "/become-agent" ? "Verify your email to continue setting up your COPIC Agent account." : "Verify your email to continue setting up or using your COPIC account."}</p>
     <p className="mt-3 text-sm copic-muted">If the link has expired, request a new email below. You can also verify on another device and return here.</p>
     {message && <p role="status" className="mt-4 text-sm">{message}</p>}
     <div className="mt-5 grid gap-3">

@@ -1,3 +1,4 @@
+import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { requireServerUser } from "@/lib/server-auth";
 import { assertActiveLink, validId, MarketplaceError } from "@/lib/marketplace-server";
@@ -18,7 +19,8 @@ export async function GET(request: NextRequest) {
     const { id, type, collection } = source(request), doc = await adminDb().doc(`${collection}/${id}`).get();
     const link = doc.data(); assertActiveLink(link);
     return NextResponse.json({ link: { id, sourceType: type, name: link!.name, service: link!.service ?? null, category: link!.category ?? null, rate: type === "admin_campaign" ? link!.rate : null, unit: type === "admin_campaign" ? link!.unit : null, targetLocation: link!.targetLocation ?? null } });
-  } catch (error) { return failure(error); }
+  } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 }); return failure(error); }
 }
 export async function POST(request: NextRequest) {
   try {
@@ -48,7 +50,7 @@ export async function POST(request: NextRequest) {
     // Read the current Auth record: profile flags and cached token claims can be stale.
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
     if (!token) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await verifyVerifiedIdToken(token);
     const authUser = await adminAuth().getUser(decoded.uid);
     if (!authUser.emailVerified) return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const user = await requireServerUser(request);
@@ -103,6 +105,7 @@ export async function POST(request: NextRequest) {
     }
     if (action === "id_verification_started") { await recordFunnel(db, user.uid, "id_verification_started"); return NextResponse.json({ success: true }); }
     throw new MarketplaceError("Unknown recruitment action.");
-  } catch (error) { return failure(error); }
+  } catch (error) {
+    if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 }); return failure(error); }
 }
 function failure(error: unknown) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to continue recruitment." }, { status: error instanceof MarketplaceError ? error.status : 400 }); }
