@@ -16,6 +16,8 @@ export default function BecomeAgentPage() {
   const [rate, setRate] = useState<number | null>(null);
   const [rateError, setRateError] = useState(false);
   const [verifiedUid, setVerifiedUid] = useState("");
+  const [verificationAttempt, setVerificationAttempt] = useState(0);
+  const [checkingEmail, setCheckingEmail] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [activated, setActivated] = useState(false);
@@ -38,27 +40,36 @@ export default function BecomeAgentPage() {
     else rememberAcquisitionReturn(AGENT_ONBOARDING_PATH);
     setAccepted(false);
     setActivated(false);
-    if (loading || !user || profile?.agentEnabled) return;
+    setVerifiedUid("");
+    if (!user || profile?.agentEnabled) return;
+    setError("");
+    setCheckingEmail(true);
     let stopped = false;
     void reloadVerifiedRecruitmentUser().then(verified => {
       if (stopped) return;
       if (verified) setVerifiedUid(user.uid);
-      else window.location.replace(recruitmentVerificationPath(AGENT_ONBOARDING_PATH));
-    }).catch(() => { if (!stopped) setError("We couldn't check your email verification. Refresh to try again."); });
+      else setVerifiedUid("");
+    }).catch(() => { if (!stopped) setError("We couldn't check your email verification. Please try again."); })
+      .finally(() => { if (!stopped) setCheckingEmail(false); });
     return () => { stopped = true; };
-  }, [loading, user, profile?.agentEnabled]);
+  }, [user, profile?.agentEnabled, verificationAttempt]);
 
   async function activate() {
     if (!user || !accepted || busy) return;
     setBusy(true); setError("");
     try {
       if (!await reloadVerifiedRecruitmentUser()) {
-        window.location.replace(recruitmentVerificationPath(AGENT_ONBOARDING_PATH));
+        setVerifiedUid("");
         return;
       }
       const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ action: "register", acceptTerms: true, termsVersion: AGENT_TERMS_VERSION }) });
       if (!response.ok) {
-        setError(response.status === 409 ? "This account already has a worker referral relationship. Contact COPIC support before becoming an Agent." : response.status === 403 ? "This account cannot be activated. Check your email verification and account status." : "We couldn't activate your Agent account. Please try again.");
+        const payload = await response.json().catch(() => ({}));
+        if (payload.error === "EMAIL_NOT_VERIFIED") {
+          setVerifiedUid("");
+          return;
+        }
+        setError(response.status === 409 ? "This account already has a worker referral relationship. Contact COPIC support before becoming an Agent." : response.status === 403 ? "This account is not eligible for Agent activation. Contact COPIC support to check your account status." : "We couldn't activate your Agent account. Please try again.");
         return;
       }
       setActivated(true);
@@ -69,9 +80,16 @@ export default function BecomeAgentPage() {
     finally { setBusy(false); }
   }
 
-  if (loading) return <RecruitmentState title="Checking your Agent status…" />;
+  if (loading && !user) return <RecruitmentState title="Checking your Agent status…" />;
   if (profile?.agentEnabled || activated) return <RecruitmentState title="You're a COPIC Agent."><p>Your Agent Dashboard has your worker referral links and commissions.</p><div className="mt-6"><RecruitmentApplyLink href="/agent" onClick={clearAcquisitionReturn}>Open Agent Dashboard</RecruitmentApplyLink></div></RecruitmentState>;
-  if (user && verifiedUid !== user.uid) return <RecruitmentState title={error ? "Unable to continue" : "Checking email verification…"} error={!!error}>{error || "Verify your email to continue setting up your Agent account."}</RecruitmentState>;
+  if (user && verifiedUid !== user.uid) return <RecruitmentState title={error ? "Unable to check email verification" : checkingEmail ? "Checking email verification…" : "Verify your email"} error={!!error}>
+    <p>{error || "Verify your email to continue setting up your Agent account."}</p>
+    <div className="mt-6 flex flex-wrap gap-3">
+      <RecruitmentApplyLink href={recruitmentVerificationPath(AGENT_ONBOARDING_PATH)}>Verify email</RecruitmentApplyLink>
+      <Button type="button" variant="secondary" disabled={checkingEmail} onClick={() => setVerificationAttempt(attempt => attempt + 1)}>{checkingEmail ? "Checking…" : "I've verified my email — check again"}</Button>
+    </div>
+  </RecruitmentState>;
+  if (loading) return <RecruitmentState title="Checking your Agent status…"><p>Your email is verified. Loading your COPIC profile…</p></RecruitmentState>;
 
   return <div className="recruitment-page">
     <header className="space-y-3"><p className="copic-eyebrow">COPIC Agent Program</p><h1 className="recruitment-title">{user ? "You're almost ready." : "Become a COPIC Agent"}</h1><p className="copic-muted">Help genuine service providers join COPIC and earn commission from eligible work completed by workers you successfully refer.</p></header>

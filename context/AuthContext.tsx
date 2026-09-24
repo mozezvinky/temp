@@ -288,18 +288,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     }
     const activeUser = user;
+    // A stalled optional verification listener must not block the whole account.
+    // Fall back to the API if the primary profile listener cannot settle either.
+    const profileTimeout = window.setTimeout(() => {
+      setProfileLoading(false);
+      void refreshProfile();
+    }, 8_000);
     let userData: Record<string, unknown> | null | undefined;
     let identityVerificationData: Record<string, unknown> | null | undefined;
     let driverLicenseVerificationData: Record<string, unknown> | null | undefined;
 
     function updateProfileFromSnapshots() {
-      if (userData === undefined || identityVerificationData === undefined || driverLicenseVerificationData === undefined) return;
+      if (userData === undefined) return;
+      window.clearTimeout(profileTimeout);
       if (userData) {
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem("temp.profile.uid");
           window.sessionStorage.removeItem("temp.profile.role");
         }
-        setProfile(profileFromDocument(activeUser, profileDataWithVerificationRecords(userData, identityVerificationData, driverLicenseVerificationData)));
+        setProfile(profileFromDocument(activeUser, profileDataWithVerificationRecords(userData, identityVerificationData ?? null, driverLicenseVerificationData ?? null)));
       } else {
         const role = storedRecoveredRole(activeUser.uid);
         setProfile(role ? recoveredProfile(activeUser, role) : null);
@@ -341,6 +348,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
     return () => {
+      window.clearTimeout(profileTimeout);
       unsubscribeUser();
       unsubscribeIdentityVerification();
       unsubscribeDriverLicenseVerification();
