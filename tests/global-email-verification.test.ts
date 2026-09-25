@@ -89,18 +89,13 @@ test("signup never sends OTPs or deletes newly created accounts when link delive
  assert.equal(await service.registerWithEmail("john@example.com","password","John"),user);
  assert.equal(creates,1);assert.equal(deletes,0);assert.equal(sends,0);
 });
-test("verification-send errors distinguish syntax, rate limit, network and unknown failures", async()=>{
- const service=await load("services/emailVerification.ts",{"@/lib/firebase":{},"firebase/auth":{}});
- assert.equal(service.verificationSendError({code:"auth/invalid-email"}),"Enter a valid email address.");
- assert.match(service.verificationSendError({code:"auth/too-many-requests"}),/Too many/);
- assert.match(service.verificationSendError({code:"auth/network-request-failed"}),/connection problem/);
- assert.equal(service.verificationSendError({code:"unknown"}),"Unable to send the verification email. Please try again.");
-});
-test("legacy OTP endpoints cannot create profiles or set a verified flag",async()=>{
- for(const name of ["send-email-otp","verify-email-otp"]) {
-  const route=await load("app/api/auth/"+name+"/route.ts",{});
-  assert.equal((await route.POST()).status,410);
- }
+test("OTP endpoints are active and Firebase verification-link delivery is removed",()=>{
+ const send=readFileSync("app/api/auth/send-email-otp/route.ts","utf8");
+ const verify=readFileSync("app/api/auth/verify-email-otp/route.ts","utf8");
+ const service=readFileSync("services/emailVerification.ts","utf8");
+ assert.match(send,/sendAppEmail/);assert.match(send,/EMAIL_OTP_RESEND_MS/);
+ assert.match(verify,/EMAIL_OTP_MAX_ATTEMPTS/);assert.match(verify,/emailVerified:\s*true/);
+ assert.doesNotMatch(service,/sendEmailVerification\s*\(/);
 });
 test("direct Firebase access rules use signed Auth claims, not mutable profile flags",()=>{
  const rules=readFileSync("firestore.rules","utf8");

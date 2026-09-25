@@ -1,40 +1,25 @@
 import "server-only";
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 
-import { createHash } from "node:crypto";
-import { adminAuth } from "@/lib/firebase-admin";
-import { NextRequest } from "next/server";
+export const EMAIL_OTP_TTL_MS = 10 * 60_000;
+export const EMAIL_OTP_RESEND_MS = 60_000;
+export const EMAIL_OTP_MAX_ATTEMPTS = 5;
 
-const OTP_PATTERN = /^\d{6}$/;
-
-export function normalizeEmail(value: unknown) {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
+function secret() {
+  const value = process.env.OTP_SECRET;
+  if (!value || value.length < 32) throw new Error("OTP_SECRET must be configured with at least 32 characters.");
+  return value;
 }
 
-export function validEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+export function generateEmailOtp() { return randomInt(0, 1_000_000).toString().padStart(6, "0"); }
+export function hashEmailOtp(uid: string, email: string, code: string) {
+  return createHmac("sha256", secret()).update(`${uid}:${email.trim().toLowerCase()}:${code}`).digest("hex");
 }
-
-export function validOtp(value: unknown): value is string {
-  return typeof value === "string" && OTP_PATTERN.test(value.trim());
+export function matchesEmailOtp(storedHash: string, uid: string, email: string, code: string) {
+  const actual = Buffer.from(hashEmailOtp(uid, email, code), "hex");
+  const expected = Buffer.from(storedHash, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
-
-export function hashOtp(otp: string) {
-  const secret = process.env.OTP_SECRET;
-  if (!secret) throw new Error("OTP_SECRET is not configured.");
-  return createHash("sha256").update(`${otp}:${secret}`).digest("hex");
-}
-
-export async function requireAuthenticatedOtpUser(request: NextRequest, uid: string, email: string) {
-  const authorization = request.headers.get("authorization") ?? "";
-  const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-  if (!token) throw new Error("Sign in is required.");
-
-  const decoded = await adminAuth().verifyIdToken(token);
-  if (decoded.uid !== uid || normalizeEmail(decoded.email) !== email) {
-    throw new Error("Account details do not match.");
-  }
-
-  const user = await adminAuth().getUser(uid);
-  if (normalizeEmail(user.email) !== email) throw new Error("Account details do not match.");
-  return user;
+export function emailOtpHtml(code: string) {
+  return `<div style="font-family:Arial,sans-serif;color:#202124;max-width:520px;margin:24px auto;line-height:1.6"><h1 style="font-size:22px">Verify your COPIC email</h1><p>Your COPIC verification code is:</p><p style="font-size:34px;font-weight:700;letter-spacing:8px;margin:24px 0">${code}</p><p>This code expires in 10 minutes.</p><p>If you didn't create a COPIC account, you can ignore this email.</p></div>`;
 }

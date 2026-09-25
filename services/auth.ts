@@ -1,6 +1,5 @@
 "use client";
 import { accountRole } from "@/utils/onboarding";
-import { deliverVerificationEmail } from "@/services/emailVerification";
 import { validSignupEmail } from "@/utils/email-validation";
 import { verificationPath, verificationReturnPath } from "@/utils/verification-return";
 
@@ -103,7 +102,6 @@ export async function registerWithEmail(email: string, password: string, display
   try { await updateProfile(credential.user, { displayName }); } catch {
     if (process.env.NODE_ENV !== "production") console.warn("[auth] Account created, display name update failed.");
   }
-  await deliverVerificationEmail(verificationReturnPath("/complete-profile"));
   return credential.user;
 }
 

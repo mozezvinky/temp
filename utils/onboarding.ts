@@ -27,6 +27,9 @@ export function onboardingState(user: { emailVerified: boolean } | null, profile
 }
 
 export function accountDestination(profile: { role?: unknown; roles?: unknown } | null, intended: string) {
-  if (!accountRole(profile)) return `/complete-profile${intended && !intended.startsWith("/complete-profile") ? `?returnTo=${encodeURIComponent(intended)}` : ""}`;
+  if (!accountRole(profile)) {
+    if (/^\/complete-profile\?role=(worker|client)$/.test(intended)) return intended;
+    return `/complete-profile${intended && !intended.startsWith("/complete-profile") ? `?returnTo=${encodeURIComponent(intended)}` : ""}`;
+  }
   return intended && !intended.startsWith("/complete-profile") && intended !== "/auth/admin" ? intended : accountHome(accountRole(profile));
 }

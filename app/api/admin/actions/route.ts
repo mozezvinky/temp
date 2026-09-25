@@ -74,7 +74,7 @@ async function resendVerificationNotice(request: NextRequest, body: Record<strin
   const sent = await sendAdminEmail(email, "Verify your Copic email", `
     <div style="font-family:Arial,sans-serif;background:#11120D;color:#FFFBF4;padding:32px;">
       <h1 style="font-size:24px;margin:0 0 16px;">Verify your email</h1>
-      <p style="color:#D8CFBC;">Please sign in to Copic and open the email verification page to request a fresh verification link.</p>
+      <p style="color:#D8CFBC;">Please sign in to Copic and open the email verification page to request a fresh 6-digit verification code.</p>
     </div>
   `);
   await writeAdminAuditLog(request, { admin, targetUserId: userId, actionType: "auth.verification_notice", oldValue: { emailVerified: user?.emailVerified ?? null }, newValue: { emailSent: sent, email }, reason, linkedTicketId: optionalString(body.ticketId) });

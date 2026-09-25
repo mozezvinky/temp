@@ -1,5 +1,5 @@
 "use client";
-import { rememberVerificationReturn, clearVerificationReturn } from "@/utils/verification-return";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MailCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -7,95 +7,101 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { logout } from "@/services/auth";
-import { reloadVerifiedRecruitmentUser, deliverVerificationEmail, verificationDeliveryStatus } from "@/services/emailVerification";
+import { sendEmailVerificationCode, verifyEmailCode } from "@/services/emailVerification";
+import { rememberVerificationReturn, clearVerificationReturn } from "@/utils/verification-return";
 import { rememberAcquisitionReturn, safeAcquisitionPath } from "@/utils/acquisition-return";
 import { accountDestination } from "@/utils/onboarding";
 import { requireAuth } from "@/lib/firebase";
 
 export function RecruitmentEmailVerification({ returnPath }: { returnPath: string }) {
   const { user, resolveProfile } = useAuth();
-  const [busy, setBusy] = useState<"send" | "check" | "logout" | null>(null);
-  const [sent, setSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState<"send" | "verify" | "logout" | null>(null);
   const [message, setMessage] = useState("");
   const [remaining, setRemaining] = useState(0);
-  const running = useRef(false);
-  const leaving = useRef(false);
-  const cooldown = useRef(0);
   const initialized = useRef("");
+  const leaving = useRef(false);
 
-  const check = useCallback(async (manual: boolean) => {
-    if (!user || running.current || leaving.current) return;
-    running.current = true; setBusy("check"); setMessage("");
-    try {
-      if (!await reloadVerifiedRecruitmentUser()) {
-        if (manual) setMessage("Your email hasn't been verified yet. Open the link in your email, then try again.");
-        return;
-      }
-      const profile = await resolveProfile();
-      if (!leaving.current && requireAuth().currentUser?.uid === user.uid) {
-        const destination = accountDestination(profile, returnPath);
-        clearVerificationReturn();
-        window.location.replace(destination);
-      }
-    } catch { setMessage("Unable to refresh your account. Please try again, or use another account."); }
-    finally { running.current = false; setBusy(null); }
-  }, [user, returnPath, resolveProfile]);
+  const finish = useCallback(async () => {
+    const current = requireAuth().currentUser;
+    if (!current || !user || current.uid !== user.uid) throw new Error("Please sign in again.");
+    await current.reload();
+    await current.getIdToken(true);
+    if (!current.emailVerified) throw new Error("Your email is not verified yet.");
+    const profile = await resolveProfile();
+    if (leaving.current) return;
+    const destination = accountDestination(profile, returnPath);
+    clearVerificationReturn();
+    leaving.current = true;
+    window.location.replace(destination);
+  }, [user, resolveProfile, returnPath]);
 
-  const send = useCallback(async () => {
-    if (!user || running.current || leaving.current || Date.now() < cooldown.current) return;
-    running.current = true; setBusy("send"); setMessage("");
+  const send = useCallback(async (automatic = false) => {
+    if (!user || busy || leaving.current) return;
+    setBusy("send"); setMessage("");
     try {
-      const result = await deliverVerificationEmail(returnPath);
+      const result = await sendEmailVerificationCode();
       if (leaving.current || requireAuth().currentUser?.uid !== user.uid) return;
-      setSent(result.sent === true);
-      cooldown.current = result.retryAt || 0;
-      setRemaining(Math.max(0, Math.ceil((cooldown.current - Date.now()) / 1000)));
-      setMessage(result.error || "Verification email sent.");
-    } catch { setMessage("Unable to send the verification email. Please try again."); }
-    finally { running.current = false; setBusy(null); }
-  }, [user, returnPath]);
+      setRemaining(Number(result.retryAfter ?? 60));
+      setMessage(result.alreadyVerified ? "This email is already verified." : "We've sent a 6-digit verification code to your email.");
+      if (result.alreadyVerified) await finish();
+    } catch (error) {
+      const retryAfter = Number((error as { retryAfter?: number }).retryAfter ?? 0);
+      if (retryAfter) setRemaining(retryAfter);
+      setMessage(error instanceof Error ? error.message : automatic ? "We couldn't send your code. Please try again." : "Unable to resend the code.");
+    } finally { setBusy(null); }
+  }, [user, busy, finish]);
 
   useEffect(() => {
-    if (!user || leaving.current) return;
+    if (!user) return;
     rememberVerificationReturn(returnPath);
     if (safeAcquisitionPath(returnPath)) rememberAcquisitionReturn(returnPath);
     if (initialized.current === user.uid) return;
     initialized.current = user.uid;
-    const delivery = verificationDeliveryStatus(user.uid);
-    setSent(delivery.sent === true);
-    setMessage(delivery.error || (delivery.sent ? "Verification email sent." : ""));
-    cooldown.current = delivery.retryAt || 0;
-    setRemaining(Math.max(0, Math.ceil((cooldown.current - Date.now()) / 1000)));
-    if (!delivery.error) void check(false);
-  }, [user, returnPath, check]);
+    void (async () => {
+      if (user.emailVerified) { try { await finish(); } catch { /* The page remains available for recovery. */ } return; }
+      await send(true);
+    })();
+  }, [user, returnPath, send, finish]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setRemaining(Math.max(0, Math.ceil((cooldown.current - Date.now()) / 1000))), 1000);
-    const onFocus = () => { void check(false); };
-    window.addEventListener("focus", onFocus);
-    return () => { window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
-  }, [check]);
+    if (remaining <= 0) return;
+    const timer = window.setInterval(() => setRemaining(value => Math.max(0, value - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [remaining]);
 
-  async function signOut() {
-    if (leaving.current) return;
-    leaving.current = true; setBusy("logout");
-    try { await logout(); window.location.replace("/auth/login"); }
-    catch { leaving.current = false; setBusy(null); setMessage("Unable to sign out. Please try again."); }
+  async function verify() {
+    if (!/^\d{6}$/.test(code)) { setMessage("Enter the 6-digit code from your email."); return; }
+    setBusy("verify"); setMessage("");
+    try { await verifyEmailCode(code); await finish(); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Unable to verify the code. Please try again."); }
+    finally { setBusy(null); }
   }
 
-  if (!user) return <Card className="mx-auto max-w-lg space-y-4"><LoadingSpinner label="Checking session" /><Button onClick={() => window.location.replace(`/auth/login?returnTo=${encodeURIComponent(returnPath)}`)}>Sign in / Use Another Account</Button></Card>;
+  async function signOut(changeEmail = false) {
+    if (busy) return;
+    setBusy("logout");
+    try {
+      await logout();
+      const next = changeEmail ? `/auth/register?returnTo=${encodeURIComponent(returnPath)}` : `/auth/login?returnTo=${encodeURIComponent(returnPath)}`;
+      window.location.replace(next);
+    } catch { setBusy(null); setMessage("Unable to sign out. Please try again."); }
+  }
+
+  if (!user) return <Card className="mx-auto max-w-lg space-y-4"><LoadingSpinner label="Checking session" /><Button onClick={() => window.location.replace(`/auth/login?returnTo=${encodeURIComponent(returnPath)}`)}>Sign in</Button></Card>;
   return <Card className="recruitment-page mx-auto max-w-lg">
     <MailCheck className="text-lime" aria-hidden="true" /><p className="copic-eyebrow">Account setup</p>
     <h1 className="mt-4 text-3xl font-black">Verify your email</h1>
-    <label className="mt-5 block text-sm font-bold" htmlFor="verification-email">Email address</label>
-    <input id="verification-email" type="email" readOnly value={user.email || ""} className="copic-auth-field mt-2 w-full min-w-0" />
-    <p className="mt-3 break-words text-sm copic-muted">{sent ? `We've sent a verification link to ${user.email}. Open the link in your inbox, then return here.` : "Send a verification link to this email address to continue setting up your account."}</p>
-    <p className="mt-3 text-sm copic-muted">Check your spam folder too. If the link has expired, request a new email below.</p>
+    <p className="mt-3 break-words text-sm copic-muted">We&apos;ve sent a 6-digit verification code to your email.</p>
+    <p className="mt-1 font-semibold">{user.email}</p>
+    <label className="mt-5 block text-sm font-bold" htmlFor="verification-code">6-digit verification code</label>
+    <input id="verification-code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="_ _ _ _ _ _" aria-label="6-digit verification code" className="copic-auth-field mt-2 w-full min-w-0 text-center text-2xl font-bold tracking-[0.45em]" />
     {message && <p role="status" aria-live="polite" className="mt-4 text-sm">{message}</p>}
     <div className="mt-5 grid gap-3">
-      <Button type="button" disabled={!!busy || remaining > 0} onClick={() => void send()}>{busy === "send" ? "Sending…" : remaining > 0 ? `Resend Verification Email (${remaining}s)` : sent ? "Resend Verification Email" : "Verify Email"}</Button>
-      <Button type="button" className="recruitment-primary" disabled={!!busy} onClick={() => void check(true)}>{busy === "check" ? "Checking…" : "I've Verified My Email"}</Button>
-      <Button type="button" variant="ghost" disabled={busy === "logout"} onClick={() => void signOut()}>{busy === "logout" ? "Signing out…" : "Sign Out / Use Another Account"}</Button>
+      <Button type="button" disabled={!!busy || code.length !== 6} onClick={() => void verify()}>{busy === "verify" ? "Verifying…" : "Verify email"}</Button>
+      <Button type="button" variant="ghost" disabled={!!busy || remaining > 0} onClick={() => void send()}>{busy === "send" ? "Sending…" : remaining ? `Resend code (${remaining}s)` : "Resend code"}</Button>
+      <Button type="button" variant="ghost" disabled={!!busy} onClick={() => void signOut(true)}>Change email</Button>
+      <Button type="button" variant="ghost" disabled={!!busy} onClick={() => void signOut(false)}>{busy === "logout" ? "Signing out…" : "Sign out"}</Button>
     </div>
   </Card>;
 }

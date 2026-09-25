@@ -66,10 +66,10 @@ test("unverified sessions never load profiles or prematurely select a role", asy
   assert.equal(render().state, "email_unverified");
 });
 
-test("verification UI sends, warns while unverified, reloads before routing, and signs out", async () => {
+test("verification UI sends an OTP, verifies it, preserves onboarding and supports sign out", async () => {
   const h = hooks(), destinations: string[] = [];
-  let verified = false, sends = 0, reloads = 0, signedOut = false;
-  const user = { uid: "new", email: "test@example.com", emailVerified: false };
+  let verified = false, sends = 0, signedOut = false;
+  const user: any = { uid: "new", email: "test@example.com", emailVerified: false, reload: async () => { user.emailVerified = verified; }, getIdToken: async () => "fresh" };
   const firebase = { currentUser: user as any };
   const component = await load("components/auth/RecruitmentEmailVerification.tsx", {
     react: h.react, "@/lib/firebase": { requireAuth: () => firebase },
@@ -77,23 +77,20 @@ test("verification UI sends, warns while unverified, reloads before routing, and
     "@/components/ui/Button": { Button: "button" }, "@/components/ui/Card": { Card: "card" },
     "@/services/auth": { logout: async () => { signedOut = true; firebase.currentUser = null; } },
     "@/services/emailVerification": {
-      verificationDeliveryStatus: () => ({}),
-      reloadVerifiedRecruitmentUser: async () => { reloads++; return verified; },
-      deliverVerificationEmail: async () => { sends++; return { sent: true }; }
+      sendEmailVerificationCode: async () => { sends++; return { sent: true, retryAfter: 60 }; },
+      verifyEmailCode: async () => { verified = true; return { verified: true }; }
     }
   }, { window: { location: { replace: (p: string) => destinations.push(p) }, sessionStorage: storage(), localStorage: storage(), setInterval: () => 1, clearInterval() {}, addEventListener() {}, removeEventListener() {} } });
   const render = () => h.render(() => component.RecruitmentEmailVerification({ returnPath: "/complete-profile" }));
   render(); await h.flush(); let tree = render();
-  assert.equal(nodes(tree).find(n => n.type === "input")!.props.readOnly, true);
-  await nodes(tree).find(n => n.type === "button" && n.props.children === "Verify Email")!.props.onClick(); await h.flush(); tree = render();
-  assert.equal(sends, 1); assert.match(JSON.stringify(tree), /Verification email sent/);
-  nodes(tree).find(n => n.type === "button" && n.props.children === "I've Verified My Email")!.props.onClick(); await h.flush(); tree = render();
-  assert.match(JSON.stringify(tree), /hasn't been verified/); assert.equal(destinations.length, 0);
-  verified = true;
-  nodes(tree).find(n => n.type === "button" && n.props.children === "I've Verified My Email")!.props.onClick(); await h.flush(); tree = render();
-  assert.ok(reloads >= 3); assert.equal(destinations[0], "/complete-profile");
-  nodes(tree).find(n => n.type === "button" && n.props.children === "Sign Out / Use Another Account")!.props.onClick(); await h.flush();
-  assert.equal(signedOut, true); assert.equal(destinations.at(-1), "/auth/login");
+  assert.equal(nodes(tree).find(n => n.type === "input")!.props.inputMode, "numeric");
+  assert.equal(sends, 1); assert.match(JSON.stringify(tree), /6-digit verification code/);
+  const input = nodes(tree).find(n => n.type === "input")!;
+  input.props.onChange({ target: { value: "123456" } }); await h.flush(); tree = render();
+  await nodes(tree).find(n => n.type === "button" && n.props.children === "Verify email")!.props.onClick(); await h.flush(); tree = render();
+  assert.equal(destinations[0], "/complete-profile");
+  await nodes(tree).find(n => n.type === "button" && n.props.children === "Sign out")!.props.onClick(); await h.flush();
+  assert.equal(signedOut, true); assert.equal(destinations.at(-1), "/auth/login?returnTo=%2Fcomplete-profile");
 });
 
 test("role selection awaits durable persistence, never activates from a cached role", async () => {
@@ -111,18 +108,13 @@ test("role selection awaits durable persistence, never activates from a cached r
   assert.equal(browser.localStorage.getItem("temp.profile.role.person"), "worker");
 });
 
-test("verification uses Firebase and canonical production URL; delivery failure is recoverable", async () => {
-  let settings: any, failure = false;
-  const user = { uid: "new", email: "test@example.com" };
-  const sessionStorage = storage();
-  const service = await load("services/emailVerification.ts", { "@/lib/firebase": { requireAuth: () => ({ currentUser: user }) }, "firebase/auth": { sendEmailVerification: async (_: any, input: any) => { settings = input; if (failure) throw { code: "auth/network-request-failed" }; } } }, {
-    process: { env: { NODE_ENV: "production", NEXT_PUBLIC_APP_URL: "http://localhost:3000" } }, window: { sessionStorage, localStorage: storage() }
+test("verification service calls only the server OTP endpoints", async () => {
+  const user = { getIdToken: async () => "fresh" };
+  const paths: string[] = [];
+  const service = await load("services/emailVerification.ts", { "@/lib/firebase": { requireAuth: () => ({ currentUser: user }) } }, {
+    fetch: async (path: string) => { paths.push(path); return { ok: true, json: async () => ({ sent: true, verified: true }) }; }
   });
-  assert.equal((await service.deliverVerificationEmail("/join/referral")).sent, true);
-  assert.equal(new URL(settings.url).origin, "https://copic.co.ke");
-  assert.equal(new URL(settings.url).searchParams.get("returnTo"), "/join/referral");
-  failure = true;
-  const result = await service.deliverVerificationEmail("/complete-profile");
-  assert.match(result.error, /connection/); assert.equal(result.retryAt, undefined);
-  assert.equal(service.verificationDeliveryStatus(user.uid).error, result.error);
+  await service.sendEmailVerificationCode();
+  await service.verifyEmailCode("123456");
+  assert.deepEqual(paths, ["/api/auth/send-email-otp", "/api/auth/verify-email-otp"]);
 });
