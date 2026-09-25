@@ -15,9 +15,7 @@ export default function BecomeAgentPage() {
   const { user, profile, loading, refreshProfile } = useAuth();
   const [rate, setRate] = useState<number | null>(null);
   const [rateError, setRateError] = useState(false);
-  const [verifiedUid, setVerifiedUid] = useState("");
-  const [verificationAttempt, setVerificationAttempt] = useState(0);
-  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [activated, setActivated] = useState(false);
@@ -40,33 +38,32 @@ export default function BecomeAgentPage() {
     else rememberAcquisitionReturn(AGENT_ONBOARDING_PATH);
     setAccepted(false);
     setActivated(false);
-    setVerifiedUid("");
-    if (!user || profile?.agentEnabled) return;
+    setNeedsVerification(false);
     setError("");
-    setCheckingEmail(true);
-    let stopped = false;
-    void reloadVerifiedRecruitmentUser().then(verified => {
-      if (stopped) return;
-      if (verified) setVerifiedUid(user.uid);
-      else setVerifiedUid("");
-    }).catch(() => { if (!stopped) setError("We couldn't check your email verification. Please try again."); })
-      .finally(() => { if (!stopped) setCheckingEmail(false); });
-    return () => { stopped = true; };
-  }, [user, profile?.agentEnabled, verificationAttempt]);
+  }, [user?.uid, profile?.agentEnabled]);
 
   async function activate() {
-    if (!user || !accepted || busy) return;
+    if (!accepted || busy) return;
+    if (!user) {
+      window.location.assign("/auth/register?returnTo=%2Fbecome-agent");
+      return;
+    }
     setBusy(true); setError("");
     try {
       if (!await reloadVerifiedRecruitmentUser()) {
-        setVerifiedUid("");
+        setNeedsVerification(true);
+        return;
+      }
+      setNeedsVerification(false);
+      if (!profile) {
+        window.location.assign("/complete-profile?returnTo=%2Fbecome-agent");
         return;
       }
       const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ action: "register", acceptTerms: true, termsVersion: AGENT_TERMS_VERSION }) });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         if (payload.error === "EMAIL_NOT_VERIFIED") {
-          setVerifiedUid("");
+          setNeedsVerification(true);
           return;
         }
         setError(response.status === 409 ? "This account already has a worker referral relationship. Contact COPIC support before becoming an Agent." : response.status === 403 ? "This account is not eligible for Agent activation. Contact COPIC support to check your account status." : "We couldn't activate your Agent account. Please try again.");
@@ -82,14 +79,13 @@ export default function BecomeAgentPage() {
 
   if (loading && !user) return <RecruitmentState title="Checking your Agent status…" />;
   if (profile?.agentEnabled || activated) return <RecruitmentState title="You're a COPIC Agent."><p>Your Agent Dashboard has your worker referral links and commissions.</p><div className="mt-6"><RecruitmentApplyLink href="/agent" onClick={clearAcquisitionReturn}>Open Agent Dashboard</RecruitmentApplyLink></div></RecruitmentState>;
-  if (user && verifiedUid !== user.uid) return <RecruitmentState title={error ? "Unable to check email verification" : checkingEmail ? "Checking email verification…" : "Verify your email"} error={!!error}>
+  if (user && accepted && needsVerification) return <RecruitmentState title="Verify your email" error={!!error}>
     <p>{error || "Verify your email to continue setting up your Agent account."}</p>
     <div className="mt-6 flex flex-wrap gap-3">
       <RecruitmentApplyLink href={recruitmentVerificationPath(AGENT_ONBOARDING_PATH)}>Verify email</RecruitmentApplyLink>
-      <Button type="button" variant="secondary" disabled={checkingEmail} onClick={() => setVerificationAttempt(attempt => attempt + 1)}>{checkingEmail ? "Checking…" : "I've verified my email — check again"}</Button>
+      <Button type="button" variant="secondary" disabled={busy} onClick={() => void activate()}>{busy ? "Checking…" : "I've verified my email — check again"}</Button>
     </div>
   </RecruitmentState>;
-  if (loading) return <RecruitmentState title="Checking your Agent status…"><p>Your email is verified. Loading your COPIC profile…</p></RecruitmentState>;
 
   return <div className="recruitment-page">
     <header className="space-y-3"><p className="copic-eyebrow">COPIC Agent Program</p><h1 className="recruitment-title">{user ? "You're almost ready." : "Become a COPIC Agent"}</h1><p className="copic-muted">Help genuine service providers join COPIC and earn commission from eligible work completed by workers you successfully refer.</p></header>
@@ -128,14 +124,16 @@ export default function BecomeAgentPage() {
         </div>
       </> : <p role="status" className="mt-3 copic-muted">{rateError ? "Commission information is temporarily unavailable. Please try again later." : "Loading the current commission…"}</p>}
     </Card>
-    {!user ? <Card><h2 className="text-xl font-bold">How it works</h2><ol className="agent-program-steps mt-4">{["Become an Agent", "Share your referral links", "Refer genuine workers", "Earn eligible commissions"].map((step, i) => <li key={step}><span aria-hidden="true">{i + 1}</span>{step}</li>)}</ol><div className="mt-7"><RecruitmentApplyLink href="/auth/register?returnTo=%2Fbecome-agent" onClick={() => rememberAcquisitionReturn(AGENT_ONBOARDING_PATH)}>Become a COPIC Agent</RecruitmentApplyLink></div><p className="mt-4 text-center copic-muted">Already registered? <Link href="/auth/login?returnTo=%2Fbecome-agent" className="inline-flex min-h-11 items-center px-2 font-bold underline">Sign in</Link></p></Card> : !profile ? <Card><p>Complete your COPIC profile before activating your Agent account.</p><div className="mt-5"><RecruitmentApplyLink href="/complete-profile?returnTo=%2Fbecome-agent">Complete my account</RecruitmentApplyLink></div></Card> : <Card>
+    {!user && <Card><h2 className="text-xl font-bold">How it works</h2><ol className="agent-program-steps mt-4">{["Become an Agent", "Share your referral links", "Refer genuine workers", "Earn eligible commissions"].map((step, i) => <li key={step}><span aria-hidden="true">{i + 1}</span>{step}</li>)}</ol><p className="mt-4 text-center copic-muted">Already registered? <Link href="/auth/login?returnTo=%2Fbecome-agent" className="inline-flex min-h-11 items-center px-2 font-bold underline">Sign in</Link></p></Card>}
+    <Card>
       <h2 className="text-xl font-bold">Your role and program rules</h2>
       <ul className="mt-4 space-y-3">{agentProgramRules.map(rule => <li className="flex items-start gap-3" key={rule}><Check size={18} className="mt-1 shrink-0" aria-hidden="true" /><span>{rule}</span></li>)}</ul>
       <form className="mt-6 space-y-5" onSubmit={event => { event.preventDefault(); void activate(); }}>
         <div className="flex items-start gap-3"><input id="agent-terms" type="checkbox" checked={accepted} onChange={event => setAccepted(event.target.checked)} required disabled={busy} className="mt-3 h-5 w-5 shrink-0" /><label htmlFor="agent-terms" className="min-h-11 py-2">I agree to the <Link href="/legal/agent-terms" target="_blank" rel="noopener noreferrer" className="font-bold underline">COPIC Agent Terms</Link>.</label></div>
         {error && <p role="alert" className="copic-error">{error}</p>}
-        <Button className="recruitment-primary w-full" type="submit" disabled={!accepted || busy || rate === null} aria-busy={busy}><span>{busy ? "Activating Agent account…" : "Activate my Agent Account"}</span><ArrowRight size={20} aria-hidden="true" className="shrink-0" /></Button>
+        <p className="copic-muted">After accepting, continue to account setup. We will ask you to verify your email before activating your Agent account.</p>
+        <Button className="recruitment-primary w-full" type="submit" disabled={!accepted || busy || loading || rate === null} aria-busy={busy}><span>{busy ? "Setting up Agent account…" : !user ? "Accept and create my account" : !profile ? "Accept and complete my account" : "Activate my Agent Account"}</span><ArrowRight size={20} aria-hidden="true" className="shrink-0" /></Button>
       </form>
-    </Card>}
+    </Card>
   </div>;
 }
