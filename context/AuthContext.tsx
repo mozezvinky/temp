@@ -2,9 +2,10 @@
 
 import { auth, db } from "@/lib/firebase";
 import { isSqlBackend } from "@/lib/data-backend";
-import type { Role, UserProfile } from "@/types";
+import type { UserProfile } from "@/types";
+import { accountRole, accountRoles, accountHome, onboardingState } from "@/utils/onboarding";
 import { normalizeVerificationStatus } from "@/utils/verification";
-import { onAuthStateChanged, type User } from "firebase/auth";
+import { onIdTokenChanged, type User } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -14,47 +15,13 @@ interface AuthState {
   loading: boolean;
   isAdmin: boolean;
   homePath: string;
+  profileError: string | null;
+  state: ReturnType<typeof onboardingState>;
+  resolveProfile: () => Promise<UserProfile | null>;
   refreshProfile: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthState>({ user: null, profile: null, loading: true, isAdmin: false, homePath: "/dashboard", refreshProfile: async () => undefined });
-
-function storedRecoveredRole(userId: string): Role | null {
-  if (typeof window === "undefined") return null;
-  const storedUserId = window.sessionStorage.getItem("temp.profile.uid");
-  const storedRole = window.sessionStorage.getItem("temp.profile.role");
-  if (storedUserId === userId && (storedRole === "worker" || storedRole === "client" || storedRole === "admin")) return storedRole;
-  const persistedRole = window.localStorage.getItem(`temp.profile.role.${userId}`);
-  return persistedRole === "worker" || persistedRole === "client" || persistedRole === "admin" ? persistedRole : null;
-}
-
-function roleHintHeaders(userId: string): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const pendingRole = window.localStorage.getItem(`temp.profile.pendingRole.${userId}`);
-  const routeRole = window.location.pathname.startsWith("/jobs")
-    ? "worker"
-    : window.location.pathname.startsWith("/find-work") || window.location.pathname.startsWith("/workers") || window.location.pathname.startsWith("/completed-requests")
-      ? "client"
-      : "";
-  const role = pendingRole === "worker" || pendingRole === "client" || pendingRole === "admin"
-    ? pendingRole
-    : routeRole;
-  return role ? { "X-Temp-Role": role } : {};
-}
-
-function rememberRecoveredRole(userId: string, role: Role, email?: string) {
-  if (typeof window === "undefined" || (role !== "worker" && role !== "client" && role !== "admin")) return;
-  window.sessionStorage.setItem("temp.profile.uid", userId);
-  window.sessionStorage.setItem("temp.profile.role", role);
-  window.localStorage.setItem(`temp.profile.role.${userId}`, role);
-  if (email) window.localStorage.setItem(`temp.accountRole.${email.toLowerCase()}`, role);
-}
-
-function rememberAvailableRoles(userId: string, roles: Role[]) {
-  if (typeof window === "undefined") return;
-  const validRoles = roles.filter(role => role === "worker" || role === "client" || role === "admin");
-  window.localStorage.setItem(`temp.profile.roles.${userId}`, JSON.stringify(Array.from(new Set(validRoles))));
-}
+const AuthContext = createContext<AuthState>({ user: null, profile: null, loading: true, isAdmin: false, homePath: "/dashboard", profileError: null, state: "loading", resolveProfile: async () => null, refreshProfile: async () => {} });
 
 function storedPhoto(userId: string) {
   if (typeof window === "undefined") return {};
@@ -74,57 +41,12 @@ function strongestVerificationStatus(...values: unknown[]) {
   return "not_submitted";
 }
 
-function recoveredProfile(user: User, role: Role): UserProfile {
-  const photo = storedPhoto(user.uid);
-  return {
-    id: user.uid,
-    uid: user.uid,
-    role,
-    roles: role === "admin" ? ["admin"] : [role],
-    displayName: user.displayName ?? user.email?.split("@")[0] ?? "Copic user",
-    email: user.email ?? "",
-    emailVerified: user.emailVerified,
-    emailVerifiedAt: null,
-    phoneNumber: user.phoneNumber ?? undefined,
-    photoURL: photo.photoURL ?? user.photoURL ?? undefined,
-    photoPositionX: photo.photoPositionX ?? 50,
-    photoPositionY: photo.photoPositionY ?? 50,
-    photoZoom: photo.photoZoom ?? 1,
-    skills: [],
-    certificates: [],
-    workHistory: [],
-    ratingAverage: 0,
-    ratingCount: 0,
-    completedJobs: 0,
-    verificationStatus: "not_submitted",
-    driverLicenseVerificationStatus: "not_submitted",
-    driverLicenseRejectionReason: null,
-    profileCompleted: false,
-    isLocked: false,
-    outstandingServiceFee: 0,
-    badges: role === "worker" ? ["Trial Worker"] : [],
-    createdAt: null,
-    updatedAt: null
-  };
-}
-
-function profileFromDocument(user: User, data: Record<string, unknown>): UserProfile {
+function profileFromDocument(user: User, data: Record<string, unknown>): UserProfile | null {
   const cachedPhoto = storedPhoto(user.uid);
   const emailVerified = user.emailVerified;
-  const storedRole = storedRecoveredRole(user.uid);
-  const pendingRole = typeof window !== "undefined" ? window.localStorage.getItem(`temp.profile.pendingRole.${user.uid}`) : null;
-  const documentRole = data.role as UserProfile["role"];
-  const roles = Array.isArray(data.roles) ? data.roles.filter((role): role is Role => role === "worker" || role === "client" || role === "admin") : documentRole === "worker" || documentRole === "client" || documentRole === "admin" ? [documentRole] : [];
-  const pendingProfileRole = pendingRole === "worker" || pendingRole === "client" || pendingRole === "admin" ? pendingRole : null;
-  const role = pendingProfileRole && (roles.includes(pendingProfileRole) || pendingProfileRole === documentRole)
-    ? pendingProfileRole
-    : documentRole === "worker" || documentRole === "client" || documentRole === "admin"
-      ? documentRole
-      : storedRole && roles.includes(storedRole)
-        ? storedRole
-        : documentRole;
-  rememberAvailableRoles(user.uid, roles);
-  if (role === "worker" || role === "client" || role === "admin") rememberRecoveredRole(user.uid, role, user.email ?? undefined);
+  const role = accountRole(data);
+  const roles = accountRoles(data);
+  if (!role) return null;
   return {
     ...data,
     id: user.uid,
@@ -185,179 +107,95 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
-  const refreshInFlightRef = useRef(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const activeUid = useRef<string | null>(null);
+  const requestVersion = useRef(0);
 
-  const refreshProfile = useCallback(async () => {
-    if (!user || refreshInFlightRef.current) return;
-    const quotaPausedUntil = Number(window.localStorage.getItem("temp.dataQuotaPausedUntil") ?? 0);
-    if (Date.now() < quotaPausedUntil) return;
-    refreshInFlightRef.current = true;
+  const resolveProfile = useCallback(async (): Promise<UserProfile | null> => {
+    const current = auth?.currentUser;
+    if (!current) return null;
+    const version = ++requestVersion.current;
+    setProfileLoading(true);
+    setProfileError(null);
     try {
-      const token = await user.getIdToken(true);
+      await current.reload();
+      if (auth?.currentUser?.uid !== current.uid || version !== requestVersion.current) throw new Error("Account request superseded.");
+      setEmailVerified(current.emailVerified);
+      if (!current.emailVerified) { setProfile(null); return null; }
+      const token = await current.getIdToken(true);
       const response = await fetch("/api/auth/me", {
-        headers: { Authorization: `Bearer ${token}`, ...roleHintHeaders(user.uid) },
-        cache: "no-store",
-        credentials: "same-origin"
+        headers: { Authorization: `Bearer ${token}` }, cache: "no-store", credentials: "same-origin",
+        signal: AbortSignal.timeout(15_000)
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to refresh profile.");
-      if (payload.degraded) {
-        window.localStorage.setItem("temp.dataQuotaPausedUntil", String(Date.now() + 300_000));
-      }
-      if (payload.profile) {
-        setProfile(profileFromDocument(user, payload.profile as Record<string, unknown>));
-        return;
-      }
-      const role = storedRecoveredRole(user.uid);
-      setProfile(role ? recoveredProfile(user, role) : null);
+      const payload = await response.json();
+      if (!response.ok || payload.degraded) throw new Error("Unable to load your account. Please try again.");
+      if (auth?.currentUser?.uid !== current.uid || version !== requestVersion.current) throw new Error("Account request superseded.");
+      const next = payload.profile ? profileFromDocument(current, payload.profile) : null;
+      setProfile(next);
+      return next;
     } catch {
-      const role = storedRecoveredRole(user.uid);
-      setProfile(current => current ?? (role ? recoveredProfile(user, role) : null));
+      if (auth?.currentUser?.uid === current.uid && version === requestVersion.current) {
+        setProfileError("Unable to load your account. Please try again.");
+      }
+      throw new Error("Unable to load your account. Please try again.");
     } finally {
-      refreshInFlightRef.current = false;
+      if (version === requestVersion.current) setProfileLoading(false);
     }
-  }, [user]);
-
-  useEffect(() => {
-    if (!auth) {
-      setAuthLoading(false);
-      return;
-    }
-    let active = true;
-    const readinessTimeout = window.setTimeout(() => {
-      if (active) setAuthLoading(false);
-    }, 8_000);
-    const unsubscribe = onAuthStateChanged(auth, nextUser => {
-      if (!active) return;
-      window.clearTimeout(readinessTimeout);
-      setUser(nextUser);
-      setProfile(nextUser ? (storedRecoveredRole(nextUser.uid) ? recoveredProfile(nextUser, storedRecoveredRole(nextUser.uid)!) : null) : null);
-      setAuthLoading(false);
-      setProfileLoading(!!nextUser);
-    }, () => {
-      if (!active) return;
-      window.clearTimeout(readinessTimeout);
-      setUser(null);
-      setProfile(null);
-      setAuthLoading(false);
-      setProfileLoading(false);
-    });
-    return () => {
-      active = false;
-      window.clearTimeout(readinessTimeout);
-      unsubscribe();
-    };
   }, []);
 
   useEffect(() => {
-    if (!user || !db) {
-      setProfileLoading(false);
-      return;
-    }
-    if (isSqlBackend()) {
-      const activeUser = user;
-      let cancelled = false;
-      async function loadSqlProfile() {
-        try {
-          const token = await activeUser.getIdToken();
-          const response = await fetch("/api/auth/me", {
-            headers: { Authorization: `Bearer ${token}`, ...roleHintHeaders(activeUser.uid) },
-            cache: "no-store",
-            credentials: "same-origin"
-          });
-          const payload = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Unable to load profile.");
-          if (cancelled) return;
-          if (payload.profile) {
-            const nextProfile = profileFromDocument(activeUser, payload.profile as Record<string, unknown>);
-            setProfile(nextProfile);
-          } else {
-            const role = storedRecoveredRole(activeUser.uid);
-            setProfile(role ? recoveredProfile(activeUser, role) : null);
-          }
-        } catch {
-          const role = storedRecoveredRole(activeUser.uid);
-          setProfile(role ? recoveredProfile(activeUser, role) : null);
-        } finally {
-          if (!cancelled) setProfileLoading(false);
-        }
+    if (!auth) { setAuthLoading(false); return; }
+    return onIdTokenChanged(auth, next => {
+      const changed = activeUid.current !== (next?.uid ?? null);
+      activeUid.current = next?.uid ?? null;
+      setUser(next);
+      setEmailVerified(next?.emailVerified ?? false);
+      setAuthLoading(false);
+      if (!next) {
+        ++requestVersion.current;
+        setProfile(null); setProfileLoading(false); setProfileError(null);
+      } else if (changed) {
+        setProfile(null);
+        void resolveProfile().catch(() => {});
       }
-      void loadSqlProfile();
-      return () => {
-        cancelled = true;
-      };
-    }
-    const activeUser = user;
-    // A stalled optional verification listener must not block the whole account.
-    // Fall back to the API if the primary profile listener cannot settle either.
-    const profileTimeout = window.setTimeout(() => {
-      setProfileLoading(false);
-      void refreshProfile();
-    }, 8_000);
+    }, () => {
+      setAuthLoading(false);
+      setProfileError("Unable to restore your session. Please sign in again.");
+    });
+  }, [resolveProfile]);
+
+  useEffect(() => {
+    if (!user || !emailVerified || !db || isSqlBackend()) return;
+    let stopped = false;
     let userData: Record<string, unknown> | null | undefined;
-    let identityVerificationData: Record<string, unknown> | null | undefined;
-    let driverLicenseVerificationData: Record<string, unknown> | null | undefined;
-
-    function updateProfileFromSnapshots() {
-      if (userData === undefined) return;
-      window.clearTimeout(profileTimeout);
-      if (userData) {
-        if (typeof window !== "undefined") {
-          window.sessionStorage.removeItem("temp.profile.uid");
-          window.sessionStorage.removeItem("temp.profile.role");
-        }
-        setProfile(profileFromDocument(activeUser, profileDataWithVerificationRecords(userData, identityVerificationData ?? null, driverLicenseVerificationData ?? null)));
-      } else {
-        const role = storedRecoveredRole(activeUser.uid);
-        setProfile(role ? recoveredProfile(activeUser, role) : null);
-      }
-      setProfileLoading(false);
-    }
-
-    const unsubscribeUser = onSnapshot(
-      doc(db, "users", activeUser.uid),
-      snapshot => {
-        userData = snapshot.exists() ? snapshot.data() : null;
-        updateProfileFromSnapshots();
-      },
-      () => {
-        userData = null;
-        updateProfileFromSnapshots();
-      }
-    );
-    const unsubscribeIdentityVerification = onSnapshot(
-      doc(db, "verifications", activeUser.uid),
-      snapshot => {
-        identityVerificationData = snapshot.exists() ? snapshot.data() : null;
-        updateProfileFromSnapshots();
-      },
-      () => {
-        identityVerificationData = null;
-        updateProfileFromSnapshots();
-      }
-    );
-    const unsubscribeDriverLicenseVerification = onSnapshot(
-      doc(db, "verifications", `driver-license-${activeUser.uid}`),
-      snapshot => {
-        driverLicenseVerificationData = snapshot.exists() ? snapshot.data() : null;
-        updateProfileFromSnapshots();
-      },
-      () => {
-        driverLicenseVerificationData = null;
-        updateProfileFromSnapshots();
-      }
-    );
-    return () => {
-      window.clearTimeout(profileTimeout);
-      unsubscribeUser();
-      unsubscribeIdentityVerification();
-      unsubscribeDriverLicenseVerification();
+    let identity: Record<string, unknown> | null = null;
+    let license: Record<string, unknown> | null = null;
+    const update = () => {
+      if (stopped || userData === undefined || auth?.currentUser?.uid !== user.uid) return;
+      setProfile(userData ? profileFromDocument(user, profileDataWithVerificationRecords(userData, identity, license)) : null);
+      setProfileError(null);
     };
-  }, [refreshProfile, user]);
+    const unsubscribe = onSnapshot(doc(db, "users", user.uid), snapshot => {
+      // Cached absence is not proof that the account has no saved role.
+      if (snapshot.metadata?.fromCache) return;
+      userData = snapshot.exists() ? snapshot.data() : null;
+      update();
+    }, () => { void resolveProfile().catch(() => {}); });
+    const unsubscribeIdentity = onSnapshot(doc(db, "verifications", user.uid), snapshot => {
+      identity = snapshot.exists() ? snapshot.data() : null; update();
+    }, () => {});
+    const unsubscribeLicense = onSnapshot(doc(db, "verifications", `driver-license-${user.uid}`), snapshot => {
+      license = snapshot.exists() ? snapshot.data() : null; update();
+    }, () => {});
+    return () => { stopped = true; unsubscribe(); unsubscribeIdentity(); unsubscribeLicense(); };
+  }, [user, emailVerified, resolveProfile]);
 
+  const refreshProfile = useCallback(async () => { await resolveProfile().catch(() => null); }, [resolveProfile]);
   const loading = authLoading || profileLoading;
-  const homePath = profile?.role === "admin" ? "/admin" : profile?.role === "client" ? "/find-work" : "/dashboard";
-  const value = useMemo(() => ({ user, profile, loading, isAdmin: profile?.role === "admin", homePath, refreshProfile }), [user, profile, loading, homePath, refreshProfile]);
+  const state = onboardingState(user ? { emailVerified } : null, profile, loading, profileError);
+  const homePath = accountHome(accountRole(profile));
+  const value = useMemo<AuthState>(() => ({ user, profile, loading, profileError, state, isAdmin: profile?.role === "admin", homePath, resolveProfile, refreshProfile }), [user, profile, loading, profileError, state, homePath, resolveProfile, refreshProfile]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

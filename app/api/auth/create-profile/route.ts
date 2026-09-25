@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     const message = error instanceof Error ? error.message : "Could not create account profile.";
-    return NextResponse.json({ error: message }, { status: message.includes("Sign in") ? 401 : 400 });
+    const safeMessage = message === "This account is managed by an administrator." ? message : "Could not save your account profile. Please try again.";
+    return NextResponse.json({ error: safeMessage }, { status: message.includes("Sign in") ? 401 : 400 });
   }
 }

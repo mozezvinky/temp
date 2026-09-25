@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useAuth } from "@/context/AuthContext";
 import { createProfile } from "@/services/auth";
+import { accountRole, accountHome } from "@/utils/onboarding";
+import { AccountRecovery } from "@/components/auth/AccountRecovery";
 import type { Role } from "@/types";
 import { BriefcaseBusiness, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -12,7 +14,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 function roleHome(role: Role) {
-  return role === "admin" ? "/admin" : role === "client" ? "/workers" : "/dashboard";
+  return accountHome(role);
 }
 
 
@@ -24,17 +26,17 @@ function setupDestination(fallback: string) {
 
 export default function CompleteProfilePage() {
   const router = useRouter();
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, profileError, resolveProfile } = useAuth();
   const [savingRole, setSavingRole] = useState<Role | null>(null);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || savingRole || profileError) return;
     if (!user) { router.replace("/auth/login"); return; }
     if (!user.emailVerified) { router.replace(verificationPath(verificationReturnPath("/complete-profile"))); return; }
-    if (profile) {
-      router.replace(setupDestination(roleHome(profile.role)));
+    if (accountRole(profile)) {
+      router.replace(setupDestination(accountHome(accountRole(profile))));
     }
-  }, [loading, profile, router, user]);
+  }, [loading, profile, profileError, router, user, savingRole]);
 
   async function finish(role: Role) {
     if (!user || !user.emailVerified || savingRole) return;
@@ -47,6 +49,7 @@ export default function CompleteProfilePage() {
         user.email ?? undefined,
         user.phoneNumber ?? undefined
       );
+      await resolveProfile();
       toast.success("Account profile saved.");
       window.location.assign(setupDestination(roleHome(savedRole)));
     } catch (error) {
@@ -56,11 +59,13 @@ export default function CompleteProfilePage() {
     }
   }
 
-  if (loading || !user || !user.emailVerified || profile) return <LoadingSpinner label="Checking account" />;
+  if (profileError) return <AccountRecovery />;
+  if (loading || !user || !user.emailVerified || accountRole(profile)) return <LoadingSpinner label="Checking account" />;
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-3xl items-center justify-center">
       <Card className="w-full">
+        <AccountRecovery signOutOnly />
         <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">Finish setup</p>
         <h1 className="mt-3 text-3xl font-black text-[#FFFBFF]">Choose how you want to use Copic</h1>
         <p className="mt-3 max-w-xl text-sm leading-6 text-[#CCC6BB]">

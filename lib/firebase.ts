@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, browserLocalPersistence, browserSessionPersistence, setPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getFunctions } from "firebase/functions";
 import { getMessaging, isSupported } from "firebase/messaging";
@@ -44,9 +44,10 @@ export const googleProvider =
     ? new GoogleAuthProvider()
     : null;
 
-if (typeof window !== "undefined" && auth) {
-  setPersistence(auth, browserLocalPersistence).catch(() => undefined);
-}
+export const authReady = auth ? setPersistence(auth, browserLocalPersistence).catch(async () => {
+  if (process.env.NODE_ENV !== "production") console.warn("[auth] Persistent storage unavailable; using this session.");
+  await setPersistence(auth!, browserSessionPersistence);
+}) : Promise.resolve();
 
 export function requireDb() {
   if (!db) throw new Error("This service is not available right now.");

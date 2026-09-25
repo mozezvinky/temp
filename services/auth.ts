@@ -1,8 +1,10 @@
 "use client";
+import { accountRole } from "@/utils/onboarding";
+import { deliverVerificationEmail } from "@/services/emailVerification";
 import { validSignupEmail } from "@/utils/email-validation";
 import { verificationPath, verificationReturnPath } from "@/utils/verification-return";
 
-import { googleProvider, requireAuth, requireDb } from "@/lib/firebase";
+import { authReady, googleProvider, requireAuth, requireDb } from "@/lib/firebase";
 import type { Role } from "@/types";
 import {
   RecaptchaVerifier,
@@ -27,6 +29,8 @@ export function authErrorMessage(error: unknown) {
   if (["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found"].includes(code)) return "The email or password is incorrect.";
   if (code === "auth/network-request-failed") return "Check your connection and try again.";
   if (code === "auth/too-many-requests") return "Too many attempts. Please wait and try again.";
+  if (code === "auth/weak-password") return "Choose a stronger password with at least 8 characters.";
+  if (code === "auth/user-disabled") return "This account is disabled. Please contact COPIC support.";
 
   if (code === "auth/configuration-not-found") {
     return "Sign in is not available right now. Please contact support.";
@@ -37,7 +41,7 @@ export function authErrorMessage(error: unknown) {
   if (code === "auth/invalid-api-key" || code === "auth/api-key-not-valid") {
     return "Sign in is not available right now. Please contact support.";
   }
-  return error instanceof Error ? error.message.replace(/Firebase|Firestore|API key|\.env\.local|Console/gi, "service") : "Sign in failed";
+  return "Unable to complete sign-in. Please try again.";
 }
 
 function storedAvailableRoles(uid: string): Role[] {
@@ -88,36 +92,18 @@ export async function createProfile(uid: string, role: Role, displayName: string
 
 export async function activateProfileRole(user: User, role: Role, displayName: string, email?: string, phone?: string): Promise<Role> {
   if (!user.emailVerified) throw new Error("Verify your email before continuing.");
-  const cachedRoles = storedAvailableRoles(user.uid);
-  const pendingRole = window.localStorage.getItem(pendingRoleKey(user.uid));
-  if (cachedRoles.includes(role) && pendingRole !== role) {
-    rememberActiveRole(user, role, cachedRoles);
-    return role;
-  }
-
-  // Account-mode selection must remain usable when Firestore live reads/writes
-  // are temporarily quota-limited. Activate locally first, then synchronize
-  // the durable profile in the background when the service accepts writes.
-  rememberActiveRole(user, role, [...cachedRoles, role]);
-  window.localStorage.setItem(pendingRoleKey(user.uid), role);
-  const quotaPausedUntil = Number(window.localStorage.getItem("temp.dataQuotaPausedUntil") ?? 0);
-  if (Date.now() >= quotaPausedUntil) {
-    void createProfile(user.uid, role, displayName, email, phone).catch(error => {
-      const message = error instanceof Error ? error.message : "";
-      if (message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded")) {
-        window.localStorage.setItem("temp.dataQuotaPausedUntil", String(Date.now() + 300_000));
-      }
-    });
-  }
-  return role;
+  return createProfile(user.uid, role, displayName, email, phone);
 }
 
 export async function registerWithEmail(email: string, password: string, displayName: string) {
   if (!validSignupEmail(email)) throw new Error("Enter a valid email address.");
   const auth = requireAuth();
+  await authReady;
   const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-  await updateProfile(credential.user, { displayName });
-  // The global verification screen sends/retries the email. Never delete an account on delivery failure.
+  try { await updateProfile(credential.user, { displayName }); } catch {
+    if (process.env.NODE_ENV !== "production") console.warn("[auth] Account created, display name update failed.");
+  }
+  await deliverVerificationEmail(verificationReturnPath("/complete-profile"));
   return credential.user;
 }
 
@@ -133,7 +119,8 @@ export async function loadSignedInRole() {
     }
   });
   const payload = await response.json().catch(() => ({}));
-  const role = payload.profile?.role;
+  if (!response.ok || payload.degraded) throw new Error("Unable to load your account. Please try again.");
+  const role = accountRole(payload.profile);
   if (role === "client" || role === "worker") {
     const roles = Array.isArray(payload.profile?.roles)
       ? payload.profile.roles.filter((item: unknown): item is Role => item === "client" || item === "worker" || item === "admin")
@@ -145,6 +132,7 @@ export async function loadSignedInRole() {
 }
 
 export async function loginWithEmail(email: string, password: string) {
+  await authReady;
   const credential = await signInWithEmailAndPassword(requireAuth(), email, password);
   return credential;
 }
@@ -210,6 +198,12 @@ export async function savePhoneNumber(userId: string, phoneNumber: string) {
   await setDoc(doc(requireDb(), "users", userId), { phoneNumber, updatedAt: serverTimestamp() }, { merge: true });
 }
 
-export function logout() {
-  return signOut(requireAuth());
+export async function logout() {
+  const uid = requireAuth().currentUser?.uid;
+  await signOut(requireAuth());
+  for (const storage of [window.sessionStorage, window.localStorage]) {
+    try {
+      for (const key of ["temp.profile.uid", "temp.profile.role", "temp.dataQuotaPausedUntil", "copic.verification.return", "copic.acquisition.return", ...(uid ? [`temp.profile.role.${uid}`, `temp.profile.roles.${uid}`, `temp.profile.pendingRole.${uid}`] : [])]) storage.removeItem(key);
+    } catch { /* Signing out must work even when storage is unavailable. */ }
+  }
 }

@@ -1,5 +1,6 @@
 import { user } from "./auth";
 export const auth={currentUser:user};
+export const authReady=Promise.resolve();
 export const db=null;
 export const storage=null;
 export const functions=null;

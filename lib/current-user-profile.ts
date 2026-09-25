@@ -1,3 +1,4 @@
+import { accountRole, accountRoles } from "@/utils/onboarding";
 import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import "server-only";
 
@@ -27,7 +28,7 @@ export async function getCurrentUserProfile(request: NextRequest, fallbackRole?:
   if (!token) throw new CurrentUserProfileError("Sign in is required.", 401);
 
   const decoded = allowUnverified ? await adminAuth().verifyIdToken(token, true) : await verifyVerifiedIdToken(token);
-  if (allowUnverified) { const account = await adminAuth().getUser(decoded.uid); decoded.email_verified = account.emailVerified; decoded.email = account.email; }
+  if (allowUnverified) { const account = await adminAuth().getUser(decoded.uid); if (account.disabled) throw new CurrentUserProfileError("This account is disabled.", 403); decoded.email_verified = account.emailVerified; decoded.email = account.email; }
   const email = typeof decoded.email === "string" ? decoded.email : undefined;
   const displayName = typeof decoded.name === "string" && decoded.name.trim()
     ? decoded.name.trim()
@@ -187,16 +188,14 @@ function roleFromRequest(request: NextRequest): Role | null {
 }
 
 function rolesFor(data: Partial<UserProfile> | null, activeRole?: Role): Role[] {
-  const role = data?.role;
-  const roles = Array.isArray(data?.roles) ? data.roles : [];
-  return Array.from(new Set([...roles, role, activeRole].filter((item): item is Role => item === "client" || item === "worker" || item === "admin")));
+  return accountRoles({ role: data?.role, roles: [...(data?.roles ?? []), activeRole] });
 }
 
 function activeRoleFor(data: Partial<UserProfile> | null, roleHint?: Role | null): Role | undefined {
   const roles = rolesFor(data);
   if (roles.includes("admin")) return "admin";
   if (roleHint && roles.includes(roleHint)) return roleHint;
-  return roles[0];
+  return accountRole(data) ?? undefined;
 }
 
 function usernameFor(displayName: string, email: string | undefined, uid: string) {

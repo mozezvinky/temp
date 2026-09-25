@@ -79,7 +79,8 @@ test("signup never sends OTPs or deletes newly created accounts when link delive
  let creates=0, deletes=0, sends=0;
  const user={uid:"person",emailVerified:false};
  const service=await load("services/auth.ts",{
- "@/lib/firebase":{requireAuth:()=>({})},
+ "@/lib/firebase":{requireAuth:()=>({currentUser:user})},
+ "@/services/emailVerification":{deliverVerificationEmail:async()=>({error:"Unable to send the verification email. Please try again."})},
  "firebase/auth":{createUserWithEmailAndPassword:async()=>{creates++;return {user};},updateProfile:async()=>undefined,deleteUser:async()=>{deletes++;}},
  "firebase/firestore":{}
  },{fetch:async()=>{sends++;throw new Error("offline");}});
@@ -93,7 +94,7 @@ test("verification-send errors distinguish syntax, rate limit, network and unkno
  assert.equal(service.verificationSendError({code:"auth/invalid-email"}),"Enter a valid email address.");
  assert.match(service.verificationSendError({code:"auth/too-many-requests"}),/Too many/);
  assert.match(service.verificationSendError({code:"auth/network-request-failed"}),/connection problem/);
- assert.equal(service.verificationSendError({code:"unknown"}),"We couldn't send the verification email. Check your email address and try again.");
+ assert.equal(service.verificationSendError({code:"unknown"}),"Unable to send the verification email. Please try again.");
 });
 test("legacy OTP endpoints cannot create profiles or set a verified flag",async()=>{
  for(const name of ["send-email-otp","verify-email-otp"]) {

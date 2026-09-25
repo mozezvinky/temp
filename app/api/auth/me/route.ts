@@ -1,9 +1,8 @@
 import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { isSqlBackend } from "@/lib/data-backend";
 import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-user-profile";
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { adminAuth } from "@/lib/firebase-admin";
 import { upsertLocalUser } from "@/lib/local-sql";
-import { normalizeVerificationStatus } from "@/utils/verification";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -25,29 +24,15 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    if (currentUser.profile) {
-      const verification = await adminDb().collection("verifications").doc(currentUser.uid).get();
-      const verificationStatus = normalizeVerificationStatus(verification.data()?.identityVerificationStatus ?? verification.data()?.status);
-      if (verificationStatus !== "not_submitted") {
-        return NextResponse.json({
-          profile: {
-            ...currentUser.profile,
-            verificationStatus,
-            identityVerificationStatus: verificationStatus,
-            verificationRejectionReason: verificationStatus === "rejected" ? verification.data()?.rejectionReason ?? null : null
-          }
-        });
-      }
-    }
     return NextResponse.json({ profile: currentUser.profile });
   } catch (error) {
     if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) return NextResponse.json({ error: error.message }, { status: error.status });
     const message = error instanceof Error ? error.message : "Unable to load account profile.";
     if (message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded")) {
-      return NextResponse.json({ profile: null, degraded: true, reason: "quota" });
+      return NextResponse.json({ error: "Account service is temporarily unavailable. Please try again." }, { status: 503 });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Unable to load your account. Please try again." }, { status: 500 });
   }
 }
 

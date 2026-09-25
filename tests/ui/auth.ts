@@ -6,4 +6,5 @@ else if(fixtureState)sessionStorage.removeItem("fixture.verification");
 let verificationChecks=0;
 export const user={uid:profile.uid,displayName:profile.displayName,email:profile.email,emailVerified:sessionStorage.getItem("fixture.verification")!=="pending",reload:async()=>{if(location.pathname==="/verify-email" && new URLSearchParams(location.search).get("verification")!=="pending" && ++verificationChecks>1){user.emailVerified=true;sessionStorage.removeItem("fixture.verification");}},getIdToken:async()=>"local-ui-fixture"};
 export const refreshProfile=async()=>undefined;
-export function useAuth(){return {user:new URLSearchParams(location.search).get("state")==="guest"?null:user,profile:new URLSearchParams(location.search).get("state")==="guest"?null:profile,refreshProfile,loading:false,homePath:"/dashboard"};}
+export const resolveProfile=async()=>profile;
+export function useAuth(){return {user:new URLSearchParams(location.search).get("state")==="guest"?null:user,profile:new URLSearchParams(location.search).get("state")==="guest"?null:profile,refreshProfile,resolveProfile,profileError:null,loading:false,homePath:"/dashboard"};}

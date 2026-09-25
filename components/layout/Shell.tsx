@@ -1,6 +1,7 @@
 "use client";
 
 import { agentDestination } from "@/lib/agent-program";
+import { AccountRecovery } from "@/components/auth/AccountRecovery";
 import { useAuth } from "@/context/AuthContext";
 import { ActivityHub } from "@/components/activity/ActivityHub";
 import { AppModal } from "@/components/ui/AppModal";
@@ -45,7 +46,7 @@ function serviceFeeAmountFromAlert(item: AppNotification) {
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, profile: authenticatedProfile, refreshProfile } = useAuth();
+  const { user, profile: authenticatedProfile, profileError, refreshProfile } = useAuth();
   const profile = user?.emailVerified ? authenticatedProfile : null;
   const isAdmin = profile?.role === "admin";
   const isLanding = pathname === "/";
@@ -493,7 +494,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </AppModal>
       )}
 
-      <main className={`temp-main mx-auto max-w-[1440px] px-4 py-6 md:px-8 ${isLanding ? "is-landing" : ""}`}>{children}</main>
+      <main className={`temp-main mx-auto max-w-[1440px] px-4 py-6 md:px-8 ${isLanding ? "is-landing" : ""}`}>{profileError && pathname !== "/verify-email" ? <AccountRecovery /> : children}</main>
 
       {showAppNav && profile && (profile.role === "client" || profile.role === "worker") && (
         <ActivityHub userId={profile.id} role={profile.role} pathname={pathname} />

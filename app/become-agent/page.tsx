@@ -10,6 +10,7 @@ import { RecruitmentApplyLink, RecruitmentState } from "@/components/profile/Rec
 import { AGENT_ONBOARDING_PATH, AGENT_TERMS_VERSION, agentProgramRules } from "@/lib/agent-program";
 import { rememberAcquisitionReturn, clearAcquisitionReturn, recruitmentVerificationPath } from "@/utils/acquisition-return";
 import { reloadVerifiedRecruitmentUser } from "@/services/emailVerification";
+import { AccountRecovery } from "@/components/auth/AccountRecovery";
 
 export default function BecomeAgentPage() {
   const { user, profile, loading, refreshProfile } = useAuth();
@@ -84,6 +85,7 @@ export default function BecomeAgentPage() {
     <div className="mt-6 flex flex-wrap gap-3">
       <RecruitmentApplyLink href={recruitmentVerificationPath(AGENT_ONBOARDING_PATH)}>Verify email</RecruitmentApplyLink>
       <Button type="button" variant="secondary" disabled={busy} onClick={() => void activate()}>{busy ? "Checking…" : "I've verified my email — check again"}</Button>
+      <AccountRecovery signOutOnly />
     </div>
   </RecruitmentState>;
 
@@ -134,6 +136,7 @@ export default function BecomeAgentPage() {
         <p className="copic-muted">After accepting, continue to account setup. We will ask you to verify your email before activating your Agent account.</p>
         <Button className="recruitment-primary w-full" type="submit" disabled={!accepted || busy || loading || rate === null} aria-busy={busy}><span>{busy ? "Setting up Agent account…" : !user ? "Accept and create my account" : !profile ? "Accept and complete my account" : "Activate my Agent Account"}</span><ArrowRight size={20} aria-hidden="true" className="shrink-0" /></Button>
       </form>
+      {user && <AccountRecovery signOutOnly />}
     </Card>
   </div>;
 }

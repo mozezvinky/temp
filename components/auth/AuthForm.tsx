@@ -1,55 +1,28 @@
 "use client";
-import { acquisitionReturnPath } from "@/utils/acquisition-return";
+import { useAuth } from "@/context/AuthContext";
+import { accountDestination } from "@/utils/onboarding";
 
 import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { usePublicOnlyRoute } from "@/hooks/useProtectedRoute";
-import { activateProfileRole, authErrorMessage, loginWithEmail, registerWithEmail, sendPasswordReset } from "@/services/auth";
+import { authErrorMessage, loginWithEmail, registerWithEmail, sendPasswordReset } from "@/services/auth";
 import { verificationPath, verificationReturnPath } from "@/utils/verification-return";
 import { validSignupEmail } from "@/utils/email-validation";
-import type { Role } from "@/types";
-import { BriefcaseBusiness, Eye, EyeOff, LockKeyhole, Mail, Search, UserRound } from "lucide-react";
+import { Eye, EyeOff, LockKeyhole, Mail, UserRound } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { User } from "firebase/auth";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [loading, setLoading] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [emailValue, setEmailValue] = useState("");
-  const [signedInUser, setSignedInUser] = useState<User | null>(null);
-  const [signedInEmail, setSignedInEmail] = useState("");
+  const { resolveProfile } = useAuth();
   const [emailError, setEmailError] = useState("");
   const [notice, setNotice] = useState("");
   useEffect(() => { if (new URLSearchParams(window.location.search).get("emailChanged") === "1") setNotice("Your email address was updated. Sign in with your new email and verify it to continue."); }, []);
-  const { shouldRender } = usePublicOnlyRoute({ disabled: loading || !!signedInUser });
-
-  useEffect(() => {
-    document.body.classList.toggle("continue-as-active", mode === "login" && !!signedInUser);
-    return () => document.body.classList.remove("continue-as-active");
-  }, [mode, signedInUser]);
-
-  async function continueAs(nextRole: Role) {
-    if (!signedInUser) return;
-    setLoading(true);
-    try {
-      const savedRole = await activateProfileRole(
-        signedInUser,
-        nextRole,
-        signedInUser.displayName ?? signedInUser.email?.split("@")[0] ?? "Copic user",
-        signedInUser.email ?? signedInEmail
-      );
-      window.sessionStorage.setItem("temp.profile.uid", signedInUser.uid);
-      window.sessionStorage.setItem("temp.profile.role", savedRole);
-      if (signedInUser.email) window.localStorage.setItem(`temp.accountRole.${signedInUser.email.toLowerCase()}`, savedRole);
-      window.location.assign(acquisitionReturnPath(savedRole === "client" ? "/find-work" : savedRole === "worker" ? "/dashboard" : "/admin"));
-    } catch (error) {
-      toast.error(authErrorMessage(error));
-      setLoading(false);
-    }
-  }
+  const { shouldRender } = usePublicOnlyRoute({ disabled: loading });
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,12 +44,9 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           window.location.assign(verificationPath(destination || "/complete-profile"));
           return;
         }
-        if (destination) { window.location.assign(destination); return; }
-        window.sessionStorage.removeItem("temp.profile.uid");
-        window.sessionStorage.removeItem("temp.profile.role");
-        setSignedInUser(credential.user);
-        setSignedInEmail(String(form.get("email")));
-        setLoading(false);
+        const profile = await resolveProfile();
+        window.location.assign(accountDestination(profile, destination));
+        return;
       }
     } catch (error) {
       toast.error(authErrorMessage(error));
@@ -101,7 +71,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     }
   }
 
-  if (!signedInUser && (!shouldRender || loading)) return <LoadingSpinner label={loading ? "Signing you in" : "Checking session"} />;
+  if (!shouldRender || loading) return <LoadingSpinner label={loading ? "Signing you in" : "Checking session"} />;
 
   return (
     <div className="copic-auth-layout">
@@ -114,23 +84,6 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           {mode === "login" ? "Built for flexible work." : "Find temporary jobs, hire trusted workers, and manage work opportunities easily in one place."}
         </p>
       </div>
-      {mode === "login" && signedInUser ? (
-        <div className="copic-auth-card">
-            <p className="copic-eyebrow">Account mode</p>
-            <h1>Continue as</h1>
-            <p className="copic-auth-copy">Choose which side of Copic you want to use with {signedInUser.email ?? signedInEmail}.</p>
-            <div className="copic-role-options">
-              <button type="button" disabled={loading} onClick={() => void continueAs("worker")} className="copic-role-option is-primary">
-                <span className="flex items-center gap-3 font-black"><BriefcaseBusiness size={20} /> Continue as Worker</span>
-                <span>Browse available jobs, apply for opportunities, and manage your professional profile.</span>
-              </button>
-              <button type="button" disabled={loading} onClick={() => void continueAs("client")} className="copic-role-option is-secondary">
-                <span className="flex items-center gap-3 font-black"><Search size={20} /> Continue as Client</span>
-                <span>Post work, review candidates, and hire the right people for the job.</span>
-              </button>
-            </div>
-        </div>
-      ) : (
       <form onSubmit={submit} className="copic-auth-card">
           {notice && <p role="status" className="copic-muted">{notice}</p>}
           {emailError && <p id="email-error" role="alert" className="copic-error">{emailError}</p>}
@@ -170,7 +123,6 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
             </Link>
           </p>
       </form>
-      )}
     </div>
   );
 }
