@@ -28,7 +28,8 @@ export function RecruitmentEmailVerification({ returnPath }: { returnPath: strin
     await current.reload();
     await current.getIdToken(true);
     if (!current.emailVerified) throw new Error("Your email is not verified yet.");
-    const profile = await resolveProfile();
+    // Email verification has succeeded; the next page can retry profile loading.
+    const profile = await resolveProfile().catch(() => null);
     if (leaving.current) return;
     const destination = accountDestination(profile, returnPath);
     clearVerificationReturn();

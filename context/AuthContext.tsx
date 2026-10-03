@@ -112,7 +112,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const activeUid = useRef<string | null>(null);
   const requestVersion = useRef(0);
 
-  const resolveProfile = useCallback(async (): Promise<UserProfile | null> => {
+  const profileRequest = useRef<{ uid: string; promise: Promise<UserProfile | null> } | null>(null);
+
+  const resolveProfile = useCallback((): Promise<UserProfile | null> => {
+    const uid = auth?.currentUser?.uid;
+    if (!uid) return Promise.resolve(null);
+    if (profileRequest.current?.uid === uid) return profileRequest.current.promise;
+    const promise = (async (): Promise<UserProfile | null> => {
     const current = auth?.currentUser;
     if (!current) return null;
     const version = ++requestVersion.current;
@@ -129,19 +135,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signal: AbortSignal.timeout(15_000)
       });
       const payload = await response.json();
-      if (!response.ok || payload.degraded) throw new Error("Unable to load your account. Please try again.");
+      if (!response.ok || payload.degraded) throw new Error(typeof payload.error === "string" ? payload.error : `Account service returned an error (${response.status}). Please try again.`);
       if (auth?.currentUser?.uid !== current.uid || version !== requestVersion.current) throw new Error("Account request superseded.");
       const next = payload.profile ? profileFromDocument(current, payload.profile) : null;
       setProfile(next);
       return next;
-    } catch {
-      if (auth?.currentUser?.uid === current.uid && version === requestVersion.current) {
-        setProfileError("Unable to load your account. Please try again.");
-      }
-      throw new Error("Unable to load your account. Please try again.");
+    } catch (error) {
+      const message = error instanceof Error && error.name === "TimeoutError"
+        ? "Loading your account timed out. Please try again."
+        : error instanceof Error ? error.message : "Unable to load your account. Please try again.";
+      if (auth?.currentUser?.uid === current.uid && version === requestVersion.current) setProfileError(message);
+      throw new Error(message);
     } finally {
       if (version === requestVersion.current) setProfileLoading(false);
     }
+    })();
+    profileRequest.current = { uid, promise };
+    void promise.finally(() => {
+      if (profileRequest.current?.promise === promise) profileRequest.current = null;
+    }).catch(() => {});
+    return promise;
   }, []);
 
   useEffect(() => {

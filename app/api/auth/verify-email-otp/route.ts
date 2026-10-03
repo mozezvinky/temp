@@ -31,7 +31,6 @@ export async function POST(request: NextRequest) {
         transaction.update(ref, { attempts, ...(attempts >= EMAIL_OTP_MAX_ATTEMPTS ? { expiresAt: Date.now() } : {}) });
         return attempts >= EMAIL_OTP_MAX_ATTEMPTS ? "locked" as const : "incorrect" as const;
       }
-      transaction.delete(ref);
       return "verified" as const;
     });
     if (result !== "verified") {
@@ -41,9 +40,20 @@ export async function POST(request: NextRequest) {
     }
 
     await adminAuth().updateUser(decoded.uid, { emailVerified: true });
-    await db.collection("users").doc(decoded.uid).set({ emailVerified: true, emailVerifiedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    // Auth verification must succeed even if ancillary profile writes fail.
+    try {
+      await ref.delete();
+      await db.collection("users").doc(decoded.uid).set({ emailVerified: true, emailVerifiedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    } catch (error) {
+      console.error("[email-verification] Email verified; profile sync failed", error);
+    }
     return NextResponse.json({ verified: true });
   } catch (error) {
+    console.error("[email-verification] Code verification failed", error);
+    const code = String((error as { code?: unknown })?.code ?? "");
+    if (["auth/id-token-expired", "auth/id-token-revoked", "auth/invalid-id-token", "auth/user-token-expired"].includes(code)) return NextResponse.json({ error: "Your session expired. Sign in again to verify your email." }, { status: 401 });
+    if (code === "8" || code === "resource-exhausted") return NextResponse.json({ error: "Email verification has reached its service limit. Please try again later." }, { status: 503 });
+    if (code === "14" || code === "unavailable") return NextResponse.json({ error: "The email verification service is temporarily unreachable. Please try again." }, { status: 503 });
     if ((error as { message?: string })?.message === "OTP_SECRET must be configured with at least 32 characters.") return NextResponse.json({ error: "Email verification is temporarily unavailable." }, { status: 503 });
     return NextResponse.json({ error: "Unable to verify the code. Please try again." }, { status: 503 });
   }

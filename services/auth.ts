@@ -40,6 +40,8 @@ export function authErrorMessage(error: unknown) {
   if (code === "auth/invalid-api-key" || code === "auth/api-key-not-valid") {
     return "Sign in is not available right now. Please contact support.";
   }
+  if (error instanceof Error && !code) return error.message;
+  if (code) return `Sign-in failed (${code}). Please try again or contact support.`;
   return "Unable to complete sign-in. Please try again.";
 }
 

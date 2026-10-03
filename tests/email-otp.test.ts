@@ -13,18 +13,20 @@ let docs: Map<string, Record<string, any>>;
 let currentUser: { emailVerified: boolean; disabled: boolean; email: string };
 let sentHtml: string[];
 const token = "test-token";
+let failAuthUpdate = false;
+let failProfileWrite = false;
 const nodeRequire = createRequire(`${process.cwd()}/tests/email-otp.test.ts`);
 
 async function loadRoute(name: string) {
   const auth = {
     verifyIdToken: async (value: string) => { assert.equal(value, token); return { uid }; },
     getUser: async () => currentUser,
-    updateUser: async (_uid: string, update: { emailVerified: boolean }) => { currentUser.emailVerified = update.emailVerified; }
+    updateUser: async (_uid: string, update: { emailVerified: boolean }) => { if (failAuthUpdate) throw new Error("Auth temporarily unavailable"); currentUser.emailVerified = update.emailVerified; }
   };
   const db = {
     collection: (collection: string) => ({ doc: (key: string) => {
       assert.equal(collection, "emailVerificationCodes");
-      return { key: `${collection}/${key}` };
+      return { key: `${collection}/${key}`, delete: async () => { docs.delete(`${collection}/${key}`); } };
     } }),
     runTransaction: async (callback: (transaction: any) => any) => {
       const tx = {
@@ -35,7 +37,7 @@ async function loadRoute(name: string) {
       };
       return callback(tx);
     },
-    collectionUser: () => ({ doc: () => ({ set: async () => undefined }) })
+    collectionUser: () => ({ doc: () => ({ set: async () => { if (failProfileWrite) throw new Error("Profile unavailable"); } }) })
   };
   const firestore = { FieldValue: { serverTimestamp: () => "server-time" } };
   const mocks: Record<string, unknown> = {
@@ -105,4 +107,26 @@ test("role-specific signup intent survives verification and new accounts continu
   assert.equal(accountDestination(null, "/complete-profile?role=client"), "/complete-profile?role=client");
   assert.equal(accountDestination(null, "/complete-profile?role=worker"), "/complete-profile?role=worker");
   assert.equal(accountDestination(null, "/join/referral"), "/complete-profile?returnTo=%2Fjoin%2Freferral");
+});
+
+
+test("valid code survives Auth failure and verification survives profile write failure", async () => {
+  process.env.OTP_SECRET = "a-long-random-test-secret-value-at-least-32-characters";
+  docs = new Map(); currentUser = { emailVerified: false, disabled: false, email }; sentHtml = [];
+  const send = await loadRoute("send-email-otp");
+  const verify = await loadRoute("verify-email-otp");
+  await send.POST(request());
+  const code = sentHtml.at(-1)!.match(/>(\d{6})</)![1];
+  failAuthUpdate = true;
+  try {
+    assert.equal((await verify.POST(request({ code }))).status, 503);
+    assert.equal(docs.has("emailVerificationCodes/otp-test-user"), true);
+    assert.equal(currentUser.emailVerified, false);
+  } finally { failAuthUpdate = false; }
+  failProfileWrite = true;
+  try {
+    assert.equal((await verify.POST(request({ code }))).status, 200);
+    assert.equal(currentUser.emailVerified, true);
+    assert.equal(docs.has("emailVerificationCodes/otp-test-user"), false);
+  } finally { failProfileWrite = false; }
 });
