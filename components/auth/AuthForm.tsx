@@ -5,7 +5,7 @@ import { accountDestination } from "@/utils/onboarding";
 import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { usePublicOnlyRoute } from "@/hooks/useProtectedRoute";
-import { authErrorMessage, loginWithEmail, registerWithEmail, sendPasswordReset } from "@/services/auth";
+import { authErrorMessage, loginWithEmail, loginWithGoogle, registerWithEmail, sendPasswordReset } from "@/services/auth";
 import { verificationPath, verificationReturnPath } from "@/utils/verification-return";
 import { validSignupEmail } from "@/utils/email-validation";
 import { Eye, EyeOff, LockKeyhole, Mail, UserRound } from "lucide-react";
@@ -48,6 +48,23 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         window.location.assign(accountDestination(profile, destination));
         return;
       }
+    } catch (error) {
+      toast.error(authErrorMessage(error));
+      setLoading(false);
+    }
+  }
+
+  async function continueWithGoogle() {
+    setLoading(true);
+    try {
+      const credential = await loginWithGoogle();
+      const destination = verificationReturnPath("");
+      if (!credential.user.emailVerified) {
+        window.location.assign(verificationPath(destination || "/complete-profile"));
+        return;
+      }
+      const profile = await resolveProfile();
+      window.location.assign(accountDestination(profile, destination));
     } catch (error) {
       toast.error(authErrorMessage(error));
       setLoading(false);
@@ -115,6 +132,15 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
             </button>
           )}
           <Button disabled={loading} className="mt-5 w-full rounded-2xl py-4 text-base"><Mail size={18} /> {mode === "login" ? "Sign In" : "Create Account"}</Button>
+            <Button type="button" variant="secondary" disabled={loading} onClick={() => void continueWithGoogle()} className="mt-3 w-full rounded-2xl py-4 text-base">
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.39-.18-2.05H12v3.88h5.38a4.6 4.6 0 0 1-2 3.02v2.51h3.24c1.9-1.75 2.98-4.33 2.98-7.36Z" />
+                <path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.62-2.41l-3.24-2.51c-.9.6-2.04.96-3.38.96-2.6 0-4.81-1.76-5.6-4.13H3.06v2.59A10 10 0 0 0 12 22Z" />
+                <path fill="#FBBC05" d="M6.4 13.91a6 6 0 0 1 0-3.82V7.5H3.06a10 10 0 0 0 0 9l3.34-2.59Z" />
+                <path fill="#EA4335" d="M12 5.96c1.47 0 2.79.51 3.82 1.51l2.87-2.87A9.6 9.6 0 0 0 12 2a10 10 0 0 0-8.94 5.5l3.34 2.59C7.19 7.72 9.4 5.96 12 5.96Z" />
+              </svg>
+              Continue with Google
+            </Button>
           <div id="recaptcha-container" className="mt-3" />
           <p className="mt-6 text-center text-sm text-[#7e7576]">
             {mode === "login" ? "New to Copic?" : "Already have an account?"}{" "}

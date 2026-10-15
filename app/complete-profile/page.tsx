@@ -51,7 +51,8 @@ export default function CompleteProfilePage() {
       );
       await resolveProfile();
       toast.success("Account profile saved.");
-      window.location.assign(setupDestination(roleHome(savedRole)));
+      const destination = setupDestination(roleHome(savedRole));
+      window.location.assign(savedRole === "client" ? roleHome(savedRole) : destination);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save your account profile.";
       toast.error(message);

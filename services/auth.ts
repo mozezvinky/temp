@@ -1,7 +1,6 @@
 "use client";
 import { accountRole } from "@/utils/onboarding";
 import { validSignupEmail } from "@/utils/email-validation";
-import { verificationPath, verificationReturnPath } from "@/utils/verification-return";
 
 import { authReady, googleProvider, requireAuth, requireDb } from "@/lib/firebase";
 import type { Role } from "@/types";
@@ -19,7 +18,7 @@ import {
   type User,
   updateProfile
 } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 export function authErrorMessage(error: unknown) {
   const code = typeof error === "object" && error && "code" in error ? String((error as { code?: string }).code) : "";
@@ -170,16 +169,13 @@ export async function loginAsAdmin(username: string, password: string, twoFactor
   }
 }
 
-export async function loginWithGoogle(role: Role = "worker") {
+export async function loginWithGoogle() {
   const auth = requireAuth();
-  const db = requireDb();
   if (!googleProvider) throw new Error("This sign-in method is not available right now.");
+  await authReady;
   const credential = await signInWithPopup(auth, googleProvider);
   await credential.user.reload();
-  if (!credential.user.emailVerified) { window.location.assign(verificationPath(verificationReturnPath(`/complete-profile?role=${role === "client" ? "client" : "worker"}`))); return; }
-  const existing = await getDoc(doc(db, "users", credential.user.uid));
-  if (existing.exists()) return;
-  await createProfile(credential.user.uid, role, credential.user.displayName ?? "Copic user", credential.user.email ?? undefined);
+  return credential;
 }
 
 export function phoneVerifier(containerId: string) {
