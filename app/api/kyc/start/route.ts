@@ -1,4 +1,5 @@
 import { nationalIdHash } from "@/lib/identity-security";
+import { sendVerificationAdminEmail } from "@/lib/verification-admin-email";
 import { isSqlBackend } from "@/lib/data-backend";
 import { adminDb, adminStorage } from "@/lib/firebase-admin";
 import { firebaseStorageBucketCandidates } from "@/lib/firebase-storage-bucket";
@@ -253,6 +254,7 @@ export async function POST(request: NextRequest) {
           reviewedAt=NULL, updatedAt=excluded.updatedAt
       `).run(user.uid, user.profile.role, fullName, email, phoneNumber, username, idHash, idFrontUrl, idBackUrl, selfieWithIdUrl, submittedAt, submittedAt);
       localDb().prepare("UPDATE users SET verificationStatus = 'pending', phoneNumber = ?, updatedAt = ? WHERE uid = ?").run(phoneNumber, submittedAt, user.uid);
+      await sendVerificationAdminEmail({ userId: user.uid, fullName, role: String(user.profile.role), submittedAt });
       return NextResponse.json({ success: true, status: "pending", message: "Your ID verification was submitted for manual review." });
     }
 
@@ -292,6 +294,7 @@ export async function POST(request: NextRequest) {
       }, { merge: true });
       transaction.set(userRef, { verificationStatus: "pending", verificationRejectionReason: null, phoneNumber, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     });
+    await sendVerificationAdminEmail({ userId: user.uid, fullName, role: String(user.profile.role), submittedAt });
     return NextResponse.json({ success: true, status: "pending", message: "Your ID verification was submitted for manual review." });
   } catch (error) {
     if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
