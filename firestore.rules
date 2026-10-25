@@ -196,7 +196,7 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
-      allow create: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
       allow read, update, delete: if isAdmin();
     }
 
@@ -224,6 +224,8 @@ service cloud.firestore {
     }
     // New marketplace business data is accessed through scoped server endpoints.
     match /recruitmentCampaigns/{id} { allow read, write: if false; }
+    match /agentJobProposals/{id} { allow read, write: if false; }
+    match /agentProposalLimits/{id} { allow read, write: if false; }
     match /agentLinks/{id} { allow read, write: if false; }
     match /agentReferrals/{id} { allow read, write: if false; }
     match /acquisitionAttributions/{id} { allow read, write: if false; }

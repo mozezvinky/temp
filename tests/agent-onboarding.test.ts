@@ -91,14 +91,14 @@ test("locked and Admin profiles cannot activate", async () => {
     assert.equal(db.records.get("users/person")?.agentEnabled, undefined);
   }
 });
-test("public commission uses authoritative config, existing default, and safe failure", async () => {
+test("public commission remains exactly 1% regardless of legacy configuration", async () => {
   const { db, mocks } = await setup();
   const route = await load("app/api/agent/program/route.ts", mocks);
   assert.equal((await (await route.GET()).json()).commissionRate, .01);
   db.seed("marketplaceConfig/agents", { commissionRate: .025, privateField: "must-not-leak" });
-  assert.deepEqual(await (await route.GET()).json(), { commissionRate: .025 });
+  assert.deepEqual(await (await route.GET()).json(), { commissionRate: .01 });
   db.seed("marketplaceConfig/agents", { commissionRate: "broken" });
-  assert.equal((await route.GET()).status, 503);
+  assert.equal((await (await route.GET()).json()).commissionRate, .01);
 });
 test("become-agent intent replaces stale referral intent and survives refresh without unsafe destinations", async () => {
   const storage = () => { const data = new Map<string, string>(); return { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value), removeItem: (key: string) => data.delete(key) }; };

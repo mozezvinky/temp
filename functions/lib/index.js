@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.marketplaceJobChanged = exports.marketplaceApplicationChanged = exports.marketplaceVerificationChanged = exports.marketplaceUserChanged = exports.updateBadgesOnJobCompletion = exports.auditUserUpdates = exports.alertMatchingWorkersOnJobCreate = exports.notifyOnNotificationCreate = exports.mpesaCallback = exports.payOutstandingFee = exports.markPaidInCash = exports.completeMpesaJob = exports.acceptApplication = exports.setAdminRole = exports.reviewKyc = exports.reviewVerification = exports.requestDeposit = void 0;
+exports.marketplaceReportChanged = exports.marketplaceTimelineChanged = exports.marketplaceDisputeChanged = exports.marketplaceJobChanged = exports.marketplaceApplicationChanged = exports.marketplaceVerificationChanged = exports.marketplaceUserChanged = exports.updateBadgesOnJobCompletion = exports.auditUserUpdates = exports.alertMatchingWorkersOnJobCreate = exports.notifyOnNotificationCreate = exports.mpesaCallback = exports.payOutstandingFee = exports.markPaidInCash = exports.completeMpesaJob = exports.acceptApplication = exports.setAdminRole = exports.reviewKyc = exports.reviewVerification = exports.requestDeposit = void 0;
 const marketplace_policy_1 = require("./marketplace-policy");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -285,4 +285,7 @@ Object.defineProperty(exports, "marketplaceUserChanged", { enumerable: true, get
 Object.defineProperty(exports, "marketplaceVerificationChanged", { enumerable: true, get: function () { return marketplace_triggers_1.marketplaceVerificationChanged; } });
 Object.defineProperty(exports, "marketplaceApplicationChanged", { enumerable: true, get: function () { return marketplace_triggers_1.marketplaceApplicationChanged; } });
 Object.defineProperty(exports, "marketplaceJobChanged", { enumerable: true, get: function () { return marketplace_triggers_1.marketplaceJobChanged; } });
+Object.defineProperty(exports, "marketplaceDisputeChanged", { enumerable: true, get: function () { return marketplace_triggers_1.marketplaceDisputeChanged; } });
+Object.defineProperty(exports, "marketplaceTimelineChanged", { enumerable: true, get: function () { return marketplace_triggers_1.marketplaceTimelineChanged; } });
+Object.defineProperty(exports, "marketplaceReportChanged", { enumerable: true, get: function () { return marketplace_triggers_1.marketplaceReportChanged; } });
 //# sourceMappingURL=index.js.map

@@ -42,6 +42,8 @@ function offlineError() {
 function quotaPausedUntil() {
   if (typeof window === "undefined") return 0;
   if (process.env.NEXT_PUBLIC_DATA_BACKEND === "local-sqlite") {
+    window.sessionStorage.removeItem("copic.clientAgentApproved");
+    window.sessionStorage.removeItem("copic.clientAgentApproved");
     window.localStorage.removeItem("temp.dataQuotaPausedUntil");
     return 0;
   }
@@ -363,7 +365,7 @@ export async function createJob(clientId: string, input: unknown) {
   const response = await fetch("/api/jobs/create", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(validated.data)
+    body: JSON.stringify({ ...validated.data, ...(typeof window !== "undefined" && window.sessionStorage.getItem("copic.clientAgentApproved") ? { clientAgentCode: window.sessionStorage.getItem("copic.clientAgentApproved"), approveClientAgent: true } : {}) })
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {

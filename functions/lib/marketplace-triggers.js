@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.marketplaceJobChanged = exports.marketplaceApplicationChanged = exports.marketplaceVerificationChanged = exports.marketplaceUserChanged = void 0;
+exports.marketplaceReportChanged = exports.marketplaceTimelineChanged = exports.marketplaceDisputeChanged = exports.marketplaceJobChanged = exports.marketplaceApplicationChanged = exports.marketplaceVerificationChanged = exports.marketplaceUserChanged = void 0;
 const firestore_1 = require("firebase-functions/v2/firestore");
 const firestore_2 = require("firebase-admin/firestore");
 const marketplace_projections_1 = require("./marketplace-projections");
@@ -38,7 +38,7 @@ exports.marketplaceApplicationChanged = (0, firestore_1.onDocumentWritten)("appl
 exports.marketplaceJobChanged = (0, firestore_1.onDocumentWritten)("jobs/{id}", async (event) => {
     const db = (0, firestore_2.getFirestore)();
     const before = event.data?.before.data(), after = event.data?.after.data();
-    if (before?.status === after?.status && before?.refunded === after?.refunded && before?.fraudulent === after?.fraudulent && before?.invalid === after?.invalid && before?.recurrenceStatus === after?.recurrenceStatus)
+    if (before?.status === after?.status && before?.refunded === after?.refunded && before?.fraudulent === after?.fraudulent && before?.invalid === after?.invalid && before?.recurrenceStatus === after?.recurrenceStatus && before?.disputed === after?.disputed && before?.disputeOpen === after?.disputeOpen && before?.disputeStatus === after?.disputeStatus)
         return;
     // Job creation has no completed applications to reconcile.
     if (!before)
@@ -50,5 +50,21 @@ exports.marketplaceJobChanged = (0, firestore_1.onDocumentWritten)("jobs/{id}", 
         if (app.workerId && app.status === "completed" && app.paymentConfirmedAt && !app.refunded && !app.fraudulent && !app.invalid && after?.status === "completed" && after.recurrenceStatus !== "cancelled" && !after.refunded && !after.fraudulent && !after.invalid)
             await (0, marketplace_projections_1.recordFunnel)(db, app.workerId, "first_completed_job");
     }
+});
+async function reconcileJobSources(jobId) {
+    if (typeof jobId !== "string" || !jobId)
+        return;
+    const db = (0, firestore_2.getFirestore)(), applications = await db.collection("applications").where("jobId", "==", jobId).get();
+    for (const application of applications.docs)
+        await (0, marketplace_completions_1.reconcileCompletedApplication)(db, application.id);
+}
+exports.marketplaceDisputeChanged = (0, firestore_1.onDocumentWritten)("disputes/{id}", async (event) => {
+    await reconcileJobSources(event.data?.after.data()?.jobId ?? event.data?.before.data()?.jobId);
+});
+exports.marketplaceTimelineChanged = (0, firestore_1.onDocumentWritten)("jobTimelines/{id}", async (event) => {
+    await reconcileJobSources(event.data?.after.data()?.jobId ?? event.data?.before.data()?.jobId);
+});
+exports.marketplaceReportChanged = (0, firestore_1.onDocumentWritten)("reports/{id}", async (event) => {
+    await reconcileJobSources(event.data?.after.data()?.relatedJobId ?? event.data?.before.data()?.relatedJobId);
 });
 //# sourceMappingURL=marketplace-triggers.js.map

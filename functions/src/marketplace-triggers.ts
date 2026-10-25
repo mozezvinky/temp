@@ -26,7 +26,7 @@ export const marketplaceApplicationChanged=onDocumentWritten("applications/{id}"
 export const marketplaceJobChanged=onDocumentWritten("jobs/{id}",async event=>{
   const db=getFirestore();
   const before=event.data?.before.data(),after=event.data?.after.data();
-  if(before?.status===after?.status&&before?.refunded===after?.refunded&&before?.fraudulent===after?.fraudulent&&before?.invalid===after?.invalid&&before?.recurrenceStatus===after?.recurrenceStatus)return;
+  if(before?.status===after?.status&&before?.refunded===after?.refunded&&before?.fraudulent===after?.fraudulent&&before?.invalid===after?.invalid&&before?.recurrenceStatus===after?.recurrenceStatus&&before?.disputed===after?.disputed&&before?.disputeOpen===after?.disputeOpen&&before?.disputeStatus===after?.disputeStatus)return;
   // Job creation has no completed applications to reconcile.
   if(!before)return;
   const applications=await db.collection("applications").where("jobId","==",event.params.id).get();
@@ -35,4 +35,19 @@ export const marketplaceJobChanged=onDocumentWritten("jobs/{id}",async event=>{
     const app=application.data();
     if(app.workerId&&app.status==="completed"&&app.paymentConfirmedAt&&!app.refunded&&!app.fraudulent&&!app.invalid&&after?.status==="completed"&&after.recurrenceStatus!=="cancelled"&&!after.refunded&&!after.fraudulent&&!after.invalid)await recordFunnel(db,app.workerId,"first_completed_job");
   }
+});
+
+async function reconcileJobSources(jobId: unknown) {
+  if (typeof jobId !== "string" || !jobId) return;
+  const db = getFirestore(), applications = await db.collection("applications").where("jobId", "==", jobId).get();
+  for (const application of applications.docs) await reconcileCompletedApplication(db, application.id);
+}
+export const marketplaceDisputeChanged = onDocumentWritten("disputes/{id}", async event => {
+  await reconcileJobSources(event.data?.after.data()?.jobId ?? event.data?.before.data()?.jobId);
+});
+export const marketplaceTimelineChanged = onDocumentWritten("jobTimelines/{id}", async event => {
+  await reconcileJobSources(event.data?.after.data()?.jobId ?? event.data?.before.data()?.jobId);
+});
+export const marketplaceReportChanged = onDocumentWritten("reports/{id}", async event => {
+  await reconcileJobSources(event.data?.after.data()?.relatedJobId ?? event.data?.before.data()?.relatedJobId);
 });

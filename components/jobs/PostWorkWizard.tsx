@@ -36,10 +36,10 @@ type Draft = {
 
 const emptyDraft: Draft = { service: "", workDate: "", applicationDeadline: "", title: "", description: "", budget: "", timeline: "", timelineUnit: "hours", workersNeeded: "1", quantity: "", unit: "", customUnit: "", category: "", payType: "fixed" };
 
-export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserProfile; onClose: () => void; onPosted?: () => void }) {
+export function PostWorkWizard({ profile, onClose, onPosted, initialJob, onSubmitJob }: { profile: UserProfile; onClose: () => void; onPosted?: () => void; initialJob?: Record<string, unknown>; onSubmitJob?: (job: Record<string, unknown>) => Promise<void> }) {
   const [step, setStep] = useState(1);
-  const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [location, setLocation] = useState<LocationFields>(defaultKenyaLocation);
+  const [draft, setDraft] = useState<Draft>(() => initialJob ? { ...emptyDraft, title: String(initialJob.title ?? ""), description: String(initialJob.description ?? ""), category: String(initialJob.category ?? ""), service: String((initialJob.requiredSkills as string[] | undefined)?.[0] ?? ""), budget: String(initialJob.payAmount ?? ""), timeline: String(initialJob.durationValue ?? ""), timelineUnit: (initialJob.durationUnit as DurationUnit) ?? "hours", payType: initialJob.payType === "fixed" ? "fixed" : "pay_per_timeline", workersNeeded: String(initialJob.workersNeeded ?? 1), quantity: String(initialJob.quantity ?? ""), unit: String(initialJob.unit ?? ""), customUnit: String(initialJob.customUnit ?? ""), workDate: initialJob.workDate ? new Date(String(initialJob.workDate)).toISOString().slice(0,16) : "", applicationDeadline: initialJob.applicationDeadline ? new Date(String(initialJob.applicationDeadline)).toISOString().slice(0,16) : "" } : emptyDraft);
+  const [location, setLocation] = useState<LocationFields>((initialJob?.locationDetails as LocationFields) ?? defaultKenyaLocation);
   const [posting, setPosting] = useState(false);
   const { status: liveVerificationStatus, checking: checkingVerification } = useLiveVerificationStatus(profile.verificationStatus);
   const unitOptions = useMemo(() => unitsForCategory(draft.category), [draft.category]);
@@ -62,11 +62,11 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
   }
 
   async function post() {
-    if (checkingVerification) {
+    if (!onSubmitJob && checkingVerification) {
       toast.message("Checking your verification status. Try again in a moment.");
       return;
     }
-    if (!clientCanPost({ verificationStatus: liveVerificationStatus })) {
+    if (!onSubmitJob && !clientCanPost({ verificationStatus: liveVerificationStatus })) {
       toast.error("Verify your identity before posting jobs.");
       return;
     }
@@ -79,7 +79,8 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
       const durationValue = Number(draft.timeline);
       const timelineCount = Math.max(1, Math.trunc(durationValue || 1));
       const duration = durationLabel(durationValue, draft.timelineUnit);
-      await createJob(profile.id, {
+      const submitJob = onSubmitJob ?? ((job: Record<string, unknown>) => createJob(profile.id, job).then(() => {}));
+      await submitJob({
         title: draft.title,
         workDate: draft.workDate ? new Date(draft.workDate).toISOString() : undefined,
         applicationDeadline: draft.applicationDeadline ? new Date(draft.applicationDeadline).toISOString() : undefined,
@@ -102,7 +103,7 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
         locationDetails: location,
         requiredSkills: draft.service ? [draft.service] : []
       });
-      toast.success("Work posted and matching workers alerted.");
+      toast.success(onSubmitJob ? "Job details submitted." : "Work posted and matching workers alerted.");
       onPosted?.();
       onClose();
     } catch (error) {
@@ -117,7 +118,7 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
       <Card role="dialog" aria-modal="true" className="no-visible-scrollbar max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto overscroll-contain">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">Post work · Step {step} of 3</p>
+            <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">{onSubmitJob ? "Review job" : "Post work"} · Step {step} of 3</p>
             <h2 className="mt-2 text-2xl font-black text-[#FFFBFF]">{step === 1 ? "What work do you need?" : step === 2 ? "Set the job details" : "Choose the job location"}</h2>
           </div>
           <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
@@ -170,7 +171,7 @@ export function PostWorkWizard({ profile, onClose, onPosted }: { profile: UserPr
             <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
               Payment is for labor only. Does not include materials and transport
             </p>
-            <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(2)} className="flex-1">Back</Button><Button type="button" disabled={posting || checkingVerification} onClick={() => void post()} className="temp-success-button flex-1">{posting ? "Posting..." : checkingVerification ? "Checking..." : "Post work"}</Button></div>
+            <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(2)} className="flex-1">Back</Button><Button type="button" disabled={posting || (!onSubmitJob && checkingVerification)} onClick={() => void post()} className="temp-success-button flex-1">{posting ? "Submitting..." : onSubmitJob ? "Submit reviewed details" : checkingVerification ? "Checking..." : "Post work"}</Button></div>
           </div>
         )}
       </Card>

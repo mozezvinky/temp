@@ -79,7 +79,7 @@ export default function BecomeAgentPage() {
   }
 
   if (loading && !user) return <RecruitmentState title="Checking your Agent status…" />;
-  if (profile?.agentEnabled || activated) return <RecruitmentState title="You're a COPIC Agent."><p>Your Agent Dashboard has your worker referral links and commissions.</p><div className="mt-6"><RecruitmentApplyLink href="/agent" onClick={clearAcquisitionReturn}>Open Agent Dashboard</RecruitmentApplyLink></div></RecruitmentState>;
+  if (profile?.agentEnabled || activated) return <RecruitmentState title="You're a COPIC Agent."><p>Your Agent Dashboard has your client and worker referral tools and commissions.</p><div className="mt-6"><RecruitmentApplyLink href="/agent" onClick={clearAcquisitionReturn}>Open Agent Dashboard</RecruitmentApplyLink></div></RecruitmentState>;
   if (user && accepted && needsVerification) return <RecruitmentState title="Verify your email" error={!!error}>
     <p>{error || "Verify your email to continue setting up your Agent account."}</p>
     <div className="mt-6 flex flex-wrap gap-3">
@@ -90,39 +90,17 @@ export default function BecomeAgentPage() {
   </RecruitmentState>;
 
   return <div className="recruitment-page">
-    <header className="space-y-3"><p className="copic-eyebrow">COPIC Agent Program</p><h1 className="recruitment-title">{user ? "You're almost ready." : "Become a COPIC Agent"}</h1><p className="copic-muted">Help genuine service providers join COPIC and earn commission from eligible work completed by workers you successfully refer.</p></header>
+    <header className="space-y-3"><p className="copic-eyebrow">COPIC Agent Program</p><h1 className="recruitment-title">{user ? "You're almost ready." : "Become a COPIC Agent"}</h1><p className="copic-muted">Find clients who need workers and recruit genuine workers. One free agent account supports both earning opportunities.</p></header>
     <Card className="recruitment-opportunity">
       <p className="copic-eyebrow">Your commission</p>
       {rate !== null ? <>
         <h2 className="recruitment-rate mt-3">Earn {(rate * 100).toLocaleString("en-KE", { maximumFractionDigits: 4 })}% commission</h2>
         <div className="mt-4 space-y-4 leading-relaxed">
-          <p>For every eligible job successfully completed by a worker you validly referred to COPIC, <strong>you earn 1% of the eligible job amount.</strong></p>
-          <p>For example, if your worker completes an eligible job worth <strong>KSh 1,000</strong>, you earn <strong>KSh 10</strong>.</p>
-          <h3 className="pt-3 text-xl font-bold">Your Referrals Can Add Up</h3>
-          <p>The more active workers you successfully bring to COPIC, the more completed jobs can contribute to your commission.</p>
-          <section className="space-y-3 pt-2" aria-labelledby="agent-example-one">
-            <h4 id="agent-example-one" className="font-bold">Example 1 — 100 active workers</h4>
-            <p>If you have <strong>100 referred workers</strong>, and each completes one eligible <strong>KSh 1,000 job per day</strong>:</p>
-            <p><strong>KSh 10 commission × 100 workers = KSh 1,000 per day</strong></p>
-            <p>If that level of activity continued for 30 days, that would equal approximately <strong>KSh 30,000 in commission.</strong></p>
-          </section>
-          <section className="space-y-3 pt-2" aria-labelledby="agent-example-two">
-            <h4 id="agent-example-two" className="font-bold">Example 2 — Build Your Network Consistently</h4>
-            <p>If your goal is to recruit just <strong>1 genuine worker per day</strong>, after one year you could have <strong>365 referred workers</strong>.</p>
-            <p>Even if only <strong>120 of those workers</strong> completed one eligible KSh 1,000 job on a given day:</p>
-            <p><strong>120 workers × KSh 10 = KSh 1,200 in commission that day.</strong></p>
-            <p>If that level of activity occurred every day for 30 days, that would equal <strong>KSh 36,000.</strong></p>
-          </section>
-          <section className="space-y-3 pt-2" aria-labelledby="agent-example-three">
-            <h4 id="agent-example-three" className="font-bold">Example 3 — Recruit 3 Workers a Day</h4>
-            <p>Recruit <strong>3 genuine workers per day for 30 days</strong>, and you could build a network of:</p>
-            <p><strong>3 × 30 = 90 referred workers.</strong></p>
-            <p>As those workers complete eligible jobs on COPIC, <strong>you earn your 1% commission on each qualifying completed job.</strong></p>
-          </section>
-          <h3 className="pt-3 text-xl font-bold">Start Building Your Network</h3>
-          <p>You don&apos;t need hundreds of referrals on your first day. Start with one genuine worker, then another.</p>
-          <p><strong>Refer workers. Help them get started. Grow your network. Earn 1% from their eligible completed jobs.</strong></p>
-          <p className="text-sm copic-muted"><em>The figures above are examples based on the stated assumptions. Actual commission depends on the number and value of eligible jobs successfully completed by your referred workers.</em></p>
+          <h3 className="text-xl font-bold">Earn as a Client Agent</h3><p>Find people who need workers, bring their jobs to COPIC, and earn 1% of eligible worker net earnings after jobs are successfully completed and payment is verified.</p>
+          <h3 className="text-xl font-bold">Earn as a Worker Agent</h3><p>Recruit workers to COPIC and earn 1% of their eligible net earnings when they successfully complete paid jobs.</p>
+          <p>You can do both using one account. Joining is free. Earnings are not guaranteed.</p>
+          <p>Example: for KSh 5,000 paid by a client with an applicable KSh 500 COPIC fee, worker net earnings are KSh 4,500. Each qualifying agent role earns KSh 45 from COPIC fee revenue. The worker keeps KSh 4,500.</p>
+          <p>Clicks, signups and unfinished jobs do not earn commissions. Payments remain subject to verification, disputes and payout review.</p>
         </div>
       </> : <p role="status" className="mt-3 copic-muted">{rateError ? "Commission information is temporarily unavailable. Please try again later." : "Loading the current commission…"}</p>}
     </Card>

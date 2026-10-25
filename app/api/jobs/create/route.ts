@@ -1,3 +1,5 @@
+import { approvedClientAgent } from "@/lib/client-agent";
+import { MarketplaceError } from "@/lib/marketplace-server";
 import { isSqlBackend } from "@/lib/data-backend";
 import { CurrentUserProfileError, getCurrentUserProfile } from "@/lib/current-user-profile";
 import { adminDb } from "@/lib/firebase-admin";
@@ -32,6 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (isSqlBackend()) {
+      if (body.clientAgentCode || body.agentProposalId) return NextResponse.json({ error: "Agent job attribution requires the Firebase backend." }, { status: 409 });
       const user = currentUser.profile;
       if (currentUser.role && currentUser.role !== "client" && currentUser.role !== "admin") {
         return NextResponse.json({ error: "You do not have permission to post work. Please use a client account." }, { status: 403 });
@@ -103,12 +106,14 @@ export async function POST(request: NextRequest) {
     const activityRef = db.collection("activities").doc();
     const data = parsed.data;
     const timelineSummary = isPayPerTimeline(data.payType) ? timelinePaymentSummaryFromRecord(data as typeof data & TimelineJobData, Number(data.durationValue ?? 1)) : null;
-    const batch = db.batch();
+    await db.runTransaction(async batch => {
+    const clientAgent = await approvedClientAgent(db, batch, currentUser.uid, body);
     batch.set(jobRef, {
       id: jobRef.id,
       ...data,
       ...(data.requiredSkills.length === 1 ? { serviceId: serviceKey(data.requiredSkills[0]), serviceName: data.requiredSkills[0] } : {}),
       ...(timelineSummary ?? {}),
+      ...(clientAgent ? { clientAgent: { ...clientAgent, approvedAt: FieldValue.serverTimestamp() } } : {}),
       clientId: currentUser.uid,
       clientName: userData.displayName ?? currentUser.displayName ?? currentUser.email ?? "Copic client",
       createdBy: currentUser.uid,
@@ -151,10 +156,12 @@ export async function POST(request: NextRequest) {
     if (userData.emailVerified !== true && currentUser.emailVerified === true) {
       batch.set(userRef, { emailVerified: true, emailVerifiedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     }
-    await batch.commit();
+    if (clientAgent?.sourceType === "agent_sourced") batch.update(db.doc(clientAgent.reference), { status: "published", jobId: jobRef.id, approvedAt: FieldValue.serverTimestamp() });
+    });
 
     return NextResponse.json({ success: true, jobId: jobRef.id });
   } catch (error) {
+    if (error instanceof MarketplaceError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof Error && error.message === "EMAIL_NOT_VERIFIED") return NextResponse.json({ error: "EMAIL_NOT_VERIFIED" }, { status: 403 });
     if (error instanceof CurrentUserProfileError) {
       return NextResponse.json({ error: error.message === "Sign in is required." ? "Please sign in before posting work." : error.message }, { status: error.status });

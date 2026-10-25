@@ -244,4 +244,4 @@ export const updateBadgesOnJobCompletion = onDocumentUpdated("jobs/{jobId}", asy
   });
 });
 
-export { marketplaceUserChanged,marketplaceVerificationChanged,marketplaceApplicationChanged,marketplaceJobChanged } from "./marketplace-triggers";
+export { marketplaceUserChanged,marketplaceVerificationChanged,marketplaceApplicationChanged,marketplaceJobChanged,marketplaceDisputeChanged,marketplaceTimelineChanged,marketplaceReportChanged } from "./marketplace-triggers";

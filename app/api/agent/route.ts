@@ -1,3 +1,5 @@
+import { activeAgent } from "@/functions/src/agent-policy";
+import { clientAgentCode } from "@/lib/client-agent";
 import { createHash } from "node:crypto";
 import { requireServerUser } from "@/lib/server-auth";
 import { AGENT_TERMS_VERSION } from "@/lib/agent-program";
@@ -6,7 +8,7 @@ import { resolveService,MarketplaceError,validId } from "@/lib/marketplace-serve
 import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest,NextResponse } from "next/server";
 export async function GET(request:NextRequest){
-  try{const user=await requireServerUser(request),db=adminDb();if(!user.profile.agentEnabled)return NextResponse.json({enabled:false});
+  try{const user=await requireServerUser(request),db=adminDb();if(!activeAgent(user.profile))return NextResponse.json({enabled:false});
     const view=request.nextUrl.searchParams.get("view")??"overview",cursor=request.nextUrl.searchParams.get("cursor");
     if(view==="referrals"||view==="earnings"){
       const collection=view==="referrals"?"agentReferrals":"commissionLedger";
@@ -39,6 +41,7 @@ export async function POST(request:NextRequest){
     }
     if(!user.profile.agentEnabled||user.profile.isLocked)throw new MarketplaceError("Active agent access required.",403);
     if(body.action!=="create_link")throw new MarketplaceError("Unknown agent action.");
+    if(body.roleType === "CLIENT_AGENT") { const id=clientAgentCode(user.uid); await db.runTransaction(async tx => { const ref=db.doc(`agentLinks/${id}`), existing=await tx.get(ref); if(existing.exists && existing.data()?.active !== true) throw new MarketplaceError("This referral link is inactive. Contact COPIC support.",403); if(!existing.exists) tx.create(ref,{agentId:user.uid,roleType:"CLIENT_AGENT",active:true,name:"Post work with my referral"}); }); return NextResponse.json({id,url:`/agent/client/${id}`}); }
     const service=body.service?await resolveService(String(body.service)):null;
     const key=service?service.serviceId:"general";
     // Deterministic owner+service link prevents unlimited duplicate links.

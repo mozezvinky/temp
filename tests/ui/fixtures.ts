@@ -2,6 +2,7 @@ import { profile } from "./auth";
 export const campaign={id:"campaign-demo",name:"Nairobi Laundry TikTok September",service:"Laundry helper",rate:700,unit:"basket",targetLocation:"Nairobi",active:true,adSpend:12000};
 export const funnel={link_clicked:12420,signup_started:3840,account_created:2910,skill_added:2507,id_verification_submitted:1834,id_verified:1521,first_job:473,first_completed_job:311};
 export const fixtures:Record<string,unknown>={
+ "/api/agent/overview":{enabled:true,client:{earned:45,available:0,pending:45,completedJobs:1,net:4500,generatedValue:5000,eligibleJobs:1},worker:{earned:90,available:45,pending:45,completedJobs:2,net:9000},combined:{earned:135,available:45},clientCode:"client-demo",metrics:{...funnel,activeWorkers:12},links:[{id:"agent-link",name:"Join COPIC as a Laundry worker"}],workers:[{id:"worker-demo",status:"referred"}],clients:[{id:"client-demo"}],jobs:[{id:"job-demo",title:"Laundry help for a local household",clientId:"client-demo",gross:5000,status:"completed",workerNet:4500,estimatedCommission:45,commission:45,paymentStatus:"pending"}],proposals:[{id:"proposal-demo",title:"Prepare garden for planting",status:"pending"}],records:[{id:"client-commission",jobId:"job-demo",roleType:"CLIENT_AGENT",eligibleWorkerAmount:4500,commissionAmount:45,status:"pending"},{id:"worker-commission",jobId:"job-demo",roleType:"WORKER_AGENT",eligibleWorkerAmount:4500,commissionAmount:45,status:"available"}]},
  "/api/agent/program":{commissionRate:0.01},
  "/api/admin/sessions":{sessions:[]},
  "/api/admin/tickets":{tickets:[]},

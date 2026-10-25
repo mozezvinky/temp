@@ -14,7 +14,8 @@
     "functions:build": "tsc -p functions/tsconfig.json",
     "test:email-otp": "tsx --test tests/email-otp.test.ts",
     "test:marketplace": "tsx --test tests/marketplace*.test.ts",
-    "marketplace:backfill": "tsx scripts/backfill-marketplace.ts"
+    "marketplace:backfill": "tsx scripts/backfill-marketplace.ts",
+    "test:agents:emulator": "node scripts/test-agent-emulator.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

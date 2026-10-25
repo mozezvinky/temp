@@ -5,6 +5,7 @@ export function safeVerificationPath(value: unknown): string | null {
   if (typeof value !== "string" || value !== value.trim()) return null;
   if (safeAcquisitionPath(value) || pages.has(value)) return value;
   if (/^\/complete-profile\?role=(worker|client)$/.test(value)) return value;
+  if (/^\/agent\/(review|client)\/[A-Za-z0-9_-]{1,100}$/.test(value)) return value;
   if (/^\/jobs\/[A-Za-z0-9_-]{1,100}$/.test(value)) return value;
   if (/^\/admin\/(admins|users|agents|agent-program|recruitment|support|settings|verification|kyc|jobs|analytics|audit|disputes|reports|skills|map|service-fees)$/.test(value)) return value;
   return null;

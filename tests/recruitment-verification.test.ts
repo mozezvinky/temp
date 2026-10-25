@@ -59,10 +59,8 @@ test("A/B/C/D/F: checks freshly reloaded Firebase email state, refreshes token, 
     getIdToken: async (force: boolean) => { assert.equal(force, true); refreshes++; return "fresh-token"; }
   };
   const auth: { currentUser: typeof user | null } = { currentUser: user };
-  let settings: { url: string; handleCodeInApp: boolean } | undefined;
   const services = await load("services/emailVerification.ts", {
-    "@/lib/firebase": { requireAuth: () => auth },
-    "firebase/auth": { sendEmailVerification: async (_user: unknown, options: typeof settings) => { settings = options; } }
+    "@/lib/firebase": { requireAuth: () => auth }
   }, { window: { location: { origin: "https://copic.example" }, sessionStorage: storage(), localStorage: storage() } });
   assert.equal(await services.reloadVerifiedRecruitmentUser(), false); // Cached true must not bypass verification.
   assert.equal(refreshes, 0);
@@ -70,10 +68,9 @@ test("A/B/C/D/F: checks freshly reloaded Firebase email state, refreshes token, 
   assert.equal(await services.reloadVerifiedRecruitmentUser(), true);
   assert.equal(reloads, 2);
   assert.equal(refreshes, 1);
-  await services.sendRecruitmentVerificationEmail("/join/original-agent");
-  assert.equal(settings?.url, "https://copic.example/verify-email?returnTo=%2Fjoin%2Foriginal-agent");
-  assert.equal(settings?.handleCodeInApp, false);
-  await assert.rejects(services.sendRecruitmentVerificationEmail("https://evil.test"), /Invalid verification/);
+  // Recruitment now uses the shared six-digit OTP flow, covered by email-otp.test.ts.
+  assert.equal(typeof services.sendEmailVerificationCode, "function");
+  assert.equal(services.sendRecruitmentVerificationEmail, undefined);
   user.reload = async () => { auth.currentUser = null; };
   await assert.rejects(services.reloadVerifiedRecruitmentUser(), /account changed/);
   await assert.rejects(services.reloadVerifiedRecruitmentUser(), /sign in again/);
