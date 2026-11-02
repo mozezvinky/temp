@@ -1,3 +1,5 @@
+import { normalizeSkillVerificationStatus } from "@/utils/worker-skills";
+import { serviceSectors } from "@/utils/service-catalogue";
 import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { isSqlBackend, logDataMode } from "@/lib/data-backend";
 import { adminDb } from "@/lib/firebase-admin";
@@ -104,7 +106,7 @@ function publicWorker(worker: Record<string, unknown>) {
     isLocked: worker.isLocked, outstandingServiceFee: worker.outstandingServiceFee,
     completedJobs: worker.completedJobs, ratingAverage: worker.ratingAverage, ratingCount: worker.ratingCount,
     location: publicLocation(worker.location),
-    skillProfiles: skillProfiles.map(skill => ({ id: skill.id, name: skill.name, description: skill.description, category: skill.category, level: skill.level, verificationStatus: skill.verificationStatus, chargeAmount: skill.chargeAmount, chargeCategory: skill.chargeCategory, chargeQuantity: skill.chargeQuantity, chargeUnit: skill.chargeUnit, chargeCustomUnit: skill.chargeCustomUnit, chargeTimeline: skill.chargeTimeline, chargeTimelineUnit: skill.chargeTimelineUnit, chargePayType: skill.chargePayType, completedJobs: skill.completedJobs, ratingAverage: skill.ratingAverage, ratingCount: skill.ratingCount })),
+    skillProfiles: skillProfiles.map(skill => ({ catalogue: normalizeSkillVerificationStatus(skill.verificationStatus) === "approved" ? (skill.catalogue ?? []).filter(item => item.active && (!serviceSectors.find(sector => sector.name === item.sector)?.certificate || (skill.proofType === "certificate" && Boolean(skill.proofUrl)))) : [], id: skill.id, name: skill.name, description: skill.description, category: skill.category, level: skill.level, verificationStatus: skill.verificationStatus, chargeAmount: skill.chargeAmount, chargeCategory: skill.chargeCategory, chargeQuantity: skill.chargeQuantity, chargeUnit: skill.chargeUnit, chargeCustomUnit: skill.chargeCustomUnit, chargeTimeline: skill.chargeTimeline, chargeTimelineUnit: skill.chargeTimelineUnit, chargePayType: skill.chargePayType, completedJobs: skill.completedJobs, ratingAverage: skill.ratingAverage, ratingCount: skill.ratingCount })),
     skills: skillProfiles.length ? skillProfiles.map(skill => skill.name) : legacySkills
   };
 }

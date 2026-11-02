@@ -1,0 +1,321 @@
+/* Responsive layout authority. Brand colors and product behavior live in the
+   existing theme; these shared tokens control rhythm, sizing and safe areas. */
+:root {
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --content-form: 42rem;
+  --content-standard: 75rem;
+  --content-wide: 90rem;
+  --page-gutter: var(--space-4);
+  --section-gap: var(--space-6);
+  --card-padding: var(--space-4);
+  --control-height: 3rem;
+  --touch-target: 2.75rem;
+  --copic-header-height: 4.5rem;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --type-page: clamp(1.5rem, 1.2rem + 1.2vw, 2.25rem);
+  --type-section: clamp(1.125rem, 1.05rem + .3vw, 1.25rem);
+  --type-card: 1rem;
+  --type-body: .9375rem;
+  --type-label: .875rem;
+  --type-small: .8125rem;
+}
+
+html { scroll-padding-top: calc(var(--copic-header-height) + var(--space-4)); }
+body { line-height: 1.5; }
+.temp-main {
+  max-width: var(--content-standard) !important;
+  min-width: 0;
+  padding: var(--space-6) max(var(--page-gutter), var(--safe-right)) calc(var(--space-8) + var(--safe-bottom)) max(var(--page-gutter), var(--safe-left)) !important;
+}
+.temp-main:has(.copic-admin, .copic-dashboard) { max-width: var(--content-wide) !important; }
+.temp-main.is-landing { max-width: none !important; padding: 0 !important; }
+.temp-app-shell:has(.copic-activity-hub) .temp-main { padding-bottom: calc(var(--space-16) + var(--space-8) + var(--safe-bottom)) !important; }
+.temp-main :where(main, aside, section, article, form, fieldset, label, .grid, .flex) { min-width: 0; }
+.temp-main :where(h1, h2, h3, h4, p, dt, dd) { overflow-wrap: anywhere; }
+.temp-main:not(.is-landing) h1 {
+  font-size: var(--type-page) !important;
+  font-weight: 750;
+  line-height: 1.2 !important;
+  letter-spacing: -.025em;
+}
+.copic-card :is(h2, .copic-panel-heading h2), .copic-modal h2 {
+  font-size: var(--type-section);
+  line-height: 1.25;
+  font-weight: 700;
+}
+.copic-eyebrow { font-size: .75rem; line-height: 1.5; letter-spacing: .08em; }
+.temp-main small { font-size: var(--type-small); }
+.copic-card, .bone-card, .marketplace-card {
+  min-width: 0;
+  padding: var(--card-padding);
+  border-radius: var(--copic-radius-card) !important;
+}
+.copic-card:hover, .bone-card:hover, .marketplace-card:hover { transform: none; }
+.copic-stack { display: grid; gap: var(--section-gap); }
+.copic-page-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.copic-form { display: grid; gap: var(--space-4); }
+.copic-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.copic-actions > * { max-width: 100%; }
+.copic-icon-button { display: inline-grid; min-width: var(--touch-target); min-height: var(--touch-target); flex-shrink: 0; place-items: center; }
+.copic-skip-link { position: fixed; top: calc(var(--space-2) + var(--safe-top)); left: var(--space-4); z-index: 200; transform: translateY(-200%); padding: var(--space-3) var(--space-4); border-radius: var(--copic-radius); background: var(--copic-primary); color: var(--copic-on-primary); }
+.copic-skip-link:focus { transform: translateY(0); }
+
+.copic-button, .button-format, .recruitment-primary, .recruitment-secondary {
+  max-width: 100%;
+  min-height: var(--touch-target);
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--type-label);
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.copic-button svg, .button-format svg, .temp-sidebar-link svg, .agent-navigation svg { flex-shrink: 0; }
+.copic-button:disabled { transform: none !important; box-shadow: none !important; }
+.copic-button[data-size="compact"] { min-height: 2.25rem; padding: var(--space-2) var(--space-3); }
+.copic-button[data-size="large"] { min-height: 3.25rem; padding: var(--space-4) var(--space-6); }
+.copic-button[data-size="icon"] { width: var(--touch-target); min-width: var(--touch-target); padding: var(--space-2); }
+@media (pointer: coarse) { .copic-button[data-size="compact"] { min-height: var(--touch-target); } }
+.temp-label, .worker-hire-location .temp-label {
+  gap: var(--space-2) !important;
+  color: var(--copic-text) !important;
+  font-family: inherit !important;
+  font-size: var(--type-label) !important;
+  font-weight: 600 !important;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.temp-input, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea {
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--control-height);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.temp-label :is(input, select, textarea) { width: 100%; }
+textarea { resize: vertical; }
+input[type="file"] { white-space: normal; overflow: hidden; padding: var(--space-3); }
+input[type="file"]::file-selector-button { min-height: 2rem; margin-right: var(--space-2); border-radius: var(--copic-radius); }
+input[type="checkbox"], input[type="radio"] { flex-shrink: 0; accent-color: var(--copic-lime-ink); }
+label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: var(--touch-target); align-items: center; gap: var(--space-3); }
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--copic-error) !important; }
+[role="alert"] { line-height: 1.5; overflow-wrap: anywhere; }
+:is(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--copic-text); outline-offset: var(--space-1); }
+
+/* The browser, not an emulated native status bar, owns the viewport insets. */
+.temp-navbar { padding-top: var(--safe-top); }
+.temp-navbar-inner {
+  width: 100%;
+  max-width: var(--content-standard);
+  min-height: var(--space-16);
+  gap: var(--space-3);
+  padding-inline: max(var(--page-gutter), var(--safe-left)) max(var(--page-gutter), var(--safe-right));
+}
+.temp-app-shell:has(.copic-admin, .copic-dashboard) .temp-navbar-inner { max-width: var(--content-wide); }
+.temp-navbar-link { min-height: var(--touch-target); padding: var(--space-3) !important; font-size: var(--type-label); }
+.temp-navbar-link-icon { width: 1.25rem; height: 1.25rem; }
+.temp-navbar-profile { height: var(--control-height); }
+.temp-role-switch, .temp-navbar.is-app-nav .temp-role-switch { width: 10rem; height: 3.5rem; align-items: center; }
+.temp-role-switch button, .temp-navbar.is-app-nav .temp-role-switch button { min-height: var(--touch-target); height: var(--touch-target); font-size: var(--type-label); font-family: inherit !important; text-transform: capitalize; }
+.temp-role-switch-thumb, .temp-navbar.is-app-nav .temp-role-switch-thumb { top: 50%; height: var(--touch-target); transform: translateY(-50%); }
+.temp-role-switch.is-client .temp-role-switch-thumb { transform: translate(100%, -50%); }
+.temp-mobile-drawer {
+  width: min(22rem, 100%) !important;
+  max-width: 100% !important;
+  padding: max(var(--space-4), var(--safe-top)) max(var(--space-4), var(--safe-right)) calc(var(--space-6) + var(--safe-bottom)) max(var(--space-4), var(--safe-left)) !important;
+}
+.temp-mobile-drawer nav { gap: var(--space-2); margin-top: var(--space-6); padding-bottom: 0; }
+.temp-mobile-drawer nav :is(a, button) { min-height: var(--control-height); }
+.temp-profile-menu { max-width: calc(100vw - 2 * var(--page-gutter)); }
+.temp-profile-menu :is(a, button) { display: flex; align-items: center; min-height: var(--touch-target); }
+.temp-top-alert { top: calc(var(--space-3) + var(--safe-top)); }
+.temp-top-alert-dismiss { min-height: var(--touch-target); }
+
+.temp-modal-backdrop, .copic-install-guide {
+  padding: max(var(--space-4), var(--safe-top)) max(var(--space-4), var(--safe-right)) max(var(--space-4), var(--safe-bottom)) max(var(--space-4), var(--safe-left));
+}
+.copic-modal, .copic-admin .copic-modal {
+  min-width: 0;
+  max-height: calc(100dvh - max(2rem, var(--safe-top) + var(--safe-bottom) + 2rem)) !important;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+.copic-modal.copic-app-modal { padding: 0 !important; overflow: hidden; }
+.copic-modal-header { display: flex; flex: 0 0 auto; align-items: start; justify-content: space-between; gap: var(--space-4); padding: var(--space-4); border-bottom: 1px solid var(--copic-border); }
+.copic-modal-header > div { min-width: 0; }
+.copic-modal-header h2 { margin-top: var(--space-1); }
+.copic-modal-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--space-4); }
+.copic-modal-body form { min-width: 0; }
+.copic-empty-state { display: grid; justify-items: center; gap: var(--space-3); padding: var(--space-6); }
+.copic-empty-state h3 { font-size: var(--type-card); line-height: 1.3; }
+.copic-empty-state p { max-width: 38ch; margin: 0; color: var(--copic-muted); }
+.copic-loading { min-height: 12rem; padding: var(--space-6); }
+.copic-loading[aria-busy="true"] { color: var(--copic-muted); }
+
+/* Worker, Client, Agent and Admin layouts share the same content rhythm. */
+.temp-worker-dashboard.copic-dashboard, .copic-dashboard { margin: 0 !important; padding: 0 !important; }
+.copic-dashboard-header { margin-bottom: var(--section-gap); gap: var(--space-6); }
+.copic-dashboard-actions { gap: var(--space-3); }
+.copic-dashboard-actions > * { min-height: var(--control-height) !important; padding-inline: var(--space-4) !important; }
+.copic-dashboard-grid { grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) minmax(0, 14rem); gap: var(--space-6); }
+.copic-dashboard-left, .copic-dashboard-main, .copic-dashboard-right { min-width: 0; gap: var(--section-gap); }
+.copic-panel-heading { gap: var(--space-3); margin-bottom: var(--space-4); }
+.copic-panel-heading h2 { font-size: var(--type-section); line-height: 1.25; }
+.copic-skill-row { gap: var(--space-3); padding: var(--space-4); border-radius: var(--copic-radius-lg); }
+.copic-row-actions { flex-wrap: wrap; gap: var(--space-2); }
+.copic-row-actions button, .copic-install-guide-close { min-width: var(--touch-target); min-height: var(--touch-target); }
+.copic-admin { gap: var(--section-gap); }
+.copic-admin > main > :is(.space-y-4, .space-y-5), .copic-agent-page { display: grid; gap: var(--section-gap); }
+.copic-admin > main > :is(.space-y-4, .space-y-5) > *, .copic-agent-page > * { margin-block: 0; }
+.copic-admin-navigation { gap: var(--space-1); }
+.copic-admin .temp-sidebar-link { gap: var(--space-3); min-height: var(--control-height); }
+.copic-admin .temp-sidebar-link svg { width: 1.25rem; height: 1.25rem; }
+.copic-admin .temp-sidebar { overflow: visible; }
+.copic-admin table { font-variant-numeric: tabular-nums; }
+.copic-dashboard, .copic-agent-page, .copic-service-card { font-variant-numeric: tabular-nums; }
+.copic-admin td, .copic-admin th { padding: var(--space-3) var(--space-4); }
+.agent-navigation { gap: var(--space-2); }
+.agent-navigation a { padding: var(--space-3) var(--space-4); }
+.copic-marketplace-grid { gap: var(--space-4); }
+.profile-settings-page > main { min-width: 0; }
+.profile-settings-page > main > * + * { margin-top: var(--section-gap); }
+.copic-auth-layout { gap: var(--space-8); padding: var(--space-6) 0; }
+.copic-auth-card { width: 100%; max-width: var(--content-form); min-width: 0; padding: var(--card-padding); }
+.copic-auth-field { min-height: var(--control-height); gap: var(--space-3); }
+.copic-auth-field > input { min-height: 2.5rem !important; }
+.copic-auth-field > button { min-width: var(--touch-target); min-height: var(--touch-target); }
+.verification-reminder-card { gap: var(--space-4); margin-bottom: var(--section-gap); }
+.verification-reminder-card p { font-size: var(--type-label); }
+.temp-alerts-page { padding-block: 0 !important; }
+.temp-alert-list { margin-top: var(--section-gap); }
+.temp-alert-card { min-height: auto !important; padding: var(--card-padding) !important; gap: var(--space-4); }
+
+/* Catalogue grids adapt to their container, including dashboard side panels. */
+.copic-service-discovery { container-type: inline-size; width: 100%; max-width: var(--content-standard); margin-block: 0 var(--section-gap); padding: var(--card-padding); }
+.copic-service-discovery > h2 { font-size: var(--type-section); line-height: 1.25; }
+.copic-service-filters { gap: var(--space-3); margin-block: var(--space-4); }
+.copic-service-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+.copic-service-card { display: flex; min-width: 0; height: 100%; flex-direction: column; align-items: stretch; overflow: hidden; border-radius: var(--copic-radius-lg); text-align: left; }
+.copic-service-card > img { width: 100%; aspect-ratio: 4 / 3; height: auto; object-fit: cover; }
+.copic-image-fallback { display: grid; place-content: center; justify-items: center; gap: var(--space-2); background: var(--copic-surface-low); color: var(--copic-muted); font-size: var(--type-small); }
+.copic-service-card h3, .copic-service-card h4 { font-size: var(--type-card); font-weight: 650; line-height: 1.3; }
+.copic-service-card > div:not(.copic-actions) { padding: var(--space-4); }
+.copic-service-card > .copic-button { margin-top: auto; }
+.copic-service-manager { container-type: inline-size; }
+.copic-service-manager > section { margin-top: var(--section-gap); }
+.copic-service-manager .copic-service-card { padding: var(--space-3); gap: var(--space-2); }
+.copic-service-manager .copic-service-card > .copic-actions { margin-top: auto; padding-top: var(--space-2); }
+.copic-service-manager .copic-actions > .copic-button { flex: 1 1 7rem; }
+.copic-service-manager > form { gap: var(--space-4); padding-top: var(--section-gap); }
+.copic-gallery { display: flex; gap: var(--space-3); overflow-x: auto; scroll-snap-type: x proximity; }
+.copic-gallery > a { flex: 0 0 min(80%, 16rem); scroll-snap-align: start; }
+.copic-gallery img { width: 100%; height: 12rem; object-fit: contain; border-radius: var(--copic-radius-lg); background: var(--copic-surface-low); }
+.copic-money, .copic-price-breakdown, .reference-job-facts strong { font-variant-numeric: tabular-nums; }
+.copic-price-breakdown { display: grid; gap: var(--space-3); border: 1px solid var(--copic-border); border-radius: var(--copic-radius-lg); padding: var(--space-4); }
+.copic-price-breakdown dl { display: grid; gap: var(--space-2); margin: 0; }
+.copic-price-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: var(--space-3); }
+.copic-price-row dt { color: var(--copic-muted); }
+.copic-price-row dd { margin: 0; font-weight: 600; text-align: right; }
+.copic-price-total { padding-top: var(--space-3); border-top: 1px solid var(--copic-border); }
+.reference-job-card { display: flex; min-width: 0; flex-direction: column; gap: var(--space-3); padding: var(--card-padding); border-radius: var(--copic-radius-card); }
+.reference-job-card h3 { font-size: 1.125rem; line-height: 1.3; }
+.reference-job-facts { flex-wrap: wrap; gap: var(--space-4); }
+.reference-job-facts > div { min-width: 0; flex: 1 1 8rem; }
+.reference-job-facts strong { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.reference-job-facts svg { width: 1rem; height: 1rem; flex-shrink: 0; }
+.reference-job-footer { flex-wrap: wrap; gap: var(--space-3); margin-top: auto; }
+.reference-job-footer :is(button, .copic-button, .reference-job-action) { min-height: var(--touch-target) !important; padding: var(--space-2) var(--space-4) !important; white-space: normal; line-height: 1.4; }
+.reference-job-badges { flex-wrap: wrap; gap: var(--space-2); }
+.design-chip, .marketplace-info-chip, .worker-info-chip, .reference-job-badge { font-size: .75rem !important; line-height: 1.4; }
+.workers-search-page { padding-top: 0 !important; }
+.workers-search-hero { min-height: auto !important; padding-block: var(--space-8); gap: var(--space-4); }
+.workers-search-hero h1 { font-size: var(--type-page); }
+.workers-results-head { text-align: left; gap: var(--space-3); }
+.worker-result-card { gap: var(--space-4); padding: var(--card-padding); border-radius: var(--copic-radius-card); }
+.worker-result-name { font-size: var(--type-card); }
+.worker-hire-panel { width: 100%; padding: var(--card-padding); border-radius: var(--copic-radius-card); }
+.worker-hire-grid { gap: var(--space-4); }
+.worker-hire-grid label > span { font-size: var(--type-label); }
+.worker-hire-grid input, .worker-hire-grid select, .worker-hire-location .temp-location-search-input, .worker-hire-location textarea {
+  background: var(--copic-surface-low) !important;
+  color: var(--copic-text) !important;
+  border-width: 1px !important;
+  border-color: var(--copic-border) !important;
+}
+[data-ui-theme="dark"] .worker-hire-grid input,
+[data-ui-theme="dark"] .worker-hire-grid select,
+[data-ui-theme="dark"] .worker-quantity-control,
+[data-ui-theme="dark"] .worker-quantity-control button,
+[data-ui-theme="dark"] .worker-hire-location .temp-location-search-input,
+[data-ui-theme="dark"] .worker-hire-location textarea { background: var(--copic-surface-low) !important; color: var(--copic-text) !important; }
+.copic-legal-footer-inner { max-width: var(--content-standard); gap: var(--space-8); padding-inline: max(var(--page-gutter), var(--safe-left)) max(var(--page-gutter), var(--safe-right)); }
+body:has(.copic-admin, .copic-dashboard) .copic-legal-footer-inner { max-width: var(--content-wide); }
+.copic-legal-footer-bottom { padding-bottom: calc(var(--space-6) + var(--safe-bottom)); }
+.copic-activity-panel { max-width: calc(100vw - var(--space-8) - var(--safe-left) - var(--safe-right)); max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 6rem); }
+[data-sonner-toaster] { --offset: max(1rem, var(--safe-top)); }
+
+@container (min-width: 20rem) { .copic-service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (min-width: 48rem) { .copic-service-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 430px) { :root { --page-gutter: var(--space-6); } }
+@media (min-width: 768px) {
+  :root { --page-gutter: var(--space-8); --section-gap: var(--space-8); --card-padding: var(--space-6); }
+  .temp-navbar-inner { min-height: 4.5rem; }
+  .copic-modal-header, .copic-modal-body { padding: var(--space-6); }
+  .temp-navbar.is-app-nav .temp-navbar-inner { grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-4); padding-block: var(--space-2); }
+  .temp-navbar.is-app-nav .temp-navbar-links { width: 100%; min-width: 0; flex-wrap: wrap; gap: var(--space-1) !important; justify-content: center !important; }
+  .temp-navbar.is-app-nav .temp-navbar-link { min-width: 0; min-height: var(--touch-target); gap: var(--space-2); padding: var(--space-2) var(--space-3) !important; font-size: var(--type-label); }
+  .temp-navbar.is-admin-nav .temp-navbar-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--space-2); padding-block: var(--space-3); }
+  .temp-navbar.is-admin-nav .temp-navbar-links { grid-column: 1 / -1; grid-row: 2; flex-wrap: wrap; justify-content: flex-start; gap: var(--space-1); }
+  .temp-navbar.is-admin-nav .temp-navbar-inner > div:last-of-type { grid-column: 2; grid-row: 1; }
+}
+@media (min-width: 768px) and (max-width: 1099px) {
+  .temp-navbar.is-app-nav .temp-navbar-inner { grid-template-columns: minmax(0, 1fr) auto; }
+  .temp-navbar.is-app-nav .temp-navbar-links { grid-column: 1 / -1; grid-row: 2; }
+}
+@media (min-width: 1024px) {
+  .copic-admin .temp-sidebar { top: calc(var(--copic-header-height) + var(--space-4)); }
+  .copic-admin-navigation { max-height: calc(100dvh - var(--copic-header-height) - var(--space-16) - var(--space-4)); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+}
+@media (max-width: 1199px) {
+  .copic-dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .copic-dashboard-main { grid-column: 1 / -1; grid-row: 1; }
+  .copic-dashboard-left { grid-column: 1; grid-row: 2; }
+  .copic-dashboard-right { grid-column: 2; grid-row: 2; }
+}
+@media (max-width: 767px) {
+  .copic-dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+  .copic-dashboard-main, .copic-dashboard-left, .copic-dashboard-right { grid-column: 1; grid-row: auto; }
+  .copic-dashboard-header, .copic-dashboard-actions { width: 100%; }
+  .copic-dashboard-actions > * { min-width: 0; }
+  .copic-service-filters { grid-template-columns: minmax(0, 1fr); }
+  .copic-mobile-footer-menu a { min-height: var(--control-height); gap: var(--space-2); padding: var(--space-4); font-size: var(--type-label); letter-spacing: .05em; }
+  .copic-legal-footer-bottom { gap: var(--space-4); padding: var(--space-8) var(--page-gutter) calc(var(--space-6) + var(--safe-bottom)); }
+  .copic-mobile-footer-socials { gap: var(--space-6); margin-bottom: 0; }
+  .copic-mobile-footer-socials span { width: var(--touch-target); height: var(--touch-target); }
+  .copic-activity-hub { top: auto; bottom: calc(var(--space-4) + var(--safe-bottom)); left: max(var(--space-4), var(--safe-left)); }
+  .copic-activity-panel { left: max(var(--space-4), var(--safe-left)); right: max(var(--space-4), var(--safe-right)); top: auto; bottom: calc(var(--touch-target) + var(--space-8) + var(--safe-bottom)); }
+  .worker-hire-grid { grid-template-columns: minmax(0, 1fr); }
+  .worker-quantity-field { max-width: none; }
+  .temp-help-page { text-align: left; }
+  .temp-alert-card { flex-wrap: wrap; }
+}
+@media (max-width: 359px) {
+  .copic-dashboard-actions { grid-template-columns: minmax(0, 1fr); }
+  .copic-dashboard-actions > * { grid-column: 1; }
+  .copic-price-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .copic-price-row dd { text-align: left; }
+}

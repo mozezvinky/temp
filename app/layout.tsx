@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./plan-b-theme.css";
+import "./ui-refinements.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { Shell } from "@/components/layout/Shell";
 import { LegalFooter } from "@/components/layout/LegalFooter";

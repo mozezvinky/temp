@@ -8,6 +8,7 @@ import { useProtectedRoute } from "@/hooks/useProtectedRoute";
 import { RatingHistory } from "@/components/ratings/RatingHistory";
 import { IdentityVerificationModal } from "@/components/verification/IdentityVerificationModal";
 import { VerificationBadge } from "@/components/verification/VerificationBadge";
+import { ServiceCatalogueManager } from "@/components/profile/ServiceCatalogueManager";
 import { AddSkillModal } from "@/components/profile/AddSkillModal";
 import { auth, requireAuth } from "@/lib/firebase";
 import { loadRatings } from "@/services/ratings";
@@ -292,7 +293,7 @@ export default function ProfilePage() {
                     <h3>{skill.name}</h3>
                     {skill.description && <p>{skill.description}</p>}
                     <small>{skill.chargeAmount ? `Ksh ${Number(skill.chargeAmount).toLocaleString()}` : "Rate not set"}</small>
-                    <span className={`copic-skill-status is-${normalizeSkillVerificationStatus(skill.verificationStatus)}`}>{skillVerificationLabel(skill.verificationStatus)}</span>
+                    <span className={`copic-skill-status is-${normalizeSkillVerificationStatus(skill.verificationStatus)}`}>{skill.certificationReviewStatus === "requires_resubmission" ? "Certificate: resubmission required" : skillVerificationLabel(skill.verificationStatus)}</span>
                     {skill.rejectionReason && <p>{skill.rejectionReason}</p>}
                   </div>
                   <div className="copic-row-actions">
@@ -303,6 +304,7 @@ export default function ProfilePage() {
             </div>
           </Card>
 
+          <ServiceCatalogueManager skills={workerSkills} onSaved={refreshProfile} />
           <RatingHistory userId={profile.id} />
         </>
       ) : <RatingHistory userId={profile.id} />}

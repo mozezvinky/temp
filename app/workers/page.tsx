@@ -1,5 +1,6 @@
 "use client";
 
+import { ServiceDiscovery } from "@/components/workers/ServiceDiscovery";
 import { Button } from "@/components/ui/Button";
 import { AppModal } from "@/components/ui/AppModal";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -482,6 +483,7 @@ export default function WorkersPage() {
 
       {error && <p className="rounded-xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-700 dark:text-red-200">{error}</p>}
 
+      <ServiceDiscovery workers={availableWorkers} profile={profile} search={search} />
       {searched ? (
         <section className="workers-results-shell">
           {results.length ? (
@@ -585,6 +587,7 @@ function HirePanel({ worker, skill, quantity, quantityInput, location, errors, s
   const quantityButtonBase = normalizeHireQuantity(quantityInput) ?? quantity;
   return (
     <section className="worker-hire-panel" aria-label={`Hire ${worker.displayName}`}>
+      <ServiceDiscovery workers={[worker]} profile={null} />
       <form onSubmit={onSubmit} noValidate>
         <div className="worker-hire-panel-head">
           <div>

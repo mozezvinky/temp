@@ -1,8 +1,9 @@
 "use client";
 
-import { requireAuth, requireStorage } from "@/lib/firebase";
+import { uploadServiceImage } from "@/services/service-catalogue";
+import { requireAuth } from "@/lib/firebase";
 import type { WorkerSkillCategory, WorkerSkillLevel, WorkerSkillProofType, WorkerSkillProfile } from "@/types";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+
 
 export type WorkerSkillInput = {
   id?: string;
@@ -42,10 +43,7 @@ export async function saveWorkerSkill(input: WorkerSkillInput) {
   if (!user) throw new Error("Please sign in before adding a skill.");
   let proofUrl = "";
   if (input.proofFile) {
-    const safeName = input.proofFile.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-    const storageRef = ref(requireStorage(), `skills/${user.uid}/${crypto.randomUUID()}-${safeName}`);
-    await uploadBytes(storageRef, input.proofFile);
-    proofUrl = await getDownloadURL(storageRef);
+    if (input.proofFile.size) proofUrl = await uploadServiceImage(input.proofFile, "certificate");
   }
   const response = await fetch("/api/profile/skills", {
     method: "POST",

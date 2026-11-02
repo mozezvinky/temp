@@ -1,3 +1,4 @@
+import { sectorForSkill } from "@/utils/service-catalogue";
 import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { serviceKey } from "@/functions/src/marketplace-policy";
 import { enforceServicePrice } from "@/lib/service-pricing";
@@ -69,6 +70,12 @@ export async function POST(request: NextRequest) {
     const referencePhone = String(body.referencePhone ?? "").trim();
     const proofUrl = String(body.proofUrl ?? "").trim();
     const description = String(body.description ?? "").trim();
+    if (proofUrl) {
+      const id = /^\/api\/service-media\?id=([a-zA-Z0-9_-]+)$/.exec(proofUrl)?.[1];
+      if (!id) return NextResponse.json({ error: "Upload the document securely before submitting." }, { status: 400 });
+      const media = await adminDb().doc(`serviceMedia/${id}`).get();
+      if (media.data()?.ownerId !== decoded.uid || media.data()?.kind !== "certificate") return NextResponse.json({ error: "Use your own uploaded certification document." }, { status: 403 });
+    }
     const chargeAmount = Number(body.chargeAmount);
     const chargeQuantity = Number(body.chargeQuantity);
     const chargeUnit = typeof body.chargeUnit === "string" ? body.chargeUnit.trim() : "";
@@ -89,6 +96,7 @@ export async function POST(request: NextRequest) {
 
     const id = typeof body.id === "string" && body.id.trim() ? body.id.trim() : crypto.randomUUID();
     const skill: WorkerSkillProfile = {
+      certificationRequired: sectorForSkill(name)?.certificate ?? false,
       id,
       name,
       ...(description ? { description } : {}),
@@ -123,10 +131,12 @@ export async function POST(request: NextRequest) {
       const workerProfile = profile as NonNullable<typeof profile>;
       const existingSkill = (workerProfile.skillProfiles ?? []).find(item => item.id === id || serviceKey(item.name) === serviceKey(name));
       const materialChanged = hasMaterialSkillChange(existingSkill, skill);
+      if ((!existingSkill || materialChanged) && sectorForSkill(name)?.certificate && (proofType !== "certificate" || !(proofUrl || existingSkill?.proofUrl))) throw new Error("COPIC requires a certificate for this service. Chefs may submit applicable food-safety or health documents.");
       const skillProfiles = saveLocalWorkerSkill(decoded.uid, {
         ...existingSkill,
         ...skill,
         verificationStatus: materialChanged ? "pending" : normalizeSkillVerificationStatus(existingSkill?.verificationStatus),
+        certificationReviewStatus: materialChanged ? "pending" : existingSkill?.certificationReviewStatus ?? normalizeSkillVerificationStatus(existingSkill?.verificationStatus),
         reviewedBy: materialChanged ? null : existingSkill?.reviewedBy ?? null,
         reviewedAt: materialChanged ? null : existingSkill?.reviewedAt ?? null,
         rejectionReason: materialChanged ? null : existingSkill?.rejectionReason ?? null,
@@ -150,11 +160,13 @@ export async function POST(request: NextRequest) {
       const pricingMetadata = await enforceServicePrice(transaction, decoded.uid, snapshot.data()!, skill, existingSkill);
       const mergedProofUrl = proofUrl || existingSkill?.proofUrl;
       const materialChanged = hasMaterialSkillChange(existingSkill, skill);
+      if ((!existingSkill || materialChanged) && sectorForSkill(name)?.certificate && (proofType !== "certificate" || !(proofUrl || existingSkill?.proofUrl))) throw new Error("COPIC requires a certificate for this service. Chefs may submit applicable food-safety or health documents.");
       const mergedSkill = {
         ...existingSkill,
         ...skill,
         ...pricingMetadata,
         verificationStatus: materialChanged ? "pending" : normalizeSkillVerificationStatus(existingSkill?.verificationStatus),
+        certificationReviewStatus: materialChanged ? "pending" : existingSkill?.certificationReviewStatus ?? normalizeSkillVerificationStatus(existingSkill?.verificationStatus),
         reviewedBy: materialChanged ? null : existingSkill?.reviewedBy ?? null,
         reviewedAt: materialChanged ? null : existingSkill?.reviewedAt ?? null,
         rejectionReason: materialChanged ? null : existingSkill?.rejectionReason ?? null,
@@ -220,6 +232,7 @@ function hasMaterialSkillChange(existing: WorkerSkillProfile | undefined, next: 
   return existing.name.trim().toLowerCase() !== next.name.trim().toLowerCase()
     || existing.category !== next.category
     || existing.proofType !== next.proofType
+    || Boolean(next.proofUrl && next.proofUrl !== existing.proofUrl)
     || String(existing.chargeCategory ?? "").trim().toLowerCase() !== String(next.chargeCategory ?? "").trim().toLowerCase();
 }
 

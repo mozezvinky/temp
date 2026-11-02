@@ -392,6 +392,9 @@ export function localDb() {
     CREATE INDEX IF NOT EXISTS idx_conversations_worker ON conversations(workerId, updatedAt);
     CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversationId, createdAt);
   `);
+  ensureColumn("jobs", "servicePreferences", "TEXT");
+  ensureColumn("jobs", "serviceBooking", "TEXT");
+  ensureColumn("applications", "serviceBooking", "TEXT");
   ensureColumn("jobs", "workDate", "TEXT");
   ensureColumn("jobs", "applicationDeadline", "TEXT");
   ensureColumn("driver_license_verifications", "expiryDate", "TEXT");
@@ -530,6 +533,8 @@ function rowToJob(row: Record<string, unknown>): Job {
   const payType = String(row.payType) as Job["payType"];
   const paymentSummary = isPayPerTimeline(payType) ? timelinePaymentSummaryFromRecord(row, Number(row.timelineCount ?? durationValue ?? 1)) : null;
   return {
+    serviceBooking: parseJson(row.serviceBooking, null),
+    servicePreferences: parseJson(row.servicePreferences, undefined),
     id: String(row.id),
     workDate: typeof row.workDate === "string" ? row.workDate : undefined,
     applicationDeadline: typeof row.applicationDeadline === "string" ? row.applicationDeadline : undefined,
@@ -871,6 +876,7 @@ function rowToApplication(row: Record<string, unknown>) {
   const clientPayPerTimeline = fallbackSummary.clientPayPerTimeline;
   const workerPayPerTimeline = fallbackSummary.workerPayPerTimeline;
   return {
+    serviceBooking: parseJson(row.serviceBooking, null),
     id: String(row.id),
     jobId: String(row.jobId),
     workerId: String(row.workerId),
@@ -980,6 +986,7 @@ export function createLocalApplication(input: {
 }
 
 export function createLocalDirectHireRequest(input: {
+  serviceBooking?: import("@/utils/service-catalogue").ServiceBooking | null;
   id: string;
   jobId: string;
   clientId: string;
@@ -1042,6 +1049,10 @@ export function createLocalDirectHireRequest(input: {
       INSERT OR REPLACE INTO notifications (id, userId, title, body, read, href, createdAt)
       VALUES (?, ?, 'Direct hire request', ?, 0, '/dashboard', ?)
     `).run(`notification-direct-hire-${input.id}`, input.workerId, `${input.clientName} sent you a direct hire request for ${input.title} in ${locationLabel}.`, createdAt);
+    if (input.serviceBooking) {
+      localDb().prepare("UPDATE jobs SET serviceBooking = ? WHERE id = ?").run(jsonString(input.serviceBooking), input.jobId);
+      localDb().prepare("UPDATE applications SET serviceBooking = ? WHERE id = ?").run(jsonString(input.serviceBooking), input.id);
+    }
     localDb().exec("COMMIT");
   } catch (error) {
     localDb().exec("ROLLBACK");

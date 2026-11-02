@@ -4,6 +4,7 @@ const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./context/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      spacing: { page: "var(--page-gutter)", section: "var(--section-gap)", card: "var(--card-padding)" },
       colors: {
         smoky: "#000000",
         olive: "#334F00",

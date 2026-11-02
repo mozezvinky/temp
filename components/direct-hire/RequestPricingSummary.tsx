@@ -1,3 +1,4 @@
+import { PriceBreakdown } from "@/components/ui/PriceBreakdown";
 import type { Application } from "@/types";
 import { pluralUnit } from "@/utils/direct-hire-pricing";
 import { kes } from "@/utils/money";
@@ -14,10 +15,8 @@ export function RequestPricingSummary({ application }: { application: Applicatio
           <p><strong className="text-[#111] dark:text-[#FFFBFF]">Rate:</strong> {kes(pricing.clientRatePerUnit ?? pricing.total)} per {unit}</p>
           <p><strong className="text-[#111] dark:text-[#FFFBFF]">Number of {pluralUnit(unit)}:</strong> {pricing.quantity ?? 1}</p>
         </>
-      ) : (
-        <p><strong className="text-[#111] dark:text-[#FFFBFF]">Rate:</strong> {kes(pricing.total)}</p>
-      )}
-      <p className="rounded-lg bg-[#dff7c5] px-3 py-2 font-black text-[#203300] dark:bg-[#9df12d]">Work Total: {kes(pricing.total)}</p>
+      ) : null}
+      <PriceBreakdown total={pricing.total} fee={pricing.serviceFee} workerNet={pricing.subtotal} />
     </div>
   );
 }

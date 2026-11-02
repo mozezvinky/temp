@@ -1,3 +1,6 @@
+import { validateServiceMedia } from "@/lib/service-media-validation";
+import { approvedClientAgent } from "@/lib/client-agent";
+import { bookCatalogueService, cataloguePricing } from "@/utils/service-catalogue";
 import { verifyVerifiedIdToken } from "@/lib/verified-auth";
 import { isSqlBackend } from "@/lib/data-backend";
 import { getCurrentUserProfile } from "@/lib/current-user-profile";
@@ -26,6 +29,7 @@ export async function POST(request: NextRequest) {
     const decoded = currentUser.decoded;
     const body = await request.json().catch(() => ({}));
     const input = normalizeRequest(body);
+    await validateServiceMedia(body.inspirationImages ?? [], decoded.uid, "inspiration");
     if (!input.workerId || !input.skillId || !input.title || !input.category || !input.location || !input.locationDetails || !input.startDate || !input.duration) {
       return NextResponse.json({ error: "Complete the direct hire request details." }, { status: 400 });
     }
@@ -42,7 +46,16 @@ export async function POST(request: NextRequest) {
       if (!clientCanPost(localClient)) return NextResponse.json({ error: "Verify your identity before posting jobs." }, { status: 403 });
       const savedSkill = selectedWorkerSkill(getLocalUser(input.workerId)?.skillProfiles, input.skillId);
       if (!savedSkill) return NextResponse.json({ error: "Choose an available worker service." }, { status: 400 });
-      const pricing = calculateVerifiedPricing(savedSkill, input.quantity);
+      const serviceBooking = body.catalogueId ? validatedCatalogueBooking(savedSkill, body) : null;
+      const breakdown = serviceBooking ? cataloguePricing(serviceBooking.service, serviceBooking.addonIds, serviceBooking.arrangement) : null;
+      const pricing = breakdown ? { pricingType: "fixed" as const, rateAmount: breakdown.workerEarnings, subtotal: breakdown.workerEarnings, serviceFee: breakdown.serviceFee, total: breakdown.total, quantity: null, unit: null } : calculateVerifiedPricing(savedSkill, input.quantity);
+      if (serviceBooking) {
+        input.location = serviceBooking.location;
+        input.locationDetails = serviceBooking.arrangement === "shop" && serviceBooking.service.shopLocation ? serviceBooking.service.shopLocation : { ...input.locationDetails!, addressText: serviceBooking.location };
+        input.startDate = serviceBooking.preferredAt;
+        input.duration = `${serviceBooking.service.durationMinutes} minutes`;
+        input.description = [serviceBooking.service.name, ...serviceBooking.service.addons.filter(extra => serviceBooking.addonIds.includes(extra.id)).map(extra => extra.name), serviceBooking.arrangement === "shop" ? "Shop visit" : "House call", serviceBooking.location, serviceBooking.instructions].join("\n");
+      }
       if (hasLocalActiveDirectHireRequest(localClient.id, input.workerId, savedSkill.id)) {
         return NextResponse.json({ error: "You already have an active request for this worker skill." }, { status: 409 });
       }
@@ -52,8 +65,9 @@ export async function POST(request: NextRequest) {
         clientId: localClient.id,
         clientName: localClient.displayName,
         ...input,
-        locationDetails,
+        locationDetails: input.locationDetails!,
         skillName: savedSkill.name,
+        serviceBooking,
         pricing
       });
       return NextResponse.json({ success: true, request: application });
@@ -79,7 +93,16 @@ export async function POST(request: NextRequest) {
     if (!workerSnap.exists || !hasRole(worker, "worker")) return NextResponse.json({ error: "Choose a valid worker." }, { status: 404 });
     const savedSkill = selectedWorkerSkill(Array.isArray(worker?.skillProfiles) ? worker.skillProfiles as WorkerSkillProfile[] : [], input.skillId);
     if (!savedSkill) return NextResponse.json({ error: "Choose a verified worker skill." }, { status: 400 });
-    const pricing = calculateVerifiedPricing(savedSkill, input.quantity);
+    const serviceBooking = body.catalogueId ? validatedCatalogueBooking(savedSkill, body) : null;
+      const breakdown = serviceBooking ? cataloguePricing(serviceBooking.service, serviceBooking.addonIds, serviceBooking.arrangement) : null;
+      const pricing = breakdown ? { pricingType: "fixed" as const, rateAmount: breakdown.workerEarnings, subtotal: breakdown.workerEarnings, serviceFee: breakdown.serviceFee, total: breakdown.total, quantity: null, unit: null } : calculateVerifiedPricing(savedSkill, input.quantity);
+      if (serviceBooking) {
+        input.location = serviceBooking.location;
+        input.locationDetails = serviceBooking.arrangement === "shop" && serviceBooking.service.shopLocation ? serviceBooking.service.shopLocation : { ...input.locationDetails!, addressText: serviceBooking.location };
+        input.startDate = serviceBooking.preferredAt;
+        input.duration = `${serviceBooking.service.durationMinutes} minutes`;
+        input.description = [serviceBooking.service.name, ...serviceBooking.service.addons.filter(extra => serviceBooking.addonIds.includes(extra.id)).map(extra => extra.name), serviceBooking.arrangement === "shop" ? "Shop visit" : "House call", serviceBooking.location, serviceBooking.instructions].join("\n");
+      }
     const jobRef = db.collection("jobs").doc();
     const applicationRef = db.collection("applications").doc();
     const notification = {
@@ -112,6 +135,7 @@ export async function POST(request: NextRequest) {
       requestSkillId: savedSkill.id,
       requestSkillName: savedSkill.name,
       requestPricing: pricing,
+      serviceBooking,
       jobAmount: pricing.total,
       grossAmount: pricing.total,
       workerEarnings: pricing.subtotal,
@@ -121,6 +145,12 @@ export async function POST(request: NextRequest) {
       updatedAt: FieldValue.serverTimestamp()
     };
     await db.runTransaction(async transaction => {
+      const clientAgent = await approvedClientAgent(db, transaction, decoded.uid, body);
+      const freshWorker = await transaction.get(db.doc(`users/${input.workerId}`));
+      if (serviceBooking) {
+        const freshSkill = (freshWorker.data()?.skillProfiles as WorkerSkillProfile[] ?? []).find(item => item.id === savedSkill.id);
+        if (!freshSkill || JSON.stringify(validatedCatalogueBooking(freshSkill, body).service) !== JSON.stringify(serviceBooking.service)) throw new AuthRouteError("Service changed. Refresh and review the price again.", 409);
+      }
       const existingRequestSnap = await transaction.get(db.collection("applications").where("clientId", "==", decoded.uid).limit(120));
       const duplicateRequest = existingRequestSnap.docs.some(doc => {
         const data = doc.data();
@@ -132,6 +162,11 @@ export async function POST(request: NextRequest) {
       if (duplicateRequest) throw new AuthRouteError("You already have an active request for this worker skill.", 409);
       transaction.set(jobRef, {
         id: jobRef.id,
+        serviceBooking,
+        ...(clientAgent ? { clientAgent: { ...clientAgent, approvedAt: FieldValue.serverTimestamp() } } : {}),
+        requestPricing: pricing,
+        source: "direct_hire",
+        requestSkillId: savedSkill.id,
         clientId: decoded.uid,
         clientName: String(effectiveClient.displayName ?? "Client"),
         createdBy: decoded.uid,
@@ -160,6 +195,7 @@ export async function POST(request: NextRequest) {
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp()
       });
+      if (clientAgent?.sourceType === "agent_sourced") transaction.update(db.doc(clientAgent.reference), { status: "published", jobId: jobRef.id, approvedAt: FieldValue.serverTimestamp() });
       transaction.set(applicationRef, payload);
       setNotification(transaction, db, notification);
     });
@@ -218,6 +254,10 @@ export async function PATCH(request: NextRequest) {
           transaction.get(db.collection("verifications").doc(decoded.uid)),
           transaction.get(db.collection("verifications").doc(`driver-license-${decoded.uid}`))
         ]);
+        if (application.serviceBooking) {
+          const currentSkill = (workerSnap.data()?.skillProfiles as WorkerSkillProfile[] ?? []).find(skill => skill.id === application.requestSkillId);
+          if (!currentSkill || normalizeSkillVerificationStatus(currentSkill.verificationStatus) !== "approved") throw new AuthRouteError("This skill must be approved before accepting the request.", 403);
+        }
         const allowedWorker = getWorkerEligibilityFromVerification(getWorkerVerificationStatusFromRecords(
           decoded.uid,
           workerSnap.exists ? workerSnap.data() : null,
@@ -302,6 +342,11 @@ function normalizeRequest(body: unknown) {
 
 function selectedWorkerSkill(skills: WorkerSkillProfile[] | undefined | null, skillId: string) {
   return (skills ?? []).find(skill => skill.id === skillId && normalizeSkillVerificationStatus(skill.verificationStatus) !== "rejected" && Number(skill.chargeAmount ?? 0) > 0) ?? null;
+}
+
+function validatedCatalogueBooking(skill: WorkerSkillProfile, body: Record<string, unknown>) {
+  try { return bookCatalogueService(skill, body); }
+  catch (error) { throw new AuthRouteError(error instanceof Error ? error.message : "Invalid catalogue request.", 400); }
 }
 
 function calculateVerifiedPricing(skill: WorkerSkillProfile, quantity: number) {

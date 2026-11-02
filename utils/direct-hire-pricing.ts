@@ -1,5 +1,5 @@
 import type { WorkerSkillProfile } from "@/types";
-import { PLATFORM_FEE_RATE, roundCurrencyAmount } from "@/utils/money";
+import { calculateWorkerPostedSkillPaymentBreakdown, roundCurrencyAmount } from "@/utils/money";
 
 export type DirectHirePricingType = "fixed" | "timeline" | "unit";
 
@@ -69,15 +69,12 @@ export function calculateDirectHirePricing(skill: WorkerSkillProfile, requestedQ
   const pricingType = resolveSkillPricingType(skill);
   const workerRate = roundCurrencyAmount(Number(skill.chargeAmount ?? 0));
   const quantity = pricingType === "unit" ? Math.max(1, Math.trunc(Number(requestedQuantity) || 1)) : null;
-  const feePerUnit = roundCurrencyAmount(workerRate * PLATFORM_FEE_RATE);
-  const clientRate = workerRate + feePerUnit;
-  const workerSubtotal = roundCurrencyAmount(workerRate * (quantity ?? 1));
-  const serviceFee = pricingType === "unit"
-    ? feePerUnit * (quantity ?? 1)
-    : roundCurrencyAmount(workerSubtotal * PLATFORM_FEE_RATE);
-  const clientTotal = pricingType === "unit"
-    ? clientRate * (quantity ?? 1)
-    : workerSubtotal + serviceFee;
+  const unitBreakdown = calculateWorkerPostedSkillPaymentBreakdown(workerRate);
+  const clientRate = unitBreakdown.total;
+  const breakdown = calculateWorkerPostedSkillPaymentBreakdown(workerRate * (quantity ?? 1));
+  const workerSubtotal = breakdown.workerEarnings;
+  const serviceFee = breakdown.serviceFee;
+  const clientTotal = breakdown.total;
   return {
     pricingType,
     unit: pricingType === "unit" ? singularUnit(resolveSkillUnit(skill)) : null,

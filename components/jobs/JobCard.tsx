@@ -1,5 +1,6 @@
 "use client";
 
+import { ServiceRequestDetails } from "@/components/jobs/ServicePreferences";
 import { applicationsOpen } from "@/functions/src/marketplace-policy";
 import type { Job } from "@/types";
 import { kes } from "@/utils/money";
@@ -38,6 +39,7 @@ export function JobCard({ job, workerView = false, menuSlot, infoActionSlot }: {
   }, [job.createdAt]);
   return (
     <article className="reference-job-card">
+      <ServiceRequestDetails preferences={job.servicePreferences} />
       {job.workDate && <p className="text-sm">Work date: {new Date(job.workDate).toLocaleString()}</p>}
       {job.applicationDeadline && <p className="text-sm">{applicationsOpen(job.applicationDeadline) ? `Applications close: ${new Date(job.applicationDeadline).toLocaleString()}` : "Applications closed"}</p>}
       <div className="reference-job-card-top">

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COPIC responsive layout review</title>
+<style>
+  body { margin: 0; padding: 24px; font: 15px/1.5 system-ui; background: #f8f9fa; color: #191c1d; }
+  h1 { font-size: 24px; } button, select { min-height: 44px; padding: 8px 16px; }
+  #results { white-space: pre-wrap; } iframe { display: block; height: 900px; border: 1px solid #e2e4e5; background: white; }
+  #canvas { display: grid; gap: 24px; } .failure { color: #ba1a1a; }
+</style>
+<h1>COPIC responsive layout review</h1>
+<p>Real application components with isolated sample data. No production API requests or mutations.</p>
+<button id="start">Run responsive checks</button>
+<p id="status" role="status">Ready</p>
+<pre id="results"></pre>
+<div id="canvas"></div>
+<script>
+const widths = [320,360,375,393,430,540,768,900,1024,1280,1440];
+const cases = [
+  ["/navigation","signed-in"], ["/navigation","client"],
+  ["/catalogue","client"], ["/catalogue","worker"], ["/catalogue","post"],
+  ["/workers","client"], ["/dashboard","signed-in"], ["/find-work","client"],
+  ["/jobs","signed-in"], ["/jobs/job-demo","signed-in"], ["/applications","signed-in"],
+  ["/profile","signed-in"], ["/notifications","signed-in"], ["/chat","signed-in"],
+  ["/auth/login","guest"], ["/auth/register","guest"],
+  ["/agent","existing-agent"], ["/agent/earnings","existing-agent"],
+  ["/admin","signed-in"], ["/admin/users","signed-in"], ["/admin/skills","signed-in"],
+  ["/admin/support","signed-in"], ["/admin/kyc","signed-in"], ["/admin/recruitment","signed-in"],
+  ["/about","guest"], ["/help","signed-in"], ["/faq","guest"]
+];
+const status = document.getElementById("status"), output = document.getElementById("results"), canvas = document.getElementById("canvas");
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+function inspect(frame, spec) {
+  const doc = frame.contentDocument, view = frame.contentWindow, width = doc.documentElement.clientWidth;
+  const isVisible = element => element.getClientRects().length && view.getComputedStyle(element).visibility !== "hidden";
+  const intentionalScroll = element => { for(let parent=element.parentElement; parent && parent!==doc.body; parent=parent.parentElement) { if(["auto","scroll"].includes(view.getComputedStyle(parent).overflowX))return true; } return false; };
+  const clipped = [...doc.querySelectorAll("h1,h2,h3,p,label,button,input,select,textarea,article,section,aside")].filter(element => {
+    if(!isVisible(element) || intentionalScroll(element) || element.closest(".copic-gallery"))return false;
+    if(element.closest(".sr-only, .copic-skip-link"))return false;
+    const rect = element.getBoundingClientRect();
+    return rect.right>width+2 || rect.left < -2;
+  }).map(element => `${element.tagName.toLowerCase()}.${String(element.className).split(" ")[0]}: ${element.textContent.trim().slice(0,70)}`).slice(0,8);
+  const noContent = !doc.getElementById("root")?.textContent?.trim();
+  const dialogs = [...doc.querySelectorAll('[role="dialog"][aria-modal="true"]')].filter(isVisible).map(element=>element.getBoundingClientRect());
+  return {...spec,noContent,renderedTheme:doc.documentElement.dataset.uiTheme,viewport:width,scrollWidth:doc.documentElement.scrollWidth,overflow:doc.documentElement.scrollWidth>width+1,clipped,dialogOutsideViewport:dialogs.some(rect=>rect.top< -1 || rect.bottom>view.innerHeight+1),headings:[...doc.querySelectorAll("h1,h2")].map(element=>element.textContent).slice(0,3),errors:[...(view.__uiErrors??[])]};
+}
+async function review(spec) {
+  const frame=document.createElement("iframe");frame.width=String(spec.width);frame.style.width=`${spec.width}px`;frame.title=`${spec.path} at ${spec.width}px`;
+  const loaded=new Promise(resolve=>{frame.onload=resolve;});
+  frame.src=`${spec.path}?state=${spec.state}&theme=${spec.theme}&layoutReview=1`;
+  canvas.append(frame);
+  await Promise.race([loaded,pause(15000)]);await pause(500);
+  let result;
+  try { result=inspect(frame,spec); } catch(error) { result={...spec,error:String(error)}; }
+  frame.remove();return result;
+}
+document.getElementById("start").onclick=async()=>{
+  document.getElementById("start").disabled=true;
+  const params=new URLSearchParams(location.search), all=cases.flatMap(([path,state])=>widths.map(width=>({path,state,width,theme:"light"})));
+  for(const [path,state] of cases.filter(([path])=>["/catalogue","/dashboard","/profile","/agent","/admin","/auth/login"].includes(path)))for(const width of [393,768,1440])all.push({path,state,width,theme:"dark"});
+  const work=params.has("path")?all.filter(item=>item.path===params.get("path")):all, results=[];
+  for(let index=0;index<work.length;index+=2){
+    results.push(...await Promise.all(work.slice(index,index+2).map(review)));
+    status.textContent=`Reviewed ${results.length} of ${work.length} viewport states`;
+  }
+  const failures=results.filter(item=>item.error||item.noContent||item.renderedTheme!==item.theme||item.overflow||item.clipped?.length||item.dialogOutsideViewport||item.errors?.length);
+  status.textContent=`Complete: ${results.length-failures.length}/${results.length} states passed; ${failures.length} need review`;
+  output.textContent=JSON.stringify(failures.length?failures:{passed:results.length,widths,themes:["light","dark"]},null,2);
+  await fetch("/qa/layout-report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({runAt:new Date().toISOString(),widths,results,failures},null,2)});
+  document.getElementById("start").disabled=false;
+};
+if(new URLSearchParams(location.search).has("run"))document.getElementById("start").click();
+</script>
+</html>

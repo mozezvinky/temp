@@ -1,3 +1,18 @@
+import Workers from "@/app/workers/page";
+import Dashboard from "@/app/dashboard/page";
+import ClientWork from "@/app/find-work/page";
+import Profile from "@/app/profile/page";
+import JobsList from "@/app/jobs/page";
+import JobDetails from "@/app/jobs/[id]/page";
+import Applications from "@/app/applications/page";
+import CompletedRequests from "@/app/completed-requests/page";
+import Notifications from "@/app/notifications/page";
+import Chat from "@/app/chat/page";
+import Settings from "@/app/settings/page";
+import About from "@/app/about/page";
+import Help from "@/app/help/page";
+import Faq from "@/app/faq/page";
+import { CatalogueFixture } from "./catalogue";
 import { useProtectedRoute as useRealProtectedRoute } from "../../hooks/useProtectedRoute";
 import VerifyEmail from "@/app/verify-email/page";
 import { AuthForm } from "@/components/auth/AuthForm";
@@ -6,6 +21,7 @@ import "./fixtures";
 import { Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { Shell } from "@/components/layout/Shell";
+import { LegalFooter } from "@/components/layout/LegalFooter";
 import BecomeAgent from "@/app/become-agent/page";
 import AdminLogin from "@/app/auth/admin/page";
 import AdminProgram from "@/app/admin/agent-program/page";
@@ -33,8 +49,21 @@ import { ConnectionStatus } from "@/components/layout/ConnectionStatus";
 import MarketplaceMap from "@/components/admin/MarketplaceMap";
 function ProtectedCheck(){const {isAuthorized}=useRealProtectedRoute();return <h1>{isAuthorized?"Protected page":"Checking verified account"}</h1>;}
 const campaignParams=Promise.resolve({campaignId:"campaign-demo"});
-const pages:Record<string,React.ReactNode>={"/protected-check":<ProtectedCheck/>,"/navigation":<Shell><h1>Navigation fixture</h1></Shell>,"/become-agent":<BecomeAgent/>,"/verify-email":<VerifyEmail/>,"/auth/register":<AuthForm mode="register"/>,"/auth/login":<AuthForm mode="login"/>,"/complete-profile":<CompleteProfile/>,"/auth/admin":<AdminLogin/>,"/admin/agent-program":<AdminProgram/>,"/admin/admins":<Admins/>,"/admin/support":<Support/>,"/admin/settings":<AdminSettings/>,"/admin/service-fees":<ServiceFees/>,"/admin/reports":<Reports/>,"/admin/audit":<Audit/>,"/admin/disputes":<Disputes/>,"/admin":<Overview/>,"/admin/skills":<Skills/>,"/admin/recruitment":<Recruitment/>,"/admin/recruitment/campaign-demo":<Campaign params={campaignParams}/>,"/admin/agents":<Agents/>,"/admin/analytics":<Analytics/>,"/admin/verification":<Verification/>,"/admin/kyc":<Verification/>,"/admin/jobs":<Jobs/>,"/admin/users":<Users/>,"/admin/map":<MarketplaceMap/>,"/agent":<Agent/>,"/agent/referrals":<AgentRecords view="referrals"/>,"/agent/earnings":<AgentRecords view="earnings"/>,"/recruit/campaign-demo":<RecruitmentLanding id="campaign-demo" type="admin_campaign"/>,"/join/agent-link":<RecruitmentLanding id="agent-link" type="agent_referral"/>};
+const pages:Record<string,React.ReactNode>={"/workers":<Workers/>,"/dashboard":<Dashboard/>,"/find-work":<ClientWork/>,"/profile":<Profile/>,"/jobs":<JobsList/>,"/jobs/job-demo":<JobDetails/>,"/applications":<Applications/>,"/completed-requests":<CompletedRequests/>,"/notifications":<Notifications/>,"/chat":<Chat/>,"/settings":<Settings/>,"/about":<About/>,"/help":<Help/>,"/faq":<Faq/>,"/catalogue":<CatalogueFixture/>,"/protected-check":<ProtectedCheck/>,"/navigation":<h1>Navigation fixture</h1>,"/become-agent":<BecomeAgent/>,"/verify-email":<VerifyEmail/>,"/auth/register":<AuthForm mode="register"/>,"/auth/login":<AuthForm mode="login"/>,"/complete-profile":<CompleteProfile/>,"/auth/admin":<AdminLogin/>,"/admin/agent-program":<AdminProgram/>,"/admin/admins":<Admins/>,"/admin/support":<Support/>,"/admin/settings":<AdminSettings/>,"/admin/service-fees":<ServiceFees/>,"/admin/reports":<Reports/>,"/admin/audit":<Audit/>,"/admin/disputes":<Disputes/>,"/admin":<Overview/>,"/admin/skills":<Skills/>,"/admin/recruitment":<Recruitment/>,"/admin/recruitment/campaign-demo":<Campaign params={campaignParams}/>,"/admin/agents":<Agents/>,"/admin/analytics":<Analytics/>,"/admin/verification":<Verification/>,"/admin/kyc":<Verification/>,"/admin/jobs":<Jobs/>,"/admin/users":<Users/>,"/admin/map":<MarketplaceMap/>,"/agent":<Agent/>,"/agent/referrals":<AgentRecords view="referrals"/>,"/agent/earnings":<AgentRecords view="earnings"/>,"/recruit/campaign-demo":<RecruitmentLanding id="campaign-demo" type="admin_campaign"/>,"/join/agent-link":<RecruitmentLanding id="agent-link" type="agent_referral"/>};
 const theme=new URLSearchParams(location.search).get("theme")??"light";
+// Isolate theme preference per iframe so concurrent light/dark checks cannot race.
+const nativeStorage = window.localStorage;
+let fixtureTheme = theme;
+Object.defineProperty(window, "localStorage", { configurable: true, value: new Proxy(nativeStorage, { get(target, key) {
+  if (key === "getItem") return (name: string) => name === "copic.uiTheme" ? fixtureTheme : target.getItem(name);
+  if (key === "setItem") return (name: string, value: string) => { if (name === "copic.uiTheme") fixtureTheme = value; else target.setItem(name, value); };
+  const value = Reflect.get(target, key, target); return typeof value === "function" ? value.bind(target) : value;
+} }) });
 document.documentElement.dataset.uiTheme=theme;
+const uiWindow = window as unknown as Window & { __uiErrors: string[] };
+uiWindow.__uiErrors = [];
+window.addEventListener("error", event => { if (event.message) uiWindow.__uiErrors.push(event.message); });
+window.addEventListener("unhandledrejection", event => uiWindow.__uiErrors.push(String(event.reason)));
+
 const page=pages[location.pathname]??<p>Choose a fixture route.</p>;
-createRoot(document.getElementById("root")!).render(<><ConnectionStatus/><div style={{padding:16,maxWidth:1440,margin:"0 auto",width:"100%"}}><Suspense fallback={<p>Loading UI fixture…</p>}>{location.pathname.startsWith("/admin")?<AdminLayout>{page}</AdminLayout>:page}</Suspense></div></>);
+createRoot(document.getElementById("root")!).render(<><ConnectionStatus/><Shell><Suspense fallback={<p>Loading UI fixture…</p>}>{location.pathname.startsWith("/admin")?<AdminLayout>{page}</AdminLayout>:page}</Suspense></Shell><LegalFooter/></>);

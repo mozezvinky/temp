@@ -13,11 +13,11 @@ export const tempDesignSystem = {
     error: "#BA1A1A"
   },
   typography: {
-    h1: "text-4xl md:text-5xl font-extrabold leading-tight text-[#191C1D] tracking-[-.02em]",
-    h2: "text-2xl md:text-3xl font-bold leading-tight text-[#191C1D] tracking-[-.01em]",
-    h3: "text-xl font-bold leading-snug text-[#191C1D]",
+    h1: "text-2xl md:text-4xl font-bold leading-tight text-[#191C1D] tracking-[-.02em]",
+    h2: "text-xl md:text-2xl font-semibold leading-tight text-[#191C1D] tracking-[-.01em]",
+    h3: "text-base font-semibold leading-snug text-[#191C1D]",
     body: "text-sm leading-6 text-[#625B5C]",
-    caption: "font-mono text-xs font-semibold uppercase tracking-[.08em] text-[#7E7576]"
+    caption: "text-xs font-medium text-[#7E7576]"
   },
   spacing: {
     xs: "gap-2",
@@ -25,10 +25,13 @@ export const tempDesignSystem = {
     md: "gap-6",
     lg: "gap-8",
     xl: "gap-12",
-    section: "py-8 md:py-12"
+    section: "py-8 md:py-12",
+    page: "px-page",
+    card: "p-card",
+    stack: "copic-stack"
   },
   components: {
-    card: "bone-card rounded-3xl p-5 md:p-6",
+    card: "bone-card rounded-3xl p-card",
     input: "temp-input px-4 py-3 outline-none",
     label: "temp-label",
     table: "overflow-hidden rounded-2xl border border-[#E2E4E5] bg-white",

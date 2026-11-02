@@ -92,7 +92,12 @@ export function calculateClientPostedJobPaymentBreakdown(clientTotalInput: numbe
 }
 
 export function calculateWorkerPostedSkillPaymentBreakdown(workerEarningsInput: number): ResolvedJobPaymentBreakdown {
-  const breakdown = calculateJobPaymentBreakdown(workerEarningsInput);
+  // New worker-net quotes gross up to a total whose included fee is 10%.
+  // Historical agreements continue to resolve from their stored snapshots below.
+  const workerNet = roundCurrencyAmount(workerEarningsInput);
+  const total = roundCurrencyAmount(workerNet / (1 - PLATFORM_FEE_RATE));
+  const resolved = calculateClientPostedJobPaymentBreakdown(total);
+  const breakdown = { total: resolved.total, workerEarnings: resolved.workerEarnings, serviceFee: resolved.serviceFee };
   return {
     priceSource: "worker_posted_skill",
     total: breakdown.total,
@@ -141,5 +146,5 @@ function positiveNumber(value: unknown) {
 }
 
 export function kes(amount: number) {
-  return new Intl.NumberFormat("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 }).format(amount);
+  return `KSh ${new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 }).format(amount)}`;
 }

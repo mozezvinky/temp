@@ -1,5 +1,6 @@
 "use client";
 
+import { sectorForSkill, serviceSectors } from "@/utils/service-catalogue";
 import { ServicePricingNotice } from "./ServicePricingNotice";
 import { AppModal } from "@/components/ui/AppModal";
 import { Button } from "@/components/ui/Button";
@@ -14,7 +15,7 @@ import { toast } from "sonner";
 
 const suggestions: Record<WorkerSkillCategory, string[]> = {
   tools_software: ["Python", "Salesforce", "QuickBooks", "Excavator", "Industrial Sewing Machine", "Photoshop"],
-  services_trades: ["Financial Auditing", "Copywriting", "Bricklaying", "House Cleaning", "Hair Braiding"],
+  services_trades: [...serviceSectors.map(item => item.name), "Financial Auditing", "Copywriting", "Bricklaying", "House Cleaning", "Hair Braiding"],
   credentials_licenses: ["CPA", "Project Management Professional (PMP)", "Driver's License", "Food Handler's Permit", "Electrician License"]
 };
 
@@ -39,6 +40,9 @@ export function AddSkillModal({ onClose, onSaved, skill, initialName }: { initia
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    if (sectorForSkill(name)?.certificate && proofType !== "certificate" && (!skill || skill.name !== name || skill.proofType !== proofType)) {
+      toast.error("COPIC requires a certificate for this sector. Choose Certificate and upload your document."); return;
+    }
     const fallbackSkill: WorkerSkillProfile = {
       id: skill?.id ?? crypto.randomUUID(),
       name,
@@ -111,6 +115,7 @@ export function AddSkillModal({ onClose, onSaved, skill, initialName }: { initia
           )}
           <label className="temp-label">Skill category<select value={category} onChange={event => setCategory(event.target.value as WorkerSkillCategory)} className="temp-input p-3 outline-none"><option value="tools_software">Tools & Software</option><option value="services_trades">Services & Trades</option><option value="credentials_licenses">Credentials & Licenses</option></select></label>
           <label className="temp-label">Experience level<select value={level} onChange={event => setLevel(event.target.value as WorkerSkillLevel)} className="temp-input p-3 outline-none"><option value="beginner">Learning / Beginner - I need supervision</option><option value="independent">Independent / Intermediate - I work on my own</option><option value="expert">Expert / Advanced - I can teach or solve complex problems</option></select></label>
+          {sectorForSkill(name) && <p className="text-sm">{sectorForSkill(name)?.certificate ? "COPIC policy: a certificate is required for new submissions in this sector. Chefs may provide relevant food-safety / health documents. Documents are private and reviewed by an administrator." : "Cleaning / Mama Fua does not require a training certificate. Use a reference or work photo."}</p>}
           <label className="temp-label">Proof of skill<select value={proofType} onChange={event => setProofType(event.target.value as WorkerSkillProofType)} className="temp-input p-3 outline-none"><option value="certificate">Certificate or degree</option><option value="license">Official license number</option><option value="reference">Past client or employer reference</option><option value="work_photo">Photo of past work</option></select></label>
           {proofType === "license" && <label className="temp-label">License number<input name="licenseNumber" required className="temp-input p-3 outline-none" /></label>}
           {proofType === "reference" && <label className="temp-label">Reference phone number<input name="referencePhone" required inputMode="tel" className="temp-input p-3 outline-none" placeholder="07XXXXXXXX" /></label>}

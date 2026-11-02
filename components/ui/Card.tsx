@@ -1,6 +1,6 @@
 import { clsx } from "clsx";
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, Ref } from "react";
 
-export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={clsx("copic-surface copic-card rounded-[1.5rem] p-5 md:p-6", className)} {...props} />;
+export function Card({ className, ref, ...props }: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
+  return <div ref={ref} className={clsx("copic-surface copic-card rounded-[1.5rem] p-card", className)} {...props} />;
 }

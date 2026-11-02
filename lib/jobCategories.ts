@@ -1,4 +1,6 @@
+import { serviceSectors } from "@/utils/service-catalogue";
 export const jobCategories = [
+  ...serviceSectors.map(sector => ({ group: sector.name, items: [...sector.items] })),
   {
     group: "Transport & Delivery",
     items: ["Boda boda rider", "Tuk tuk driver", "Matatu conductor", "Parcel delivery rider", "Courier rider", "Moving helper", "Loader/offloader", "Truck assistant", "Errand runner"]

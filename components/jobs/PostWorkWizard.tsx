@@ -1,7 +1,8 @@
 "use client";
 
+import { ServiceRequestDetails, ServicePreferences, emptyServicePreferences, type ServicePreferencesValue } from "@/components/jobs/ServicePreferences";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
+import { AppModal } from "@/components/ui/AppModal";
 import { useLiveVerificationStatus } from "@/hooks/useLiveVerificationStatus";
 import { defaultKenyaLocation } from "@/lib/location";
 import { flatJobCategories, jobCategoryOptions } from "@/lib/jobCategories";
@@ -38,6 +39,8 @@ const emptyDraft: Draft = { service: "", workDate: "", applicationDeadline: "", 
 
 export function PostWorkWizard({ profile, onClose, onPosted, initialJob, onSubmitJob }: { profile: UserProfile; onClose: () => void; onPosted?: () => void; initialJob?: Record<string, unknown>; onSubmitJob?: (job: Record<string, unknown>) => Promise<void> }) {
   const [step, setStep] = useState(1);
+  const [preferences, setPreferences] = useState<ServicePreferencesValue>((initialJob?.servicePreferences as ServicePreferencesValue) ?? emptyServicePreferences);
+  const [uploading, setUploading] = useState(false);
   const [draft, setDraft] = useState<Draft>(() => initialJob ? { ...emptyDraft, title: String(initialJob.title ?? ""), description: String(initialJob.description ?? ""), category: String(initialJob.category ?? ""), service: String((initialJob.requiredSkills as string[] | undefined)?.[0] ?? ""), budget: String(initialJob.payAmount ?? ""), timeline: String(initialJob.durationValue ?? ""), timelineUnit: (initialJob.durationUnit as DurationUnit) ?? "hours", payType: initialJob.payType === "fixed" ? "fixed" : "pay_per_timeline", workersNeeded: String(initialJob.workersNeeded ?? 1), quantity: String(initialJob.quantity ?? ""), unit: String(initialJob.unit ?? ""), customUnit: String(initialJob.customUnit ?? ""), workDate: initialJob.workDate ? new Date(String(initialJob.workDate)).toISOString().slice(0,16) : "", applicationDeadline: initialJob.applicationDeadline ? new Date(String(initialJob.applicationDeadline)).toISOString().slice(0,16) : "" } : emptyDraft);
   const [location, setLocation] = useState<LocationFields>((initialJob?.locationDetails as LocationFields) ?? defaultKenyaLocation);
   const [posting, setPosting] = useState(false);
@@ -62,6 +65,7 @@ export function PostWorkWizard({ profile, onClose, onPosted, initialJob, onSubmi
   }
 
   async function post() {
+    if (uploading) { toast.message("Wait for your photos to finish uploading."); return; }
     if (!onSubmitJob && checkingVerification) {
       toast.message("Checking your verification status. Try again in a moment.");
       return;
@@ -82,6 +86,7 @@ export function PostWorkWizard({ profile, onClose, onPosted, initialJob, onSubmi
       const submitJob = onSubmitJob ?? ((job: Record<string, unknown>) => createJob(profile.id, job).then(() => {}));
       await submitJob({
         title: draft.title,
+        servicePreferences: preferences,
         workDate: draft.workDate ? new Date(draft.workDate).toISOString() : undefined,
         applicationDeadline: draft.applicationDeadline ? new Date(draft.applicationDeadline).toISOString() : undefined,
         description: draft.description,
@@ -114,18 +119,9 @@ export function PostWorkWizard({ profile, onClose, onPosted, initialJob, onSubmi
   }
 
   return (
-    <div className="temp-modal-backdrop fixed inset-0 z-50 grid place-items-center overflow-hidden bg-black/70 p-4">
-      <Card role="dialog" aria-modal="true" className="no-visible-scrollbar max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto overscroll-contain">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[.2em] text-[#959087]">{onSubmitJob ? "Review job" : "Post work"} · Step {step} of 3</p>
-            <h2 className="mt-2 text-2xl font-black text-[#FFFBFF]">{step === 1 ? "What work do you need?" : step === 2 ? "Set the job details" : "Choose the job location"}</h2>
-          </div>
-          <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
-        </div>
-
+    <AppModal eyebrow={`${onSubmitJob ? "Review job" : "Post work"} · Step ${step} of 3`} title={step === 1 ? "What work do you need?" : step === 2 ? "Set the job details" : "Choose the job location"} onClose={onClose}>
         {step === 1 && (
-          <form onSubmit={nextFromTitle} className="popup-form mt-6 grid gap-4">
+          <form onSubmit={nextFromTitle} className="popup-form grid gap-4">
             <label className="temp-label">Job title<input autoFocus value={draft.title} onChange={event => {
               const title = event.target.value;
               setDraft(current => ({ ...current, title, category: matchJobCategory(title) }));
@@ -136,9 +132,9 @@ export function PostWorkWizard({ profile, onClose, onPosted, initialJob, onSubmi
         )}
 
         {step === 2 && (
-          <form onSubmit={nextFromDetails} className="popup-form mt-6 grid gap-4">
+          <form onSubmit={nextFromDetails} className="popup-form grid gap-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="temp-label">{draft.payType === "pay_per_timeline" ? `Job price per ${perDurationUnit(draft.timelineUnit)}` : "Job price"}<input value={draft.budget} onChange={event => setValue("budget", event.target.value)} required type="number" min={draft.payType === "pay_per_timeline" ? 50 : 50} placeholder="KES" className="temp-input p-3 outline-none" /></label>
+              <label className="temp-label">{draft.payType === "pay_per_timeline" ? `Job price per ${perDurationUnit(draft.timelineUnit)}` : "Maximum budget"}<input value={draft.budget} onChange={event => setValue("budget", event.target.value)} required type="number" min={draft.payType === "pay_per_timeline" ? 50 : 50} placeholder="KES" className="temp-input p-3 outline-none" /></label>
               <label className="temp-label">Service (optional)<input list="job-services" value={draft.service} onChange={event => setValue("service", event.target.value)} className="temp-input w-full p-3" /><datalist id="job-services">{flatJobCategories.map(service => <option key={service}>{service}</option>)}</datalist></label>
               <label className="temp-label">Work date<input type="datetime-local" required value={draft.workDate} onChange={event => setValue("workDate", event.target.value)} className="temp-input min-w-0 w-full p-3" /></label>
               <label className="temp-label">Application deadline<input type="datetime-local" required value={draft.applicationDeadline} onChange={event => setValue("applicationDeadline", event.target.value)} className="temp-input min-w-0 w-full p-3" /></label>
@@ -150,6 +146,7 @@ export function PostWorkWizard({ profile, onClose, onPosted, initialJob, onSubmi
               {draft.unit === "Other" && <label className="temp-label sm:col-span-2">Custom unit<input value={draft.customUnit} onChange={event => setValue("customUnit", event.target.value)} placeholder="e.g. Flower Beds" className="temp-input p-3 outline-none" /></label>}
               <label className="temp-label sm:col-span-2">Pay type<select value={draft.payType} onChange={event => setValue("payType", event.target.value as Draft["payType"])} className="temp-input p-3 outline-none"><option value="fixed">Fixed pay</option><option value="pay_per_timeline">Pay per {perDurationUnit(draft.timelineUnit)}</option></select></label>
             </div>
+            <ServicePreferences category={draft.service || draft.category} value={preferences} onChange={setPreferences} onBusy={setUploading} />
             {showTimelinePricePreview && (
               <div className="rounded-xl bg-emerald-400/10 p-3 text-sm font-black text-emerald-100">
                 <p>Per {perDurationUnit(draft.timelineUnit)}: Ksh {payPreviewAmount.toLocaleString()}</p>
@@ -161,20 +158,21 @@ export function PostWorkWizard({ profile, onClose, onPosted, initialJob, onSubmi
               Payment is for labor only. Does not include materials and transport
             </p>
             {displayJobQuantity(Number(draft.quantity), draft.unit, draft.customUnit) && <p className="rounded-xl bg-emerald-400/10 p-3 text-sm font-black text-emerald-100">Quantity: {displayJobQuantity(Number(draft.quantity), draft.unit, draft.customUnit)}</p>}
-            <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(1)} className="flex-1">Back</Button><Button type="submit" className="flex-1">Next</Button></div>
+            <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(1)} className="flex-1">Back</Button><Button type="submit" disabled={uploading} className="flex-1">Next</Button></div>
           </form>
         )}
 
         {step === 3 && (
-          <div className="mt-6 grid gap-4">
+          <div className="grid gap-4">
+            <p className="font-bold">Maximum budget: KSh {Number(draft.budget).toLocaleString()}{draft.payType === "pay_per_timeline" ? ` per ${perDurationUnit(draft.timelineUnit)}` : ""}</p>
+            <ServiceRequestDetails preferences={preferences} />
             <MapPicker value={location} onChange={setLocation} />
             <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-bold text-amber-100">
               Payment is for labor only. Does not include materials and transport
             </p>
-            <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(2)} className="flex-1">Back</Button><Button type="button" disabled={posting || (!onSubmitJob && checkingVerification)} onClick={() => void post()} className="temp-success-button flex-1">{posting ? "Submitting..." : onSubmitJob ? "Submit reviewed details" : checkingVerification ? "Checking..." : "Post work"}</Button></div>
+            <div className="flex gap-3"><Button type="button" variant="secondary" onClick={() => setStep(2)} className="flex-1">Back</Button><Button type="button" disabled={posting || uploading || (!onSubmitJob && checkingVerification)} onClick={() => void post()} className="temp-success-button flex-1">{posting ? "Submitting..." : onSubmitJob ? "Submit reviewed details" : checkingVerification ? "Checking..." : "Post work"}</Button></div>
           </div>
         )}
-      </Card>
-    </div>
+    </AppModal>
   );
 }

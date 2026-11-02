@@ -12,15 +12,17 @@ const variants: Record<ButtonVariant, string> = {
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
+  size?: "default" | "compact" | "large" | "icon";
 }
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant = "primary", ...props }, ref) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant = "primary", size = "default", ...props }, ref) {
   return (
     <button
       ref={ref}
       data-variant={variant}
+      data-size={size}
       className={clsx(
-        "copic-control copic-button inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-bold transition duration-200",
+        "copic-control copic-button inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition duration-200",
         "button-format",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3A3A3A]/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#F5F5F5]",
         "disabled:cursor-not-allowed disabled:opacity-50",

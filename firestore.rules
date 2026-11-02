@@ -246,5 +246,6 @@ service cloud.firestore {
     match /workerServiceOrigins/{id} { allow read, write: if false; }
     match /workerServiceProgress/{id} { allow read, write: if false; }
     match /serviceCompletions/{id} { allow read, write: if false; }
+    match /serviceMedia/{id} { allow read, write: if false; }
   }
 }

@@ -1,3 +1,4 @@
+import { validateServiceMedia } from "@/lib/service-media-validation";
 import { approvedClientAgent } from "@/lib/client-agent";
 import { MarketplaceError } from "@/lib/marketplace-server";
 import { isSqlBackend } from "@/lib/data-backend";
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Please check the job details." }, { status: 400 });
     }
 
+    await validateServiceMedia(parsed.data.servicePreferences?.inspirationImages ?? [], currentUser.uid, "inspiration");
     if (isSqlBackend()) {
       if (body.clientAgentCode || body.agentProposalId) return NextResponse.json({ error: "Agent job attribution requires the Firebase backend." }, { status: 409 });
       const user = currentUser.profile;
@@ -78,7 +80,7 @@ export async function POST(request: NextRequest) {
         totalPlatformFee: timelineData.totalPlatformFee,
         requiredSkills: data.requiredSkills
       });
-      localDb().prepare("UPDATE jobs SET workDate = ?, applicationDeadline = ? WHERE id = ?").run(data.workDate ?? null, data.applicationDeadline ?? null, jobId);
+      localDb().prepare("UPDATE jobs SET workDate = ?, applicationDeadline = ?, servicePreferences = ? WHERE id = ?").run(data.workDate ?? null, data.applicationDeadline ?? null, data.servicePreferences ? JSON.stringify(data.servicePreferences) : null, jobId);
       return NextResponse.json({ success: true, jobId: job?.id });
     }
 

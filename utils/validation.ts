@@ -1,7 +1,9 @@
+import { mediaUrl } from "@/utils/service-catalogue";
 import { z } from "zod";
 import { isPayPerTimeline, timelinePaymentSummary } from "@/utils/timeline-payments";
 
 export const jobSchema = z.object({
+  servicePreferences: z.object({ arrangement: z.enum(["shop", "house"]), extras: z.array(z.string().trim().min(1).max(100)).max(30), inspirationImages: z.array(mediaUrl).max(8), instructions: z.string().max(2500) }).optional(),
   workDate: z.string().datetime().optional(),
   applicationDeadline: z.string().datetime().optional(),
   title: z.string().trim().min(1, "Please enter a job title.").max(90, "Job title is too long."),

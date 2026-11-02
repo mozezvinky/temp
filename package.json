@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "functions:build": "tsc -p functions/tsconfig.json",
     "test:email-otp": "tsx --test tests/email-otp.test.ts",
+    "test:catalogue": "tsx --test tests/service-catalogue*.test.ts",
     "test:marketplace": "tsx --test tests/marketplace*.test.ts",
     "marketplace:backfill": "tsx scripts/backfill-marketplace.ts",
     "test:agents:emulator": "node scripts/test-agent-emulator.cjs"

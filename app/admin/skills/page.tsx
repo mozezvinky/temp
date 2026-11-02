@@ -1,5 +1,6 @@
 "use client";
 
+import { PrivateMedia } from "@/components/jobs/ServicePreferences";
 import { SkillsAnalytics } from "@/components/admin/SkillsAnalytics";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -58,10 +59,10 @@ export default function AdminSkillsPage() {
     void loadSkills();
   }, [loadSkills, user]);
 
-  async function reviewSkill(skill: AdminSkill, action: "approve" | "reject") {
+  async function reviewSkill(skill: AdminSkill, action: "approve" | "reject" | "resubmit") {
     if (!user) return;
-    const reason = action === "reject" ? window.prompt("Reason for rejection?")?.trim() ?? "" : "";
-    if (action === "reject" && !reason) return;
+    const reason = action !== "approve" ? window.prompt("Reason for rejection?")?.trim() ?? "" : "";
+    if (action !== "approve" && !reason) return;
     setReviewing(`${skill.workerId}:${skill.id}:${action}`);
     try {
       const response = await fetch("/api/admin/skills", {
@@ -179,11 +180,13 @@ export default function AdminSkillsPage() {
                 <Info label="Rate" value={skill.chargeAmount ? skillRate(skill) : "Rate not set"} />
                 <Info label="Completed" value={`${skill.completedJobs ?? 0} jobs`} />
               </div>
+              {skill.proofUrl && (skill.proofUrl.startsWith("/api/service-media?") ? <PrivateMedia url={skill.proofUrl} label="Certificate" /> : <a href={skill.proofUrl} target="_blank" rel="noreferrer">Review existing proof</a>)}
               {skill.rejectionReason && <p className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-bold text-red-200">{skill.rejectionReason}</p>}
               <div className="flex flex-wrap justify-end gap-3">
                 <Button type="button" variant="secondary" disabled={!!reviewing || !!removing} onClick={() => setEditing(skill)}>Edit</Button>
                 <Button type="button" variant="secondary" disabled={!!reviewing || !!removing} onClick={() => void removeSkill(skill)}>{removing === `${skill.workerId}:${skill.id}` ? "Removing..." : "Remove"}</Button>
                 <Button type="button" variant="secondary" disabled={!!reviewing || skill.verificationStatus === "rejected"} onClick={() => void reviewSkill(skill, "reject")}>{reviewing === `${skill.workerId}:${skill.id}:reject` ? "Rejecting..." : "Reject"}</Button>
+                <Button type="button" variant="secondary" disabled={!!reviewing} onClick={() => void reviewSkill(skill, "resubmit")}>Request resubmission</Button>
                 <Button type="button" className="temp-success-button" disabled={!!reviewing || skill.verificationStatus === "approved"} onClick={() => void reviewSkill(skill, "approve")}>{reviewing === `${skill.workerId}:${skill.id}:approve` ? "Approving..." : "Approve"}</Button>
               </div>
             </Card>

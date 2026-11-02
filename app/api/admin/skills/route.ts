@@ -41,7 +41,7 @@ export async function PATCH(request: NextRequest) {
     const action = normalizeAction(body.action);
     const reason = String(body.reason ?? "").trim();
     if (!userId || !skillId || !action) return NextResponse.json({ error: "Choose a skill and review action." }, { status: 400 });
-    if (action === "reject" && !reason) return NextResponse.json({ error: "Add a rejection reason." }, { status: 400 });
+    if ((action === "reject" || action === "resubmit") && !reason) return NextResponse.json({ error: "Add a rejection reason." }, { status: 400 });
     const patch = action === "update" ? skillPatchFromBody(body) : null;
 
     if (isSqlBackend()) {
@@ -49,7 +49,7 @@ export async function PATCH(request: NextRequest) {
         ? updateLocalSkill(userId, skillId, patch!)
         : action === "remove"
           ? removeLocalSkill(userId, skillId)
-          : reviewLocalSkill(userId, skillId, action === "approve" ? "approved" : "rejected", admin.uid, reason);
+          : reviewLocalSkill(userId, skillId, action === "approve" ? "approved" : "rejected", admin.uid, reason, action === "resubmit");
       if (!updated) return NextResponse.json({ error: "Skill was not found." }, { status: 404 });
       await writeAdminAuditLog(request, { admin, targetUserId: userId, actionType: `skill.${action}`, oldValue: null, newValue: updated, reason: reason || actionReason(action) });
       return NextResponse.json({ success: true, skill: updated });
@@ -86,9 +86,11 @@ export async function PATCH(request: NextRequest) {
         }, { merge: true });
         return { ...updated, workerId: userId, workerName: String(user.displayName ?? "Worker"), workerEmail: typeof user.email === "string" ? user.email : undefined };
       }
+      if (action === "approve" && skill.certificationRequired && (skill.proofType !== "certificate" || !skill.proofUrl)) throw new Error("A certificate is required before approval.");
       const verificationStatus: WorkerSkillVerificationStatus = action === "approve" ? "approved" : "rejected";
       const reviewedSkill: WorkerSkillProfile = {
         ...skill,
+        certificationReviewStatus: action === "resubmit" ? "requires_resubmission" : verificationStatus,
         verificationStatus,
         reviewedBy: admin.uid,
         reviewedAt: new Date().toISOString(),
@@ -123,11 +125,12 @@ export async function PATCH(request: NextRequest) {
 }
 
 function normalizeAction(value: unknown) {
-  return value === "approve" || value === "reject" || value === "update" || value === "remove" ? value : "";
+  return value === "approve" || value === "reject" || value === "resubmit" || value === "update" || value === "remove" ? value : "";
 }
 
-function actionReason(action: "approve" | "reject" | "update" | "remove") {
+function actionReason(action: "approve" | "reject" | "resubmit" | "update" | "remove") {
   if (action === "approve") return "Skill approved";
+  if (action === "resubmit") return "Certification resubmission required";
   if (action === "reject") return "Skill rejected";
   if (action === "remove") return "Skill removed";
   return "Skill edited";
@@ -207,14 +210,15 @@ function localAdminSkills(status: WorkerSkillVerificationStatus | "all") {
   return sortSkills(rows.flatMap(row => skillsForUser(String(row.uid ?? row.id), rowToUser(row), status)));
 }
 
-function reviewLocalSkill(userId: string, skillId: string, verificationStatus: WorkerSkillVerificationStatus, adminId: string, reason: string) {
+function reviewLocalSkill(userId: string, skillId: string, verificationStatus: WorkerSkillVerificationStatus, adminId: string, reason: string, resubmit = false) {
   const row = localDb().prepare("SELECT * FROM users WHERE uid = ?").get(userId);
   if (!row) return null;
   const user = rowToUser(row);
   const existing = user.skillProfiles ?? [];
   const skill = existing.find(item => item.id === skillId);
   if (!skill) return null;
-  const reviewedSkill = { ...skill, verificationStatus, reviewedBy: adminId, reviewedAt: new Date().toISOString(), rejectionReason: verificationStatus === "rejected" ? reason : null };
+  if (verificationStatus === "approved" && skill.certificationRequired && (skill.proofType !== "certificate" || !skill.proofUrl)) throw new Error("A certificate is required before approval.");
+  const reviewedSkill: WorkerSkillProfile = { ...skill, certificationReviewStatus: resubmit ? "requires_resubmission" : verificationStatus, verificationStatus, reviewedBy: adminId, reviewedAt: new Date().toISOString(), rejectionReason: verificationStatus === "rejected" ? reason : null };
   const next = existing.map(item => item.id === skillId ? reviewedSkill : item);
   localDb().prepare("UPDATE users SET skills = ?, skillProfiles = ?, updatedAt = ? WHERE uid = ?")
     .run(JSON.stringify(approvedSkillNames(next)), JSON.stringify(next), new Date().toISOString(), userId);

@@ -14,6 +14,9 @@ service firebase.storage {
         && request.auth.uid in firestore.get(/databases/(default)/documents/messages/$(conversationId)).data.participants;
     }
 
+    match /service-media/{userId}/{allPaths=**} {
+      allow read, write: if false; // Validated server uploads and scoped reads only.
+    }
     match /profiles/{userId}/{fileName} {
       allow read: if signedIn();
       allow write: if isOwner(userId) && isSafeImage();

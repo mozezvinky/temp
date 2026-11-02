@@ -576,6 +576,7 @@ export async function cancelLiveApplication(application: Application) {
 }
 
 export async function sendDirectHireRequest(input: {
+  catalogueId?: string; addonIds?: string[]; arrangement?: "shop" | "house"; maximumBudget?: number; preferredAt?: string; serviceLocation?: string; instructions?: string; inspirationImages?: string[];
   workerId: string;
   skillId: string;
   title: string;

@@ -1,4 +1,6 @@
 "use client";
+import { ServiceCatalogueManager } from "@/components/profile/ServiceCatalogueManager";
+import { PrivateMedia } from "@/components/jobs/ServicePreferences";
 import { validLicence } from "@/functions/src/marketplace-policy";
 
 import { Card } from "@/components/ui/Card";
@@ -427,7 +429,7 @@ export default function DashboardPage() {
                       <h3>{skill.name}</h3>
                       {skill.description && <p>{skill.description}</p>}
                       <small>{skill.completedJobs} jobs completed · {skill.ratingAverage} rating</small>
-                      <span className={`copic-skill-status is-${normalizeSkillVerificationStatus(skill.verificationStatus)}`}>{skillVerificationLabel(skill.verificationStatus)}</span>
+                      <span className={`copic-skill-status is-${normalizeSkillVerificationStatus(skill.verificationStatus)}`}>{skill.certificationReviewStatus === "requires_resubmission" ? "Certificate: resubmission required" : skillVerificationLabel(skill.verificationStatus)}</span>
                     </div>
                     <div className="copic-row-actions">
                       <button type="button" aria-label={`Edit ${skill.name}`} onClick={() => { setEditingSkill(skill); setSkillOpen(true); }}><Pencil size={15} /></button>
@@ -438,6 +440,7 @@ export default function DashboardPage() {
               </div>
             </Card>
 
+            <ServiceCatalogueManager skills={dashboardSkills} onSaved={async () => { setProfileSkills(await loadWorkerSkills()); await refreshProfile(); }} />
             <Card className="copic-dashboard-panel copic-current-work">
               <div className="copic-panel-heading">
                 <div><p className="copic-eyebrow">In progress</p><h2>Current work</h2></div>
@@ -447,6 +450,7 @@ export default function DashboardPage() {
                 <article key={`task-${application.id}`} className="copic-work-row">
                   <span className="copic-work-icon"><BriefcaseBusiness size={18} /></span>
                   <div><h3>{application.jobTitle ?? "Live job"}</h3><p>{application.jobCategory ?? "Job"}</p></div>
+                  {application.serviceBooking && <p className="text-sm">Preferred appointment: {new Date(application.serviceBooking.preferredAt).toLocaleString()} · {application.serviceBooking.arrangement === "shop" ? "Shop visit" : "House call"}</p>}
                   <span className="copic-status-badge copic-status-live">Live</span>
                 </article>
               ))}</div> : <EmptyState title="No live work yet" body="Accepted jobs will appear here so you can follow their progress." />}
@@ -765,20 +769,15 @@ function ApplicationList({ applications, mode, workerHasLiveJob = false, onAppli
                   <p><strong className="text-[#111] dark:text-[#FFFBFF]">Start:</strong> {application.requestStartDate ?? "Not provided"}</p>
                   <p><strong className="text-[#111] dark:text-[#FFFBFF]">Duration:</strong> {application.requestDuration ?? "Not provided"}</p>
                   <RequestPricingSummary application={application} />
-                  {application.requestPricing ? (
+                  {!application.requestPricing && application.jobAmount ? (
                     <>
-                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">You should receive:</strong> {kes(application.requestPricing.total)}</p>
-                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">Your earnings:</strong> {kes(application.requestPricing.subtotal)}</p>
-                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">COPIC fee:</strong> {kes(application.requestPricing.serviceFee)}</p>
-                    </>
-                  ) : application.jobAmount ? (
-                    <>
-                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">You should receive:</strong> {kes(fixedPay.total)}</p>
+                      <p><strong className="text-[#111] dark:text-[#FFFBFF]">Client total:</strong> {kes(fixedPay.total)}</p>
                       <p><strong className="text-[#111] dark:text-[#FFFBFF]">Your earnings:</strong> {kes(fixedPay.workerEarnings)}</p>
                       <p><strong className="text-[#111] dark:text-[#FFFBFF]">COPIC fee:</strong> {kes(fixedPay.serviceFee)}</p>
                     </>
                   ) : null}
-                  {application.requestDescription ? <p className="mt-2">{application.requestDescription}</p> : null}
+                  {application.requestDescription ? <p className="mt-2 whitespace-pre-line">{application.requestDescription}</p> : null}
+                  {application.serviceBooking && <div className="mt-3"><p>Maximum budget: {kes(application.serviceBooking.maximumBudget)}</p><p>Preferred appointment: {new Date(application.serviceBooking.preferredAt).toLocaleString()}</p><p>Arrangement: {application.serviceBooking.arrangement === "shop" ? "Shop visit" : "House call"} · {application.serviceBooking.location}</p><div className="mt-2 flex flex-wrap gap-2">{application.serviceBooking.inspirationImages.map(url => <PrivateMedia key={url} url={url} />)}</div></div>}
                 </div>
               )}
               {mode === "completed" && application.clientRating && <p className="mt-2 inline-flex items-center gap-1 text-sm font-black text-amber-200"><Star size={16} /> Client rating: {application.clientRating}/5</p>}

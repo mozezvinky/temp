@@ -28,7 +28,7 @@ export default function AgentPage() {
   if (loading || !isAuthorized) return <p role="status">Checking your account…</p>;
   const clientMode = mode === "CLIENT_AGENT", summary = data?.enabled ? clientMode ? data.client : data.worker : null;
   const clientPath = `/agent/client/${data?.clientCode}`;
-  return <div className="mx-auto max-w-6xl space-y-5 pb-8"><header><p className="copic-eyebrow">One account. Two opportunities.</p><h1 className="mt-2 text-3xl font-black">COPIC Agent</h1></header>
+  return <div className="copic-agent-page mx-auto max-w-6xl pb-8"><header><p className="copic-eyebrow">One account. Two opportunities.</p><h1 className="mt-2 text-3xl font-black">COPIC Agent</h1></header>
     {(error || loadError) && <p role="alert" className="copic-error">{error || loadError}</p>}
     {!data && !loadError && <p role="status">Loading your agent dashboard…</p>}
     {data && !data.enabled && <Card><h2 className="text-xl font-bold">Become a COPIC Agent</h2><p className="mt-3">Bring clients and recruit workers with one free account.</p><Link className="recruitment-primary mt-4" href="/become-agent">Become a COPIC Agent</Link></Card>}

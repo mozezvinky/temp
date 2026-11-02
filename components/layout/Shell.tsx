@@ -1,5 +1,6 @@
 "use client";
 
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { agentDestination } from "@/lib/agent-program";
 import { AccountRecovery } from "@/components/auth/AccountRecovery";
 import { useAuth } from "@/context/AuthContext";
@@ -51,6 +52,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const isAdmin = profile?.role === "admin";
   const isLanding = pathname === "/";
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useDialogFocus<HTMLElement>(drawerOpen, () => setDrawerOpen(false));
   const [profileOpen, setProfileOpen] = useState(false);
   const [uiTheme, setUiTheme] = useState<UiTheme>("light");
   const [switchingRole, setSwitchingRole] = useState<Role | null>(null);
@@ -61,9 +63,19 @@ export function Shell({ children }: { children: ReactNode }) {
   const [viewedTopAlertIds, setViewedTopAlertIds] = useState<string[]>([]);
   const [topAlertDetail, setTopAlertDetail] = useState<AppNotification | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const showAppNav = !!profile && !pathname.startsWith("/auth");
   const profileId = profile?.id;
   const profileRole = profile?.role;
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header || typeof ResizeObserver === "undefined") return;
+    const updateHeight = () => document.documentElement.style.setProperty("--copic-header-height", `${header.getBoundingClientRect().height}px`);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
   const pendingServiceFeeAmount = !!serviceFeePayment && serviceFeePayment.status !== "approved" && serviceFeePayment.status !== "rejected"
     ? Number(serviceFeePayment.amount ?? 0)
     : 0;
@@ -379,7 +391,8 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="temp-app-shell min-h-screen">
-      <header className={`temp-navbar sticky top-0 z-40 ${isLanding ? "is-landing" : ""} ${showAppNav && !isAdmin ? "is-app-nav" : ""} ${isAdmin ? "is-admin-nav" : ""}`}>
+      <a href="#main-content" className="copic-skip-link">Skip to content</a>
+      <header ref={headerRef} className={`temp-navbar sticky top-0 z-40 ${isLanding ? "is-landing" : ""} ${showAppNav && !isAdmin ? "is-app-nav" : ""} ${isAdmin ? "is-admin-nav" : ""}`}>
         <AnimatePresence>
           {visibleTopAlerts.length > 0 && (
             <motion.div
@@ -426,7 +439,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 const active = item.href === "/admin" ? pathname === "/admin" : pathname.startsWith(item.href);
                 return (
                   <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`temp-navbar-link relative inline-flex items-center ${isAdmin ? "temp-navbar-link-admin gap-1.5" : "gap-2"} ${active ? "is-active" : ""}`}>
-                    <Icon size={isAdmin ? 12 : 15} className="temp-navbar-link-icon shrink-0" aria-hidden="true" />
+                    <Icon size={20} className="temp-navbar-link-icon shrink-0" aria-hidden="true" />
                     <span>{item.label}</span>
                     {item.href === "/notifications" && visibleTopAlerts.length > 0 && <span className="temp-alert-dot" />}
                   </Link>
@@ -443,7 +456,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <div className="hidden items-center gap-2 md:flex">
               <ThemeModeSwitch theme={uiTheme} onToggle={toggleUiTheme} />
               <div ref={profileMenuRef} className="relative h-10 shrink-0">
-                <button onClick={() => setProfileOpen(open => !open)} className="temp-navbar-profile">
+                <button aria-expanded={profileOpen} aria-label="Account menu" onKeyDown={event => { if (event.key === "Escape") setProfileOpen(false); }} onClick={() => setProfileOpen(open => !open)} className="temp-navbar-profile">
                   <span className="temp-navbar-profile-photo grid h-8 w-8 place-items-center overflow-hidden rounded-full bg-bone text-sm font-black text-[#1E1B13]">
                     {profilePhoto ? <NavProfilePhoto photo={profilePhoto} alt={profile.displayName ?? "Profile"} /> : profile.displayName?.charAt(0).toUpperCase() ?? "T"}
                   </span>
@@ -474,7 +487,7 @@ export function Shell({ children }: { children: ReactNode }) {
           ) : user ? (
             <button onClick={() => void signOutToLanding()} className="hidden rounded-xl border border-[#4A463F] px-4 py-2 text-sm font-black text-[#CCC6BB] md:inline-flex">Sign Out</button>
           ) : null}
-          <button aria-label="Open menu" onClick={() => setDrawerOpen(true)} className="rounded-xl bg-bone p-2 text-smoky md:hidden"><Menu size={20} /></button>
+          <button aria-label="Open menu" onClick={() => setDrawerOpen(true)} aria-expanded={drawerOpen} className="copic-icon-button rounded-xl bg-bone p-2 text-smoky md:hidden"><Menu size={20} /></button>
         </div>
       </header>
 
@@ -494,7 +507,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </AppModal>
       )}
 
-      <main className={`temp-main mx-auto max-w-[1440px] px-4 py-6 md:px-8 ${isLanding ? "is-landing" : ""}`}>{profileError && pathname !== "/verify-email" ? <AccountRecovery /> : children}</main>
+      <main id="main-content" tabIndex={-1} className={`temp-main mx-auto max-w-[1440px] px-4 py-6 md:px-8 ${isLanding ? "is-landing" : ""}`}>{profileError && pathname !== "/verify-email" ? <AccountRecovery /> : children}</main>
 
       {showAppNav && profile && (profile.role === "client" || profile.role === "worker") && (
         <ActivityHub userId={profile.id} role={profile.role} pathname={pathname} />
@@ -502,14 +515,14 @@ export function Shell({ children }: { children: ReactNode }) {
 
       {drawerOpen && (
         <div className="temp-mobile-drawer-backdrop fixed inset-0 z-50 overflow-hidden bg-smoky/80 md:hidden">
-          <aside className="temp-mobile-drawer copic-panel no-visible-scrollbar ml-auto h-dvh max-h-dvh w-80 max-w-[86vw] overflow-y-auto overscroll-contain p-5" style={{ WebkitOverflowScrolling: "touch" }}>
+          <aside ref={drawerRef} role="dialog" aria-modal="true" aria-label="Navigation menu" tabIndex={-1} className="temp-mobile-drawer copic-panel no-visible-scrollbar ml-auto h-dvh max-h-dvh w-80 max-w-[86vw] overflow-y-auto overscroll-contain p-5" style={{ WebkitOverflowScrolling: "touch" }}>
             <div className="flex items-center justify-between">
               <div>
                 {canSwitchRole && (
                   <RoleModeToggle activeRole={profile.role as "worker" | "client"} switchingRole={switchingRole} onSwitch={role => void switchRole(role)} />
                 )}
               </div>
-              <button aria-label="Close menu" onClick={() => setDrawerOpen(false)} className="rounded-xl bg-bone p-2 text-smoky"><X size={18} /></button>
+              <button aria-label="Close menu" onClick={() => setDrawerOpen(false)} className="copic-icon-button rounded-xl bg-bone p-2 text-smoky"><X size={18} /></button>
             </div>
             <nav className="mt-8 grid gap-2 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
               {links.map(item => {
